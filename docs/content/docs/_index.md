@@ -5,6 +5,8 @@ weight: 1
 
 Welcome to the Jobs documentation. Jobs is a hierarchical task tracker for the CLI, backed by an event store in SQLite, designed for agents and observed by humans.
 
+<img src="../screenshots/home.png" alt="Jobs dashboard — Home view" width="860">
+
 The site is organized as a depth source for `job --help`. If you've already run `job init` and want to learn the system by using it, start with **Getting started**. If you're looking for a specific verb or flag, jump to the **Command reference**. If you're an agent reading this for orientation, **Concepts** is the shortest path to a complete mental model.
 
 {{< cards >}}

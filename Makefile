@@ -1,7 +1,7 @@
 BINARY := job
 PKG    := ./cmd/job
 
-.PHONY: build install run test test-js fmt fix vet clean help docs docs-build
+.PHONY: build install run test test-js fmt fix vet clean help docs docs-build docs-schema
 
 build:
 	go build -o $(BINARY) $(PKG)
@@ -34,13 +34,22 @@ vet:
 clean:
 	rm -f $(BINARY)
 
+# Regenerate the plan-grammar JSON Schema from the live `job schema`
+# output. Committed alongside hand-written prose so GitHub renders the
+# schema page without a build step. Run after any change to the
+# import grammar.
+docs-schema:
+	go run $(PKG) schema > docs/content/docs/plan-grammar/_schema.json
+
 # Serve the documentation site locally on http://localhost:1313/.
 # Requires `hugo` (extended). `brew install hugo` if missing.
-docs:
+# Regenerates the schema partial first so local previews never lag
+# the binary.
+docs: docs-schema
 	cd docs && hugo serve
 
 # Build the docs site to docs/public/.
-docs-build:
+docs-build: docs-schema
 	cd docs && hugo --minify
 
 help:
@@ -54,5 +63,6 @@ help:
 	@echo "  fix      - go fix ./..."
 	@echo "  vet      - go vet ./..."
 	@echo "  clean    - remove the local binary"
-	@echo "  docs       - serve docs/ on localhost:1313 (requires hugo)"
-	@echo "  docs-build - build docs/ to docs/public/"
+	@echo "  docs        - serve docs/ on localhost:1313 (requires hugo)"
+	@echo "  docs-build  - build docs/ to docs/public/"
+	@echo "  docs-schema - regenerate docs/content/docs/plan-grammar/_schema.json from \`job schema\`"

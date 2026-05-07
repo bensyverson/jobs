@@ -21,6 +21,8 @@ This document was written by a [human](https://bensyverson.com/) for humans. If 
 4. Have your agent run `job status` and claim the first task.
 5. Start the dashboard with `job serve` and observe.
 
+While YAML is an objectively bad format, this particular YAML schema is quite readable for humans and easy for agents to generate, which put it ahead of Markdown or JSON.
+
 ## Getting started
 
 ### Install
@@ -84,9 +86,6 @@ To start the dashboard, type `job serve`.
     <img src="docs/static/screenshots/timeline.png" alt="Time Travel line scrubber" width="860">
 </p>
 
-
-
-
 ## What Jobs is… and isn’t
 
 - **Jobs is local-first.**  Jobs is great for coordinating and executing work locally. In the future I may add a Postgres back-end for remote collaboration.
@@ -104,7 +103,7 @@ To start the dashboard, type `job serve`.
 
 In order to shape `job`, I’ve conducted countless interviews with agents to gather their feedback and synthesize that feedback into design iterations. I’ve captured much of this research in the [project](./project/) folder so you can “view source” if you’re curious.
 
-My goal in applying User-Centered Design has been to make `job` easier for agents to adopt, reduce round-trips and errors with the CLI, and increase positive [functional emotions](https://www.anthropic.com/research/emotion-concepts-function). After using `job`, agents have used words like “delightful,” “satisfying,” and “felt good.” Does this matter? I think it does.
+My goal in applying User-Centered Design has been to make `job` easier for agents to adopt, reduce round-trips and errors with the CLI, and increase positive [functional emotions](https://www.anthropic.com/research/emotion-concepts-function). After using `job`, agents have used words like “delightful,” “satisfying,” and “felt good.” Does this matter? I actually think it might.
 
 ## License
 

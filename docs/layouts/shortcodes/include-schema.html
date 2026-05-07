@@ -1,0 +1,10 @@
+{{- /*
+  include-schema reads a JSON file from the project tree and renders
+  it as a syntax-highlighted code block. Used by plan-grammar/schema.md
+  to embed the live `job schema` output without manual copy-paste.
+
+  Usage: {{< include-schema "content/docs/plan-grammar/_schema.json" >}}
+*/ -}}
+{{- $path := .Get 0 -}}
+{{- $content := readFile $path -}}
+{{ highlight $content "json" "" }}
