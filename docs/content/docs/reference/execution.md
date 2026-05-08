@@ -1,0 +1,119 @@
+---
+title: Execution
+weight: 3
+---
+
+The active-work loop: `claim`, `release` (alias `unclaim`), `note`, `done`, `reopen`, `cancel`, `heartbeat`. Together they're the lifecycle of a single piece of work.
+
+## `claim`
+
+Grabs a task and holds it for a TTL (default 30m, supported units `s|m|h|d`). The first line of the ack is a one-liner suitable for parsing; the rest is the same briefing `show` would print, so a follow-up `show` is rarely needed.
+
+```sh
+job claim abc12                            # 30m default
+job claim abc12 2h                         # long-running claim
+job claim --next                           # find and claim the next available leaf
+job claim --next infra-root                # restrict the search to a subtree
+job claim --next 2h                        # combine: next leaf, longer hold
+job claim abc12 --force                    # override an existing claim
+job claim abc12 -q                         # one-line ack only, no briefing
+```
+
+The `--next` modes:
+
+- `claim --next` walks the leaf frontier in plan order and atomically claims the first available one. The race-safe contract is: if two agents call `claim --next` at the same moment, exactly one wins each leaf — the loser gets the *next* leaf, not an error. This is the canonical spawn pattern for parallel agents.
+- `--include-parents` widens the walk to include any available task, not only leaves. Reach for it only when you genuinely want to claim a task that has open children — usually you don't.
+- `--label <name>` restricts the search to tasks carrying a label. Combined with multi-agent setups, this is how you steer different agents toward different streams of work.
+
+Idiomatic combination: `job claim --next 1h && do-the-work && job done <id> --claim-next`. See `done --claim-next` below.
+
+## `release` (and its alias `unclaim`)
+
+Drops your claim, returning the task to `available`. Optionally records a parting note.
+
+```sh
+job release abc12
+job release abc12 -m "Handing off — context in latest note."
+```
+
+Only the holder can release without `--force`. If you want to take a task away from another agent, that's `claim --force`, not `release --force`.
+
+## `note`
+
+Append a timestamped note to a task. Notes are events (actor + body), not edits to the description, and they remain visible in `show` and `log`.
+
+```sh
+job note abc12 "Quick observation — the schema mismatch is in column 3."
+job note abc12 -m "Same as above, with the flag form."
+job note abc12 -m @/path/to/long-message.md         # read body from a file
+echo "from a pipe" | job note abc12 -                # positional - reads stdin
+echo "or this way" | job note abc12 -m -             # -m - reads stdin
+job note abc12 -m "ack" --result '{"errors":0}'      # attach structured JSON
+```
+
+The `--result` payload rides on the `noted` event and is preserved in JSON output of `log` and `tail` — that's how an agent passes a structured handoff to whatever's watching.
+
+If the caller currently holds a claim on the task, the note auto-extends the claim's TTL. Heartbeat is for genuine pauses; if you're writing notes, you don't need to heartbeat.
+
+## `done`
+
+Closes one or more tasks atomically. The killer flag is `--claim-next`, which collapses close-and-advance into one event.
+
+```sh
+job done abc12
+job done abc12 -m "Closing notes here."
+job done abc12 -m @/path/to/release-notes.md         # body from file
+job done abc12 abc34 abc56 -m "Closing the batch."   # multi-id, atomic
+job done abc12 --cascade                              # close abc12 + all open descendants
+job done abc12 --claim-next                           # close, then claim the next leaf
+job done abc12 --claim-next -q                        # close + claim, no follow-on briefing
+job done abc12 --all-passed                           # mark every pending criterion passed
+job done abc12 --all skipped                          # or skipped, or failed
+job done abc12 --criterion "8jt=passed" --criterion "7wR=skipped"
+job done abc12 --force-close-with-pending             # close anyway; record waiver
+```
+
+Things to keep in mind:
+
+- **Idempotent.** A re-`done` on a closed task reports the existing state without recording a new event.
+- **Multi-id close is atomic.** Either every id closes or none do. For multi-id closes, `--criterion` takes the long form `id:label=state`.
+- **Pending criteria block the close.** Either resolve them (`--criterion`, `--all-passed`, `--all`) or wave them through with `--force-close-with-pending`. The waiver is recorded on the `done` event so it's visible later.
+- **Auto-cascade.** Closing the last open child of a parent auto-closes the parent. The chain continues to the root, attributed to whichever agent closed the final leaf.
+- **`--claim-next` is race-safe.** The close and the next claim are one transaction; two agents racing the same `done --claim-next` cannot both end up claiming the same follow-on leaf.
+
+## `reopen`
+
+Brings a closed task back to `available` and, by default, claims it for the caller.
+
+```sh
+job reopen abc12                                    # auto-claim after reopen
+job reopen abc12 --no-claim                         # leave it unclaimed
+job reopen abc12 --cascade                          # also reopen done descendants
+```
+
+The auto-claim default exists because reopening usually means "I'm picking this back up." `--no-claim` is the "I'm just resurrecting it for someone else" form. `--cascade` brings the whole subtree back; without it, only the named task is reopened.
+
+## `cancel`
+
+Non-destructive close that records *why*. `--reason` is required.
+
+```sh
+job cancel abc12 -m "Out of scope — moved to next quarter."
+job cancel abc12 abc34 -m "Both blocked on a vendor we dropped."
+job cancel abc12 --cascade -m "Whole subtree no longer needed."
+job cancel abc12 --purge                            # erase the row and events
+job cancel abc12 --purge --cascade --yes            # erase a whole subtree
+```
+
+`--purge` is the only destructive operation in the verb list — it removes the task row and its events outright instead of transitioning state. `--purge --cascade` requires `--yes` for exactly that reason. Reach for `cancel` without `--purge` whenever you can; it preserves the audit trail.
+
+## `heartbeat`
+
+Refreshes one or more live claims by 30 minutes and emits a `heartbeat` event. The contract is strict: every named task must currently be claimed by the caller, or the entire call rolls back.
+
+```sh
+job heartbeat abc12
+job heartbeat abc12 abc34 abc56                     # variadic, atomic
+```
+
+You rarely need this. Any write to a claimed task by its holder — `note`, `edit`, `label add`, `label remove` — already auto-extends the TTL. Heartbeat is the "thinking, not writing" tool: long pauses where you're not yet ready to commit anything but want the lock held.
