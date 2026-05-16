@@ -1469,7 +1469,7 @@ func TestRunClaim_Basic(t *testing.T) {
 	db := SetupTestDB(t)
 	id := MustAdd(t, db, "", "Task")
 
-	if err := RunClaim(db, id, "", TestActor, false); err != nil {
+	if err := RunClaim(db, id, "", "", TestActor, false); err != nil {
 		t.Fatalf("RunClaim: %v", err)
 	}
 
@@ -1489,7 +1489,7 @@ func TestRunClaim_WithDuration(t *testing.T) {
 	db := SetupTestDB(t)
 	id := MustAdd(t, db, "", "Task")
 
-	if err := RunClaim(db, id, "4h", "", false); err != nil {
+	if err := RunClaim(db, id, "4h", "", "", false); err != nil {
 		t.Fatalf("RunClaim: %v", err)
 	}
 
@@ -1503,7 +1503,7 @@ func TestRunClaim_WithWho(t *testing.T) {
 	db := SetupTestDB(t)
 	id := MustAdd(t, db, "", "Task")
 
-	if err := RunClaim(db, id, "", "Jesse", false); err != nil {
+	if err := RunClaim(db, id, "", "", "Jesse", false); err != nil {
 		t.Fatalf("RunClaim: %v", err)
 	}
 
@@ -1517,7 +1517,7 @@ func TestRunClaim_WithDurationAndWho(t *testing.T) {
 	db := SetupTestDB(t)
 	id := MustAdd(t, db, "", "Task")
 
-	if err := RunClaim(db, id, "4h", "Jesse", false); err != nil {
+	if err := RunClaim(db, id, "4h", "", "Jesse", false); err != nil {
 		t.Fatalf("RunClaim: %v", err)
 	}
 
@@ -1532,7 +1532,7 @@ func TestRunClaim_AlreadyClaimed(t *testing.T) {
 	id := MustAdd(t, db, "", "Task")
 	MustClaim(t, db, id, "")
 
-	err := RunClaim(db, id, "", "", false)
+	err := RunClaim(db, id, "", "", "", false)
 	if err == nil {
 		t.Fatal("expected error when claiming already-claimed task")
 	}
@@ -1546,7 +1546,7 @@ func TestRunClaim_ForceOverride(t *testing.T) {
 	id := MustAdd(t, db, "", "Task")
 	MustClaim(t, db, id, "")
 
-	if err := RunClaim(db, id, "1h", "Agent-1", true); err != nil {
+	if err := RunClaim(db, id, "1h", "", "Agent-1", true); err != nil {
 		t.Fatalf("RunClaim --force: %v", err)
 	}
 
@@ -1561,7 +1561,7 @@ func TestRunClaim_DoneTask(t *testing.T) {
 	id := MustAdd(t, db, "", "Task")
 	MustDone(t, db, id)
 
-	err := RunClaim(db, id, "", "", false)
+	err := RunClaim(db, id, "", "", "", false)
 	if err == nil {
 		t.Fatal("expected error when claiming done task")
 	}
@@ -1569,7 +1569,7 @@ func TestRunClaim_DoneTask(t *testing.T) {
 
 func TestRunClaim_NotFound(t *testing.T) {
 	db := SetupTestDB(t)
-	err := RunClaim(db, "noExs", "", "", false)
+	err := RunClaim(db, "noExs", "", "", "", false)
 	if err == nil {
 		t.Fatal("expected error for non-existent task")
 	}
@@ -1579,7 +1579,7 @@ func TestRunClaim_RecordsEvent(t *testing.T) {
 	db := SetupTestDB(t)
 	id := MustAdd(t, db, "", "Task")
 
-	if err := RunClaim(db, id, "4h", "Jesse", false); err != nil {
+	if err := RunClaim(db, id, "4h", "", "Jesse", false); err != nil {
 		t.Fatalf("RunClaim: %v", err)
 	}
 
@@ -1613,7 +1613,7 @@ func TestRunClaim_ExpiredClaimCanBeReclaimed(t *testing.T) {
 
 	CurrentNowFunc = func() time.Time { return baseTime.Add(2 * time.Hour) }
 
-	if err := RunClaim(db, id, "1h", "Agent-1", false); err != nil {
+	if err := RunClaim(db, id, "1h", "", "Agent-1", false); err != nil {
 		t.Fatalf("RunClaim after expiry: %v", err)
 	}
 
@@ -2417,10 +2417,10 @@ func TestRunList_ClaimedByFilter_ShowsOnlyActorsClaims(t *testing.T) {
 	db := SetupTestDB(t)
 	a := MustAdd(t, db, "", "Alice task")
 	b := MustAdd(t, db, "", "Bob task")
-	if err := RunClaim(db, a, "1h", "alice", false); err != nil {
+	if err := RunClaim(db, a, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim a: %v", err)
 	}
-	if err := RunClaim(db, b, "1h", "bob", false); err != nil {
+	if err := RunClaim(db, b, "1h", "", "bob", false); err != nil {
 		t.Fatalf("claim b: %v", err)
 	}
 
@@ -2454,7 +2454,7 @@ func TestRunList_ClaimedByFilter_PreservesParentContext(t *testing.T) {
 	pid := MustAdd(t, db, "", "Parent")
 	cid := MustAdd(t, db, pid, "Claimed child")
 	MustAdd(t, db, pid, "Unclaimed child")
-	if err := RunClaim(db, cid, "1h", "alice", false); err != nil {
+	if err := RunClaim(db, cid, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 
@@ -2483,10 +2483,10 @@ func TestRunList_ClaimedByFilter_WithLabelFilter(t *testing.T) {
 	if _, err := RunLabelAdd(db, a, []string{"p0"}, TestActor); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunClaim(db, a, "1h", "alice", false); err != nil {
+	if err := RunClaim(db, a, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim a: %v", err)
 	}
-	if err := RunClaim(db, b, "1h", "alice", false); err != nil {
+	if err := RunClaim(db, b, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim b: %v", err)
 	}
 
@@ -2508,7 +2508,7 @@ func TestRunList_ClaimedByFilter_ExcludesExpiredClaims(t *testing.T) {
 
 	baseTime := time.Now()
 	CurrentNowFunc = func() time.Time { return baseTime }
-	if err := RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 
@@ -2525,7 +2525,7 @@ func TestRunList_ClaimedByFilter_ExcludesExpiredClaims(t *testing.T) {
 func TestRunList_ClaimedByFilter_ExcludesDoneTasks(t *testing.T) {
 	db := SetupTestDB(t)
 	id := MustAdd(t, db, "", "Done by alice")
-	if err := RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	if _, _, err := RunDone(db, []string{id}, false, "", nil, "alice", false, ""); err != nil {
@@ -2545,7 +2545,7 @@ func TestRunList_ClaimedByFilter_ComposesWithAll(t *testing.T) {
 	db := SetupTestDB(t)
 	a := MustAdd(t, db, "", "Claimed")
 	b := MustAdd(t, db, "", "Available")
-	if err := RunClaim(db, a, "1h", "alice", false); err != nil {
+	if err := RunClaim(db, a, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim a: %v", err)
 	}
 

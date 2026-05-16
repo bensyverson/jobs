@@ -291,7 +291,12 @@ func GetTaskByID(db *sql.DB, id int64) (*Task, error) {
 	return getTaskByID(db, id)
 }
 
-func RunClaim(db *sql.DB, shortID, duration, actor string, force bool) error {
+// RunClaim claims the task identified by shortID for actor. If note is
+// non-empty, a `noted` event is recorded in the same transaction as the
+// `claimed` event and lands first in the timeline, so an agent's starting
+// context anchors the work rather than trailing it. The pattern mirrors
+// RunRelease's note-then-event ordering — same tx, same atomicity contract.
+func RunClaim(db *sql.DB, shortID, duration, note, actor string, force bool) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -368,6 +373,14 @@ func RunClaim(db *sql.DB, shortID, duration, actor string, force bool) error {
 		}
 		if task.ClaimExpiresAt != nil {
 			overriddenExpires = *task.ClaimExpiresAt
+		}
+	}
+
+	// Note lands BEFORE the claim event so the starting context anchors
+	// the lifecycle at its head. Atomic with the claim — both or neither.
+	if note != "" {
+		if err := recordEvent(tx, task.ID, "noted", actor, map[string]any{"text": note}); err != nil {
+			return err
 		}
 	}
 
@@ -656,7 +669,7 @@ func RunClaimNextFiltered(db *sql.DB, parentShortID, duration, actor string, for
 		return nil, err
 	}
 
-	if err := RunClaim(db, task.ShortID, duration, actor, force); err != nil {
+	if err := RunClaim(db, task.ShortID, duration, "", actor, force); err != nil {
 		return nil, err
 	}
 

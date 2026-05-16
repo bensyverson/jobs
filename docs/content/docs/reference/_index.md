@@ -18,6 +18,6 @@ This is a reference, not a tutorial. For the walk-through path see [Getting star
 A few conventions hold across every verb:
 
 - **Identity is global.** `--as <name>` is a top-level flag on every command; it can appear before or after the verb. See [Identity](../concepts/identity/).
-- **Body input has three forms.** Anywhere a verb takes a free-text body (`note`, `done -m`, `cancel -m`, `release -m`), you can pass it positionally, with `-m "<text>"`, with `-m @<path>` to read from a file, or with `-m -` (or a positional `-`) to read from stdin. The shorthands compose with everything else on the line.
+- **Body input has three forms.** Anywhere a verb takes a free-text body (`note`, `done -m`, `cancel -m`, `release -m`, `claim -m`), you can pass it positionally, with `-m "<text>"`, with `-m @<path>` to read from a file, or with `-m -` (or a positional `-`) to read from stdin. The shorthands compose with everything else on the line.
 - **Reads accept `--format=json`.** Every observation verb and several writes (`done`, `cancel`, `claim --next`, `next`, `tail`) emit machine-parsable JSON when asked. Markdown is the default.
 - **Writes are events.** Every state change appends to the event log; nothing is destructive except `cancel --purge`. See [The event log](../concepts/events/).

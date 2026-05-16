@@ -17,7 +17,7 @@ func TestHeartbeat_Single_Happy(t *testing.T) {
 
 	base := time.Now()
 	job.CurrentNowFunc = func() time.Time { return base }
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 
@@ -54,7 +54,7 @@ func TestHeartbeat_Variadic(t *testing.T) {
 	b := job.MustAdd(t, db, "", "B")
 	c := job.MustAdd(t, db, "", "C")
 	for _, id := range []string{a, b, c} {
-		if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+		if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 			t.Fatalf("claim %s: %v", id, err)
 		}
 	}
@@ -79,7 +79,7 @@ func TestHeartbeat_AllOrNothing(t *testing.T) {
 	db := job.SetupTestDB(t)
 	a := job.MustAdd(t, db, "", "A")
 	b := job.MustAdd(t, db, "", "B")
-	if err := job.RunClaim(db, a, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, a, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim a: %v", err)
 	}
 	// b is not claimed - should cause failure.
@@ -99,7 +99,7 @@ func TestHeartbeat_AllOrNothing(t *testing.T) {
 func TestHeartbeat_ClaimedByOther_Errors(t *testing.T) {
 	db := job.SetupTestDB(t)
 	id := job.MustAdd(t, db, "", "job.Task")
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	_, err := job.RunHeartbeat(db, []string{id}, "bob")
@@ -121,7 +121,7 @@ func TestHeartbeat_ExpiredWasMine_NowUnclaimed_Errors(t *testing.T) {
 
 	base := time.Now()
 	job.CurrentNowFunc = func() time.Time { return base }
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 
@@ -146,12 +146,12 @@ func TestHeartbeat_ExpiredWasMine_NowOther_Errors(t *testing.T) {
 
 	base := time.Now()
 	job.CurrentNowFunc = func() time.Time { return base }
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("alice claim: %v", err)
 	}
 
 	job.CurrentNowFunc = func() time.Time { return base.Add(2 * time.Hour) }
-	if err := job.RunClaim(db, id, "1h", "bob", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "bob", false); err != nil {
 		t.Fatalf("bob claim: %v", err)
 	}
 
@@ -222,7 +222,7 @@ func TestHeartbeat_TtlIsAlways30m(t *testing.T) {
 	base := time.Now()
 	job.CurrentNowFunc = func() time.Time { return base }
 	// Claim with a long explicit duration.
-	if err := job.RunClaim(db, id, "8h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "8h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 
@@ -247,7 +247,7 @@ func TestHeartbeat_Md_Single_Shape(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
 	id := job.MustAdd(t, db, "", "job.Task")
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	db.Close()
@@ -268,7 +268,7 @@ func TestHeartbeat_Md_Multi_Shape(t *testing.T) {
 	a := job.MustAdd(t, db, "", "A")
 	b := job.MustAdd(t, db, "", "B")
 	for _, id := range []string{a, b} {
-		if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+		if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 			t.Fatalf("claim %s: %v", id, err)
 		}
 	}
@@ -293,7 +293,7 @@ func TestHeartbeat_Json_Shape(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
 	id := job.MustAdd(t, db, "", "job.Task")
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	db.Close()

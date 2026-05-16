@@ -14,6 +14,7 @@ func newClaimCmd() *cobra.Command {
 	var next bool
 	var includeParents bool
 	var format string
+	var note string
 	cmd := &cobra.Command{
 		Use:   "claim <id> [duration]",
 		Short: "Claim a task (duration optional, default 30m)",
@@ -51,13 +52,22 @@ Tip: use 'job claim --next [parent] [duration]' to find and claim the next avail
 				duration = args[1]
 			}
 
+			resolved := ""
+			if cmd.Flags().Changed("message") {
+				r, rerr := resolveMessage(note, cmd.InOrStdin())
+				if rerr != nil {
+					return rerr
+				}
+				resolved = r
+			}
+
 			pre, _ := job.GetTaskByShortID(db, shortID)
 			prevClaimedBy := ""
 			if force && pre != nil && pre.Status == "claimed" && pre.ClaimedBy != nil {
 				prevClaimedBy = *pre.ClaimedBy
 			}
 
-			if err := job.RunClaim(db, shortID, duration, actor, force); err != nil {
+			if err := job.RunClaim(db, shortID, duration, resolved, actor, force); err != nil {
 				return err
 			}
 
@@ -94,6 +104,7 @@ Tip: use 'job claim --next [parent] [duration]' to find and claim the next avail
 	cmd.Flags().BoolVar(&next, "next", false, "find and claim the next available leaf (replaces standalone `claim-next`)")
 	cmd.Flags().BoolVar(&includeParents, "include-parents", false, "with --next: permit claiming tasks with open children")
 	cmd.Flags().StringVar(&format, "format", "md", "with --next: output format (md|json)")
+	cmd.Flags().StringVarP(&note, "message", "m", "", "record a starting note before claiming (supports @path and `-` for stdin)")
 	return cmd
 }
 

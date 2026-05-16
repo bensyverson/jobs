@@ -117,7 +117,7 @@ func TestTail_Events_Intersection_Users(t *testing.T) {
 		t.Fatalf("add: %v", err)
 	}
 	id := addRes.ShortID
-	if err := job.RunClaim(db, id, "1h", "bob", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "bob", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 
@@ -340,7 +340,7 @@ func TestTail_UntilClose_Quiet_SuppressesStream(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 	// Fire a non-terminal event.
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	time.Sleep(1200 * time.Millisecond)
@@ -527,7 +527,7 @@ func TestRunTail_EmptyAnchor_GlobalStream(t *testing.T) {
 
 	<-initialDrained
 	// Fire a fresh event in a different tree than the first one we saw.
-	if err := job.RunClaim(db, b, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, b, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	select {
@@ -627,7 +627,7 @@ func TestTail_Global_UntilCloseNamedTask(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 	// Fire an event on a sibling tree — it should stream.
-	if err := job.RunClaim(db, a, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, a, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim a: %v", err)
 	}
 	time.Sleep(100 * time.Millisecond)
@@ -676,7 +676,7 @@ func TestTail_Global_EventsFilter(t *testing.T) {
 	}()
 
 	time.Sleep(100 * time.Millisecond)
-	if err := job.RunClaim(db, a, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, a, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	time.Sleep(100 * time.Millisecond)

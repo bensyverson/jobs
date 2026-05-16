@@ -721,7 +721,7 @@ func mustAdd(t *testing.T, db *sql.DB, actor, title string, parent *string, labe
 
 func mustClaim(t *testing.T, db *sql.DB, shortID, actor string) {
 	t.Helper()
-	if err := job.RunClaim(db, shortID, "30m", actor, false); err != nil {
+	if err := job.RunClaim(db, shortID, "30m", "", actor, false); err != nil {
 		t.Fatalf("RunClaim(%q, %q): %v", shortID, actor, err)
 	}
 }

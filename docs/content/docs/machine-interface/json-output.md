@@ -21,8 +21,7 @@ weight: 1
 | `cancel`          | Same shape as `done` (with cancellations under `closed`).                              |
 | `heartbeat`       | Object listing the refreshed claims and their new `expires_at`.                       |
 | `label add`       | Object with the labels that were newly added vs. already present.                     |
-
-`status` is intentionally human-only — it's the session-preamble surface, and JSON consumers are expected to reach for `ls`, `show`, or `next` instead.
+| `status`          | Forest scope: `identity`, `counts`, `last_activity_unix`, `roots`, `next`, `stale`, `decisions`. Subtree scope (`status <id> --format=json`): `target`, `children`, `next`, `stale`, `decisions` — the preamble is dropped, mirroring the Markdown form. |
 
 ## Read shapes by example
 

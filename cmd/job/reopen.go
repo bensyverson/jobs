@@ -48,7 +48,7 @@ func newReopenCmd() *cobra.Command {
 			}
 
 			if !noClaim && !cascade {
-				if err := job.RunClaim(db, args[0], "", actor, false); err != nil {
+				if err := job.RunClaim(db, args[0], "", "", actor, false); err != nil {
 					return err
 				}
 				durStr := job.FormatDuration(job.DefaultClaimTTLSeconds)

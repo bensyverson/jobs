@@ -67,9 +67,12 @@ Without an argument, prints the **session preamble** — open / claimed / done c
 ```sh
 job status                                 # preamble + per-root rollup
 job status abc12                           # subtree-only
+job status --format=json                   # machine-parsable form
 ```
 
 `status` is the right command to open every session with — identity check and landscape briefing in one call. The "Next:" hint at the bottom of the global view names the leaf the system would hand you if you ran `claim --next` next.
+
+`--format=json` mirrors the human output's structure. Forest scope returns `{identity, counts, last_activity_unix, roots, next, stale, decisions}`; subtree scope swaps the preamble for `{target, children, …}`. See [the JSON output reference](../machine-interface/json-output/) for the per-field shape.
 
 `summary` is a deprecated alias and emits a stderr notice on every call.
 

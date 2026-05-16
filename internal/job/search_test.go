@@ -41,7 +41,7 @@ func searchMustNote(t *testing.T, db *sql.DB, shortID, text, actor string) {
 
 func searchMustClaim(t *testing.T, db *sql.DB, shortID, actor string) {
 	t.Helper()
-	if err := RunClaim(db, shortID, "", actor, false); err != nil {
+	if err := RunClaim(db, shortID, "", "", actor, false); err != nil {
 		t.Fatalf("RunClaim(%q): %v", shortID, err)
 	}
 }

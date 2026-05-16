@@ -242,7 +242,7 @@ func TestCancel_ClaimedByOtherErrors(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
 	id := job.MustAdd(t, db, "", "X")
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	db.Close()
@@ -260,7 +260,7 @@ func TestCancel_ClaimedByCallerSucceeds_DropsClaim(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
 	id := job.MustAdd(t, db, "", "X")
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	db.Close()

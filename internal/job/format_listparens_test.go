@@ -108,7 +108,7 @@ func TestRenderMarkdownList_CanceledTask_PreservesMarker(t *testing.T) {
 func TestRenderMarkdownList_ClaimedTask_PreservesClaimedBy(t *testing.T) {
 	db := SetupTestDB(t)
 	id := MustAdd(t, db, "", "Claimed task")
-	if err := RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 

@@ -36,11 +36,45 @@ func newAddCmd() *cobra.Command {
 			} else {
 				title = args[0]
 			}
-			if parentFlag != "" {
+
+			// --parent= (explicitly empty) is the literal-title escape hatch
+			// for the single-arg ambiguous-id case below. Distinguish "user
+			// set the flag, even to empty" from "user did not pass the flag"
+			// via cmd.Flags().Changed — Cobra's StringVar default cannot tell
+			// them apart on its own.
+			parentChanged := cmd.Flags().Changed("parent")
+			if parentChanged {
 				if parentShortID != "" && parentShortID != parentFlag {
 					return fmt.Errorf("add: --parent %q conflicts with positional parent %q", parentFlag, parentShortID)
 				}
 				parentShortID = parentFlag
+			}
+
+			// Branch the error on what's actually wrong, not on a single
+			// "task not found" that misdirects the operator. Skipped when
+			// --parent was explicitly passed (the user has stated intent).
+			if !parentChanged {
+				switch len(args) {
+				case 2:
+					// Two args, leading positional must be a short id.
+					if t, _ := job.GetTaskByShortID(db, args[0]); t == nil {
+						return fmt.Errorf(
+							"add: no such parent %q. The positional order is `add <parent> <title>`; if you meant to create a root task with this title, use --parent=\"\" to disambiguate.",
+							args[0],
+						)
+					}
+				case 1:
+					// Single arg that resolves to an existing task is almost
+					// certainly a "forgot the title" slip — silently creating
+					// a root task literally titled with the short id is the
+					// failure mode this guard exists to prevent.
+					if t, _ := job.GetTaskByShortID(db, args[0]); t != nil {
+						return fmt.Errorf(
+							"add: ambiguous single arg %q is an existing task — did you mean `add %s <title>`? (To create a root task literally named %q, pass --parent=\"\" to disambiguate.)",
+							args[0], args[0], args[0],
+						)
+					}
+				}
 			}
 
 			var priorChildCount int

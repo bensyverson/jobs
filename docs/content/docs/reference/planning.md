@@ -25,6 +25,7 @@ The non-obvious moves:
 - `--before <sib>` (or `-b`) is the only way to position a new task without a follow-up `move`. Without it, new children land at the end of the parent's child list.
 - `--parent` and the positional parent argument are interchangeable — useful for scripts that pass the parent as a flag.
 - `add` is leaf-only behavior on the parent: the parent stays open, but its leaf status flips off as soon as the first child is added.
+- The positional order is **strict**: `add <parent> <title>`. If the leading arg doesn't resolve as a short id, `add` errors with `add: no such parent …` and reminds you of the order. If you pass a single arg that *does* resolve as an existing short id (the "forgot the title" slip), `add` refuses with `add: ambiguous single arg …` rather than silently creating a root task literally named after the id. Both errors lead with a stable, greppable prefix and tell you the fix. To create a root task whose title happens to look like a short id, pass `--parent=""` to declare the literal-title intent.
 
 For more than three tasks at a time, prefer `import` — it's atomic and roundtrips through `job schema`.
 

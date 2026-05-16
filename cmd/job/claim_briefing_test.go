@@ -91,7 +91,7 @@ func TestDone_ClaimNext_PrintsBriefingForClaimed(t *testing.T) {
 	db := openTestDB(t, dbFile)
 	a := job.MustAdd(t, db, "", "Closer")
 	b := job.MustAddDesc(t, db, "", "Next up", "What's next.")
-	if err := job.RunClaim(db, a, "", "alice", false); err != nil {
+	if err := job.RunClaim(db, a, "", "", "alice", false); err != nil {
 		t.Fatalf("seed claim: %v", err)
 	}
 	db.Close()

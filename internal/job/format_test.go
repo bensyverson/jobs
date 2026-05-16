@@ -52,7 +52,7 @@ func TestList_ClaimedParens(t *testing.T) {
 
 	db := SetupTestDB(t)
 	id := MustAdd(t, db, "", "Claim me")
-	if err := RunClaim(db, id, "45m", "alice", false); err != nil {
+	if err := RunClaim(db, id, "45m", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 

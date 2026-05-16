@@ -14,7 +14,7 @@ func TestStatus_Counts(t *testing.T) {
 	b := job.MustAdd(t, db, "", "B")
 	c := job.MustAdd(t, db, "", "C")
 	job.MustDone(t, db, a)
-	if err := job.RunClaim(db, b, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, b, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	_ = c
@@ -50,7 +50,7 @@ func TestStatus_LastActivity(t *testing.T) {
 func TestStatus_CallerHoldsOneClaim_ShowsCount(t *testing.T) {
 	db := job.SetupTestDB(t)
 	id := job.MustAdd(t, db, "", "A")
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 
@@ -81,10 +81,10 @@ func TestStatus_CallerHoldsTwoClaims_ShowsCount(t *testing.T) {
 	b := job.MustAdd(t, db, "", "B")
 	c := job.MustAdd(t, db, "", "C")
 	job.MustDone(t, db, a)
-	if err := job.RunClaim(db, b, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, b, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim b: %v", err)
 	}
-	if err := job.RunClaim(db, c, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, c, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim c: %v", err)
 	}
 
@@ -121,10 +121,10 @@ func TestStatus_NoCaller_ShowsGlobalClaimed(t *testing.T) {
 	a := job.MustAdd(t, db, "", "A")
 	b := job.MustAdd(t, db, "", "B")
 	job.MustAdd(t, db, "", "C")
-	if err := job.RunClaim(db, a, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, a, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim a: %v", err)
 	}
-	if err := job.RunClaim(db, b, "1h", "bob", false); err != nil {
+	if err := job.RunClaim(db, b, "1h", "", "bob", false); err != nil {
 		t.Fatalf("claim b: %v", err)
 	}
 
@@ -179,7 +179,7 @@ func TestStatus_CLI_WithAs(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
 	id := job.MustAdd(t, db, "", "A")
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	db.Close()
@@ -205,10 +205,10 @@ func TestStatus_ExpiredClaims_NotCounted(t *testing.T) {
 	db := job.SetupTestDB(t)
 	a := job.MustAdd(t, db, "", "A")
 	b := job.MustAdd(t, db, "", "B")
-	if err := job.RunClaim(db, a, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, a, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim a: %v", err)
 	}
-	if err := job.RunClaim(db, b, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, b, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim b: %v", err)
 	}
 
@@ -460,7 +460,7 @@ func TestStatus_CLI_SurfacesStaleClaims_ForestScope(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
 	id := job.MustAdd(t, db, "", "CrashedAgentWork")
-	if err := job.RunClaim(db, id, "30m", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "30m", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	db.Close()
@@ -495,10 +495,10 @@ func TestStatus_CLI_SurfacesStaleClaims_SubtreeScope(t *testing.T) {
 	insideLeaf := job.MustAdd(t, db, inside, "InsideLeaf")
 	_ = job.MustAdd(t, db, "", "OutsideRoot") // otherwise unused
 	outsideLeaf := job.MustAdd(t, db, "", "OutsideLeaf")
-	if err := job.RunClaim(db, insideLeaf, "30m", "alice", false); err != nil {
+	if err := job.RunClaim(db, insideLeaf, "30m", "", "alice", false); err != nil {
 		t.Fatalf("claim inside: %v", err)
 	}
-	if err := job.RunClaim(db, outsideLeaf, "30m", "bob", false); err != nil {
+	if err := job.RunClaim(db, outsideLeaf, "30m", "", "bob", false); err != nil {
 		t.Fatalf("claim outside: %v", err)
 	}
 	db.Close()
@@ -763,7 +763,7 @@ func TestStatus_CLI_Decision_Claimed_StillSurfaces(t *testing.T) {
 	if _, err := job.RunLabelAdd(db, id, []string{"decision"}, "alice"); err != nil {
 		t.Fatalf("label add: %v", err)
 	}
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	db.Close()
@@ -791,7 +791,7 @@ func TestStatus_CLI_Decision_OrderedAfterStale(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
 	staleTask := job.MustAdd(t, db, "", "StaleWork")
-	if err := job.RunClaim(db, staleTask, "30m", "alice", false); err != nil {
+	if err := job.RunClaim(db, staleTask, "30m", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	decTask := job.MustAdd(t, db, "", "PickStrategy")

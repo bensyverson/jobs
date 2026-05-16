@@ -62,7 +62,7 @@ func MustGet(t *testing.T, db *sql.DB, shortID string) *Task {
 
 func MustClaim(t *testing.T, db *sql.DB, shortID, duration string) {
 	t.Helper()
-	if err := RunClaim(db, shortID, duration, TestActor, false); err != nil {
+	if err := RunClaim(db, shortID, duration, "", TestActor, false); err != nil {
 		t.Fatalf("claim task %s: %v", shortID, err)
 	}
 }

@@ -127,7 +127,7 @@ func TestSearch_PrioritySort(t *testing.T) {
 	done := mustAdd(t, db, "alice", "Done", nil, nil)
 	canceled := mustAdd(t, db, "alice", "Canceled", nil, nil)
 
-	if err := job.RunClaim(db, claimed, "", "alice", false); err != nil {
+	if err := job.RunClaim(db, claimed, "", "", "alice", false); err != nil {
 		t.Fatalf("RunClaim: %v", err)
 	}
 	if _, _, err := job.RunDone(db, []string{done}, false, "", nil, "alice", false, ""); err != nil {

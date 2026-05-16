@@ -219,7 +219,7 @@ func TestClaimExpired_RecordsWasExpiresAt(t *testing.T) {
 	// preflight does. We use RunRelease as a no-op-style trigger? No —
 	// release requires the caller to be the holder. Use RunClaim with
 	// --force by another actor, which runs the sweep first.
-	if err := job.RunClaim(db, id, "30m", "other-actor", true); err != nil {
+	if err := job.RunClaim(db, id, "30m", "", "other-actor", true); err != nil {
 		t.Fatalf("RunClaim (forces sweep): %v", err)
 	}
 
@@ -240,13 +240,13 @@ func TestClaim_ForceRecordsOverriddenClaimBreadcrumbs(t *testing.T) {
 	id := job.MustAdd(t, db, "", "stealable-task")
 
 	// alice claims; bob overrides with --force.
-	if err := job.RunClaim(db, id, "30m", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "30m", "", "alice", false); err != nil {
 		t.Fatalf("alice claim: %v", err)
 	}
 	task := job.MustGet(t, db, id)
 	wantExpires := *task.ClaimExpiresAt
 
-	if err := job.RunClaim(db, id, "30m", "bob", true); err != nil {
+	if err := job.RunClaim(db, id, "30m", "", "bob", true); err != nil {
 		t.Fatalf("bob force-claim: %v", err)
 	}
 
@@ -263,7 +263,7 @@ func TestClaim_FreshClaimOmitsOverrideBreadcrumbs(t *testing.T) {
 	db := job.SetupTestDB(t)
 	id := job.MustAdd(t, db, "", "fresh-claim-task")
 
-	if err := job.RunClaim(db, id, "30m", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "30m", "", "alice", false); err != nil {
 		t.Fatalf("alice claim: %v", err)
 	}
 

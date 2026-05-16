@@ -54,7 +54,7 @@ func TestRunSummary_TargetWithBlockedAndClaimed(t *testing.T) {
 	if err := RunBlock(db, b, a, TestActor); err != nil {
 		t.Fatalf("block: %v", err)
 	}
-	if err := RunClaim(db, c, "1h", "alice", false); err != nil {
+	if err := RunClaim(db, c, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 

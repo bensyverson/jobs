@@ -218,7 +218,7 @@ func TestClaimConflict(t *testing.T) {
 	db := job.SetupTestDB(t)
 	id := job.MustAdd(t, db, "", "job.Task")
 
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("alice claim: %v", err)
 	}
 
@@ -247,13 +247,13 @@ func TestStolenClaim(t *testing.T) {
 
 	baseTime := time.Now()
 	job.CurrentNowFunc = func() time.Time { return baseTime }
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("alice claim: %v", err)
 	}
 
 	// Advance past TTL so alice's claim expires; bob claims.
 	job.CurrentNowFunc = func() time.Time { return baseTime.Add(2 * time.Hour) }
-	if err := job.RunClaim(db, id, "1h", "bob", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "bob", false); err != nil {
 		t.Fatalf("bob claim: %v", err)
 	}
 
@@ -280,7 +280,7 @@ func TestReleaseWrongHolder(t *testing.T) {
 	db := job.SetupTestDB(t)
 	id := job.MustAdd(t, db, "", "job.Task")
 
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("alice claim: %v", err)
 	}
 	err := job.RunRelease(db, id, "", "bob")
@@ -1205,7 +1205,7 @@ func TestReadSideEffectsUseEmptyActor(t *testing.T) {
 	id := res.ShortID
 	baseTime := time.Now()
 	job.CurrentNowFunc = func() time.Time { return baseTime }
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("alice claim: %v", err)
 	}
 	db.Close()
@@ -1240,10 +1240,10 @@ func TestList_Mine_ShowsClaimedTasks(t *testing.T) {
 	db := openTestDB(t, dbFile)
 	a := job.MustAdd(t, db, "", "Alice task")
 	b := job.MustAdd(t, db, "", "Bob task")
-	if err := job.RunClaim(db, a, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, a, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim a: %v", err)
 	}
-	if err := job.RunClaim(db, b, "1h", "bob", false); err != nil {
+	if err := job.RunClaim(db, b, "1h", "", "bob", false); err != nil {
 		t.Fatalf("claim b: %v", err)
 	}
 	db.Close()
@@ -1264,7 +1264,7 @@ func TestList_Mine_NoAs_NoStrict_NoDefault_Errors(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
 	id := job.MustAdd(t, db, "", "Task")
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	db.Close()
@@ -1283,10 +1283,10 @@ func TestList_ClaimedBy_ShowsClaimedTasks(t *testing.T) {
 	db := openTestDB(t, dbFile)
 	a := job.MustAdd(t, db, "", "Alice task")
 	b := job.MustAdd(t, db, "", "Bob task")
-	if err := job.RunClaim(db, a, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, a, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim a: %v", err)
 	}
-	if err := job.RunClaim(db, b, "1h", "bob", false); err != nil {
+	if err := job.RunClaim(db, b, "1h", "", "bob", false); err != nil {
 		t.Fatalf("claim b: %v", err)
 	}
 	db.Close()
@@ -1308,7 +1308,7 @@ func TestList_ClaimedBy_ComposesWithAll(t *testing.T) {
 	db := openTestDB(t, dbFile)
 	a := job.MustAdd(t, db, "", "Alice task")
 	_ = job.MustAdd(t, db, "", "Other")
-	if err := job.RunClaim(db, a, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, a, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim a: %v", err)
 	}
 	db.Close()
@@ -1345,10 +1345,10 @@ func TestList_ClaimedBy_ComposesWithLabel(t *testing.T) {
 	if _, err := job.RunLabelAdd(db, a, []string{"p0"}, "alice"); err != nil {
 		t.Fatal(err)
 	}
-	if err := job.RunClaim(db, a, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, a, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim a: %v", err)
 	}
-	if err := job.RunClaim(db, b, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, b, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim b: %v", err)
 	}
 	db.Close()
@@ -1373,10 +1373,10 @@ func TestList_Mine_ComposesWithLabel(t *testing.T) {
 	if _, err := job.RunLabelAdd(db, a, []string{"p0"}, "alice"); err != nil {
 		t.Fatal(err)
 	}
-	if err := job.RunClaim(db, a, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, a, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim a: %v", err)
 	}
-	if err := job.RunClaim(db, b, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, b, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim b: %v", err)
 	}
 	db.Close()

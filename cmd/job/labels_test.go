@@ -253,7 +253,7 @@ func TestLabelAdd_TaskNotFound_Errors(t *testing.T) {
 func TestLabelAdd_DoesNotRequireClaim(t *testing.T) {
 	db := job.SetupTestDB(t)
 	id := job.MustAdd(t, db, "", "job.Task")
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := job.RunLabelAdd(db, id, []string{"foo"}, "bob"); err != nil {
@@ -720,10 +720,10 @@ func TestDone_IncompleteSubtasks_SuggestsCascade(t *testing.T) {
 func TestClaim_AlreadyClaimedByYou_SuggestsHeartbeat(t *testing.T) {
 	db := job.SetupTestDB(t)
 	id := job.MustAdd(t, db, "", "job.Task")
-	if err := job.RunClaim(db, id, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
 		t.Fatal(err)
 	}
-	err := job.RunClaim(db, id, "1h", "alice", false)
+	err := job.RunClaim(db, id, "1h", "", "alice", false)
 	if err == nil {
 		t.Fatal("expected error")
 	}

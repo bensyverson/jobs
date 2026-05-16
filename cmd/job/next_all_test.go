@@ -107,7 +107,7 @@ func TestNextAll_ExcludesClaimed(t *testing.T) {
 	db := openTestDB(t, dbFile)
 	a := job.MustAdd(t, db, "", "A")
 	b := job.MustAdd(t, db, "", "B")
-	if err := job.RunClaim(db, a, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, a, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	db.Close()
@@ -320,7 +320,7 @@ func TestClaim_RefusesParentWithOpenChildren(t *testing.T) {
 	_ = job.MustAdd(t, db, parent, "Child 1")
 	_ = job.MustAdd(t, db, parent, "Child 2")
 
-	err := job.RunClaim(db, parent, "1h", "alice", false)
+	err := job.RunClaim(db, parent, "1h", "", "alice", false)
 	if err == nil {
 		t.Fatal("expected claim of parent-with-open-children to error")
 	}
@@ -341,7 +341,7 @@ func TestClaim_RefusesParentWithOpenChildren_IncludesCount(t *testing.T) {
 		_ = job.MustAdd(t, db, parent, "Child")
 	}
 
-	err := job.RunClaim(db, parent, "1h", "alice", false)
+	err := job.RunClaim(db, parent, "1h", "", "alice", false)
 	if err == nil {
 		t.Fatal("expected claim to error")
 	}
@@ -354,7 +354,7 @@ func TestClaim_RefusesParentWithOpenChildren_IncludesCount(t *testing.T) {
 func TestClaim_LeafStillWorks(t *testing.T) {
 	db := job.SetupTestDB(t)
 	leaf := job.MustAdd(t, db, "", "Leaf")
-	if err := job.RunClaim(db, leaf, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, leaf, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim leaf: %v", err)
 	}
 }
@@ -374,7 +374,7 @@ func TestClaim_RefusesParentEvenWithForce(t *testing.T) {
 	parent := job.MustAdd(t, db, "", "Parent")
 	_ = job.MustAdd(t, db, parent, "Child")
 
-	err := job.RunClaim(db, parent, "1h", "alice", true)
+	err := job.RunClaim(db, parent, "1h", "", "alice", true)
 	if err == nil {
 		t.Fatal("expected --force to not bypass parent-with-open-children refusal")
 	}
@@ -488,7 +488,7 @@ func TestDone_CLIOutput_ShowsAutoCloseCascade(t *testing.T) {
 func TestAdd_ChildToClaimedParent_AutoReleasesClaim(t *testing.T) {
 	db := job.SetupTestDB(t)
 	parent := job.MustAdd(t, db, "", "Parent")
-	if err := job.RunClaim(db, parent, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, parent, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 
@@ -513,7 +513,7 @@ func TestAdd_CLIOutput_ShowsAutoRelease(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
 	parent := job.MustAdd(t, db, "", "Parent")
-	if err := job.RunClaim(db, parent, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, parent, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	db.Close()
@@ -554,7 +554,7 @@ func TestAdd_ChildToUnclaimedParent_NoRelease(t *testing.T) {
 func TestAdd_SecondChild_IsIdempotent(t *testing.T) {
 	db := job.SetupTestDB(t)
 	parent := job.MustAdd(t, db, "", "Parent")
-	if err := job.RunClaim(db, parent, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, parent, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 
@@ -585,7 +585,7 @@ func TestAdd_SecondChild_IsIdempotent(t *testing.T) {
 func TestAdd_EventLog_RecordsAutoReleaseDetail(t *testing.T) {
 	db := job.SetupTestDB(t)
 	parent := job.MustAdd(t, db, "", "Parent")
-	if err := job.RunClaim(db, parent, "1h", "alice", false); err != nil {
+	if err := job.RunClaim(db, parent, "1h", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 
