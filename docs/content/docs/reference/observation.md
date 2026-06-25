@@ -3,7 +3,7 @@ title: Observation
 weight: 4
 ---
 
-The reads. Six verbs — `ls`, `show`, `log`, `status`, `next`, `tail` — and none of them write. None require `--as`, and every one accepts `--format=json` for machine consumption.
+The reads. Seven verbs — `ls`, `show`, `log`, `status`, `next`, `orient`, `tail` — and none of them write. None require `--as`, and every one offers machine-readable output: `--format=json` on all but `orient`, which is YAML-native (it emits a structured plan dump for a fresh agent).
 
 ## `ls`
 
@@ -93,6 +93,32 @@ Two facts to keep straight:
 
 - `next` returns *leaves* by default. A task with open children is descended through, never returned. `--include-parents` is the legacy "any available" behavior — useful if you genuinely need to claim a parent task, otherwise leave it off.
 - `all` (in either position) returns the whole frontier instead of the single next leaf. Pair with `--format=json` to feed a fanout script that spawns one agent per id.
+
+## `orient`
+
+The worker's session-opener. Where `status` hands the orchestrator a forest-wide landscape, `orient` regenerates the full plan tree around a *single leaf* — the one you're about to work on — with every node's complete description, its substantive notes folded in, and criteria as a checklist. It replaces the old habit of pasting a whole plan doc at a fresh agent: the tree is live, so the notes prior agents left on already-closed siblings (the plan's running memory) come along for free.
+
+```sh
+job orient                                 # target the next available leaf
+job orient abc12                           # target a specific task
+job orient abc12 --scope def34             # render only the def34 subtree
+job orient --format yaml                   # explicit default
+```
+
+Output is a top-level `orient:` header followed by the `tasks:` tree. The header is the synthesized punchline — what an agent would otherwise compute by hand before starting:
+
+- `target` / `title` / `root` / `status` — which leaf you're oriented on, and the root of its tree.
+- `blockedBy` / `blocks` — what must finish before this task, and what finishing it unblocks (each `blocks` entry carries `{id, title}`).
+- `criteria` — a `{passed, total}` tally over the target's acceptance criteria.
+- `own_notes` — the target's *own* prior progress notes, inlined for primacy (often empty on a fresh leaf).
+- `weigh_notes` — a pointer list of node ids whose notes bear on this task: the target's same-parent sibling leaves that carry notes. Their bodies stay folded in the tree; the header just points at them.
+
+Two things to keep straight:
+
+- **Target and scope are orthogonal.** The positional id (or the next leaf) is *what you're working on*; `--scope` only bounds *what gets rendered*. By default the scope is the target's whole root tree — the full context the plan doc used to supply. `--scope <id>` narrows it to a subtree for very large plans, but `root` in the header still names the true root.
+- **Notes are filtered to substance.** Each node folds in its `noted` events and completion note; churn — heartbeats, claims, releases, moves, label edits, block/unblock — is excluded. The raw trail is always there in `job log`.
+
+`orient` is read-only and never requires `--as`. `--format` defaults to `yaml`; a leaner `--format md` (YAML front-matter plus a markdown checklist tree) is planned and currently returns a not-yet-implemented message.
 
 ## `tail`
 
