@@ -34,6 +34,12 @@ func newImportCmd() *cobra.Command {
 				return err
 			}
 
+			// Selection warnings go to stderr so they're visible on both the
+			// human and --format=json paths without polluting parsable stdout.
+			for _, w := range res.Warnings {
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning: "+w)
+			}
+
 			if format == "json" {
 				b, err := json.Marshal(res)
 				if err != nil {

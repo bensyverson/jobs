@@ -44,6 +44,7 @@ What to remember:
 
 - The whole import is atomic. A typo in row 47 reverts rows 1–46. The `--dry-run` ack tells you what *would* be created without touching the database.
 - `--parent <id>` lets one plan import as a subtree of another. Useful when an agent wants to pull a phase plan into the parent it was scoped from.
+- **Block selection is observable.** Import picks the *first* `tasks:` block, but it warns on stderr when the choice is ambiguous (more than one candidate block — naming the one used by line) or lossy (the chosen block carries keys outside the grammar, which are silently dropped). A Markdown file that merely *illustrates* output YAML can otherwise hijack the import; the warnings make that visible. They never block an otherwise valid import, and they fire under `--dry-run` too.
 - The schema is exhaustively documented in the [Plan grammar](../../plan-grammar/) section, and `job schema` prints the live source of truth.
 
 ## `edit`

@@ -20,8 +20,9 @@ type ImportedTask struct {
 }
 
 type ImportResult struct {
-	DryRun bool           `json:"dry_run"`
-	Tasks  []ImportedTask `json:"tasks"`
+	DryRun   bool           `json:"dry_run"`
+	Tasks    []ImportedTask `json:"tasks"`
+	Warnings []string       `json:"warnings,omitempty"`
 }
 
 // parsedTask is the intermediate tree after YAML decode + validation.
@@ -107,45 +108,46 @@ type rawRoot struct {
 
 var fenceOpenRe = regexp.MustCompile(`^(` + "```" + `|~~~)([a-zA-Z0-9_+-]*)\s*$`)
 
-// extractTasksYAML scans raw Markdown text for fenced code blocks and returns the
-// body of the first block whose YAML decode yields a top-level map with a `tasks` key.
-// If no block matches and at least one candidate fence produced a YAML parse error,
-// that error is returned so callers can surface it instead of a generic message.
-func extractTasksYAML(content string) (string, bool, error) {
+// tasksBlock is a fenced code block that decodes to a top-level map with a
+// `tasks` key — a candidate for import. lang is the fence's info string
+// ("yaml", "yml", or "" for unlabeled); startLine is the 1-based line of the
+// opening fence, used to name the block in selection warnings.
+type tasksBlock struct {
+	body      string
+	lang      string
+	startLine int
+}
+
+// extractTasksBlocks scans raw Markdown text for fenced code blocks and returns
+// every yaml/yml/unlabeled block whose YAML decode yields a top-level map with
+// a `tasks` key, in document order. Callers import the first and may warn when
+// there is more than one. If no block matches and at least one candidate fence
+// produced a YAML parse error, that error is returned so callers can surface it
+// instead of a generic message.
+func extractTasksBlocks(content string) ([]tasksBlock, error) {
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 
 	var (
-		inFence bool
-		fence   string
-		curBody strings.Builder
-		curLang string
-		lastErr error
-
-		tryBlock = func(lang, body string) (string, bool) {
-			// Only consider yaml/yml/unlabeled fences as candidates.
-			if lang != "" && lang != "yaml" && lang != "yml" {
-				return "", false
-			}
-			var probe map[string]any
-			if err := yaml.Unmarshal([]byte(body), &probe); err != nil {
-				lastErr = err
-				return "", false
-			}
-			if _, ok := probe["tasks"]; !ok {
-				return "", false
-			}
-			return body, true
-		}
+		blocks   []tasksBlock
+		inFence  bool
+		fence    string
+		curBody  strings.Builder
+		curLang  string
+		curStart int
+		lastErr  error
+		lineNo   int
 	)
 
 	for scanner.Scan() {
+		lineNo++
 		line := scanner.Text()
 		if !inFence {
 			if m := fenceOpenRe.FindStringSubmatch(line); m != nil {
 				inFence = true
 				fence = m[1]
 				curLang = m[2]
+				curStart = lineNo
 				curBody.Reset()
 			}
 			continue
@@ -154,8 +156,14 @@ func extractTasksYAML(content string) (string, bool, error) {
 		trimmed := strings.TrimRight(line, " \t")
 		if trimmed == fence {
 			body := curBody.String()
-			if got, ok := tryBlock(curLang, body); ok {
-				return got, true, nil
+			// Only yaml/yml/unlabeled fences are candidates.
+			if curLang == "" || curLang == "yaml" || curLang == "yml" {
+				var probe map[string]any
+				if err := yaml.Unmarshal([]byte(body), &probe); err != nil {
+					lastErr = err
+				} else if _, ok := probe["tasks"]; ok {
+					blocks = append(blocks, tasksBlock{body: body, lang: curLang, startLine: curStart})
+				}
 			}
 			inFence = false
 			fence = ""
@@ -166,7 +174,77 @@ func extractTasksYAML(content string) (string, bool, error) {
 		curBody.WriteString(line)
 		curBody.WriteByte('\n')
 	}
-	return "", false, lastErr
+	return blocks, lastErr
+}
+
+// importGrammarKeys is the set of per-task keys the importer understands. Kept
+// in sync with rawTask.UnmarshalYAML's switch; used to detect (and warn about)
+// keys the import silently drops.
+var importGrammarKeys = map[string]bool{
+	"title":     true,
+	"desc":      true,
+	"labels":    true,
+	"ref":       true,
+	"blockedBy": true,
+	"criteria":  true,
+	"children":  true,
+}
+
+// collectUnknownKeys walks the chosen tasks block and returns the sorted, unique
+// set of keys outside the import grammar: top-level keys other than `tasks`, and
+// per-task keys not in importGrammarKeys (recursing through `children`). These
+// are silently dropped on import, so callers surface them as a lossy-import
+// warning. Parse problems are ignored here — they are handled on the typed decode.
+func collectUnknownKeys(body string) []string {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(body), &doc); err != nil || len(doc.Content) == 0 {
+		return nil
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	unknown := make(map[string]bool)
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		key := root.Content[i].Value
+		if key == "tasks" {
+			collectUnknownTaskKeys(root.Content[i+1], unknown)
+			continue
+		}
+		unknown[key] = true
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(unknown))
+	for k := range unknown {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// collectUnknownTaskKeys walks a `tasks` (or `children`) sequence node and adds
+// any per-task key outside the grammar to unknown, recursing through children.
+func collectUnknownTaskKeys(seq *yaml.Node, unknown map[string]bool) {
+	if seq == nil || seq.Kind != yaml.SequenceNode {
+		return
+	}
+	for _, item := range seq.Content {
+		if item.Kind != yaml.MappingNode {
+			continue
+		}
+		for i := 0; i+1 < len(item.Content); i += 2 {
+			key := item.Content[i].Value
+			if key == "children" {
+				collectUnknownTaskKeys(item.Content[i+1], unknown)
+				continue
+			}
+			if !importGrammarKeys[key] {
+				unknown[key] = true
+			}
+		}
+	}
 }
 
 func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor string) (*ImportResult, error) {
@@ -175,13 +253,20 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 		return nil, err
 	}
 
-	yamlBody, ok, parseErr := extractTasksYAML(string(data))
-	if !ok {
+	blocks, parseErr := extractTasksBlocks(string(data))
+	if len(blocks) == 0 {
 		if parseErr != nil {
 			return nil, fmt.Errorf("YAML parse error in %s: %w", filePath, parseErr)
 		}
 		return nil, fmt.Errorf("no YAML `tasks:` block found in %s", filePath)
 	}
+
+	// Selection is unchanged: the first candidate block wins. But make that
+	// choice observable — warn when it was ambiguous (more than one candidate)
+	// or lossy (the chosen block carries keys outside the import grammar).
+	chosen := blocks[0]
+	yamlBody := chosen.body
+	warnings := importSelectionWarnings(filePath, blocks)
 
 	var raw rawRoot
 	if err := yaml.Unmarshal([]byte(yamlBody), &raw); err != nil {
@@ -272,8 +357,9 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 		blockedByResolved[p] = list
 	}
 
-	// Build echo order. If dry-run, emit placeholders.
-	result := &ImportResult{DryRun: dryRun}
+	// Build echo order. If dry-run, emit placeholders. Warnings ride along on
+	// both paths (computed before the dry-run early return below).
+	result := &ImportResult{DryRun: dryRun, Warnings: warnings}
 	if dryRun {
 		for i, p := range flat {
 			parent := ""
@@ -443,6 +529,37 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 		return nil, err
 	}
 	return result, nil
+}
+
+// importSelectionWarnings builds the non-blocking stderr warnings for an
+// import: one when more than one candidate `tasks:` block exists (naming the
+// chosen one), and one when the chosen block carries keys outside the grammar
+// (which are silently dropped). Returns nil for the clean, unambiguous case.
+func importSelectionWarnings(filePath string, blocks []tasksBlock) []string {
+	var warnings []string
+	chosen := blocks[0]
+	if len(blocks) > 1 {
+		warnings = append(warnings, fmt.Sprintf(
+			"%s: found %d code blocks with a top-level `tasks:` key; importing the first (%s fence at line %d) and ignoring the other %d",
+			filePath, len(blocks), fenceLangName(chosen.lang), chosen.startLine, len(blocks)-1,
+		))
+	}
+	if unknown := collectUnknownKeys(chosen.body); len(unknown) > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"%s: ignored %d key(s) outside the import grammar: %s",
+			filePath, len(unknown), strings.Join(unknown, ", "),
+		))
+	}
+	return warnings
+}
+
+// fenceLangName renders a fence info string for human messages, naming the
+// unlabeled case explicitly.
+func fenceLangName(lang string) string {
+	if lang == "" {
+		return "unlabeled"
+	}
+	return lang
 }
 
 // nextSortOrderForParent returns one past the current max sort_order
