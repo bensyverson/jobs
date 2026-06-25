@@ -17,7 +17,7 @@ const schemaJSON = `{
   "properties": {
     "tasks": {
       "type": "array",
-      "description": "Tasks form a tree. Work happens on leaves: a parent is a container, and it auto-closes when its last child closes — so if a parent has work of its own, model that work as a leaf child rather than putting it on the parent.",
+      "description": "Tasks form a tree. All work happens on leaves; if a parent has work of its own, model that work as a leaf child rather than putting it on the parent.",
       "items": {
         "type": "object",
         "required": ["title"],
@@ -28,7 +28,7 @@ const schemaJSON = `{
           },
           "desc": {
             "type": "string",
-            "description": "Optional free-text description. Paragraphs separate with a blank line. Assume the reader is an agent with fresh context."
+            "description": "Optional free-text description. Paragraphs separate with a blank line. Assume the reader is an agent with fresh context, so include the 'why' and supporting context. Don't hard-wrap lines; assume descriptions will be reflowed."
           },
           "labels": {
             "type": "array",
@@ -37,7 +37,7 @@ const schemaJSON = `{
           },
           "ref": {
             "type": "string",
-            "description": "Optional author-chosen handle, unique across the entire import. Used by blockedBy entries elsewhere in this document. Refs are not persisted on task rows."
+            "description": "Optional author-chosen handle/tag, unique across the entire import. Used by blockedBy entries elsewhere in this document. Refs are not persisted on task rows."
           },
           "blockedBy": {
             "type": "array",
@@ -47,7 +47,7 @@ const schemaJSON = `{
           "criteria": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "Optional list of acceptance-criterion labels. All criteria are created in the 'pending' state; transitions land later via 'job done --criterion label=passed' or 'job edit --set-criterion label=passed'."
+            "description": "Optional list of acceptance-criteria. Each criterion should be a short but descriptive sentence. All criteria are created in the 'pending' state; transitions land later via 'job done --criterion label=passed' or 'job edit --set-criterion label=passed'."
           },
           "children": {
             "type": "array",
