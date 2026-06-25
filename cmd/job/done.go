@@ -14,6 +14,8 @@ func newDoneCmd() *cobra.Command {
 	var resultStr string
 	var format string
 	var claimNext bool
+	var claimUnder string
+	var claimAny bool
 	var setCriterion []string
 	var quiet bool
 	var forceCloseWithPending bool
@@ -180,7 +182,21 @@ Tip: pass --claim-next to atomically close this task and claim the next availabl
 			var claimed *job.Task
 			var claimRaceTaken string
 			if claimNext && len(closed) > 0 {
-				t, cerr := job.RunClaimNextFiltered(db, "", "", actor, false, false)
+				// Scope the follow-on claim. Default: the root subtree of the
+				// just-closed task, so a focused session never gets handed an
+				// unrelated leaf in a different root. --under <id> overrides the
+				// scope explicitly; --any restores the old repo-global behavior.
+				// Precedence: --under > --any > default(root-of-closed).
+				var t *job.Task
+				var cerr error
+				switch {
+				case claimUnder != "":
+					t, cerr = job.RunClaimNextFiltered(db, claimUnder, "", actor, false, false)
+				case claimAny:
+					t, cerr = job.RunClaimNextFiltered(db, "", "", actor, false, false)
+				default:
+					t, cerr = job.RunClaimNextUnderRootOf(db, lastCtxID, "", actor, false)
+				}
 				if cerr == nil {
 					claimed = t
 				} else {
@@ -250,7 +266,9 @@ Tip: pass --claim-next to atomically close this task and claim the next availabl
 	cmd.Flags().StringVarP(&note, "message", "m", "", "record a completion note")
 	cmd.Flags().StringVar(&resultStr, "result", "", "structured JSON result recorded on the done event")
 	cmd.Flags().StringVar(&format, "format", "md", "output format (md|json)")
-	cmd.Flags().BoolVar(&claimNext, "claim-next", false, "after closing, atomically claim the next available leaf")
+	cmd.Flags().BoolVar(&claimNext, "claim-next", false, "after closing, atomically claim the next available leaf in the closed task's root subtree")
+	cmd.Flags().StringVar(&claimUnder, "under", "", "with --claim-next: scope the follow-on claim to this subtree instead of the closed task's root")
+	cmd.Flags().BoolVar(&claimAny, "any", false, "with --claim-next: claim the next available leaf repo-wide (the old global behavior)")
 	cmd.Flags().StringArrayVar(&setCriterion, "criterion", nil, "update an acceptance criterion before close, format \"label=passed\" (repeatable; for multi-id closes use \"id:label=state\")")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "suppress the trailing show briefing on a follow-on --claim-next claim")
 	cmd.Flags().BoolVar(&forceCloseWithPending, "force-close-with-pending", false, "close the task even when criteria remain pending; the unmarked labels are recorded as a waiver on the done event")

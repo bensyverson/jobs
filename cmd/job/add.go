@@ -12,6 +12,7 @@ func newAddCmd() *cobra.Command {
 	var labels []string
 	var criteria []string
 	var parentFlag string
+	var idOnly bool
 	cmd := &cobra.Command{
 		Use:   "add [parent] <title>",
 		Short: "Add a new task",
@@ -87,14 +88,20 @@ func newAddCmd() *cobra.Command {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), res.ShortID)
-			if res.AutoReleasedParent != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "Released: %s (prior claim by %s auto-released — parent now has open children)\n",
-					res.AutoReleasedParent, res.AutoReleasedByActor)
-			}
-			if parentShortID != "" && priorChildCount > 0 {
-				fmt.Fprintf(cmd.OutOrStdout(),
-					"  %s now has %d children; complete them all to auto-close the parent.\n",
-					parentShortID, priorChildCount+1)
+			// --id-only is the scriptable contract: stdout is exactly the bare
+			// id and nothing else, so `ID=$(job add ... --id-only)` captures a
+			// clean value. Criteria are still attached (side effect preserved);
+			// only the advisory chatter is suppressed.
+			if !idOnly {
+				if res.AutoReleasedParent != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "Released: %s (prior claim by %s auto-released — parent now has open children)\n",
+						res.AutoReleasedParent, res.AutoReleasedByActor)
+				}
+				if parentShortID != "" && priorChildCount > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(),
+						"  %s now has %d children; complete them all to auto-close the parent.\n",
+						parentShortID, priorChildCount+1)
+				}
 			}
 			if len(criteria) > 0 {
 				items := make([]job.Criterion, 0, len(criteria))
@@ -113,5 +120,6 @@ func newAddCmd() *cobra.Command {
 	cmd.Flags().StringArrayVarP(&labels, "label", "l", nil, "label to attach (repeatable)")
 	cmd.Flags().StringArrayVar(&criteria, "criterion", nil, "acceptance criterion to attach, defaults to pending state (repeatable)")
 	cmd.Flags().StringVar(&parentFlag, "parent", "", "parent task ID (alias for the positional parent argument)")
+	cmd.Flags().BoolVar(&idOnly, "id-only", false, "print only the new task's bare ID on stdout (suppress advisory lines), for `ID=$(job add ... --id-only)`")
 	return cmd
 }

@@ -65,8 +65,10 @@ job done abc12 -m "Closing notes here."
 job done abc12 -m @/path/to/release-notes.md         # body from file
 job done abc12 abc34 abc56 -m "Closing the batch."   # multi-id, atomic
 job done abc12 --cascade                              # close abc12 + all open descendants
-job done abc12 --claim-next                           # close, then claim the next leaf
+job done abc12 --claim-next                           # close, then claim the next leaf in this root
 job done abc12 --claim-next -q                        # close + claim, no follow-on briefing
+job done abc12 --claim-next --under xyz99              # scope the follow-on claim to another subtree
+job done abc12 --claim-next --any                      # claim the next leaf repo-wide (old global behavior)
 job done abc12 --all-passed                           # mark every pending criterion passed
 job done abc12 --all skipped                          # or skipped, or failed
 job done abc12 --criterion "8jt=passed" --criterion "7wR=skipped"
@@ -80,6 +82,7 @@ Things to keep in mind:
 - **Pending criteria block the close.** Either resolve them (`--criterion`, `--all-passed`, `--all`) or wave them through with `--force-close-with-pending`. The waiver is recorded on the `done` event so it's visible later.
 - **Auto-cascade.** Closing the last open child of a parent auto-closes the parent. The chain continues to the root, attributed to whichever agent closed the final leaf.
 - **`--claim-next` is race-safe.** The close and the next claim are one transaction; two agents racing the same `done --claim-next` cannot both end up claiming the same follow-on leaf.
+- **`--claim-next` is scoped to the closed task's root by default.** It claims the next available leaf within the root subtree of the task you just closed, so a focused session never gets handed an unrelated leaf in a different root. Override with `--under <id>` to target another subtree, or `--any` to restore the old repo-global next-leaf behavior.
 
 ## `reopen`
 

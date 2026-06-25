@@ -149,3 +149,36 @@ func TestAdd_TwoArgs_ValidParent_CreatesChild(t *testing.T) {
 		t.Errorf("child should be parented under %s; got nil parent", parent)
 	}
 }
+
+// --id-only emits exactly the bare new id on stdout and nothing else, so
+// `ID=$(job add ... --id-only)` captures a clean value even when the parent's
+// child-count advisory would otherwise print.
+func TestAdd_IdOnly_PrintsBareIdSuppressingAdvisory(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	parent := job.MustAdd(t, db, "", "Parent")
+	_ = job.MustAdd(t, db, parent, "Existing child") // makes the advisory line fire
+	db.Close()
+
+	stdout, _, err := runCLI(t, dbFile, "--as", "alice", "add", parent, "New child", "--id-only")
+	if err != nil {
+		t.Fatalf("add --id-only: %v", err)
+	}
+	out := strings.TrimRight(stdout, "\n")
+	if strings.Contains(out, "\n") {
+		t.Fatalf("--id-only must print exactly one line (the bare id); got:\n%s", stdout)
+	}
+	if strings.Contains(out, "children") || strings.Contains(out, "Released") {
+		t.Errorf("--id-only must suppress advisory lines; got: %q", out)
+	}
+	// The single line must be the real, resolvable id.
+	db2 := openTestDB(t, dbFile)
+	t.Cleanup(func() { db2.Close() })
+	task, err := job.GetTaskByShortID(db2, out)
+	if err != nil || task == nil {
+		t.Fatalf("--id-only output %q is not a resolvable task id (err=%v)", out, err)
+	}
+	if task.Title != "New child" {
+		t.Errorf("resolved task title: got %q, want %q", task.Title, "New child")
+	}
+}

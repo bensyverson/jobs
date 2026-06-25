@@ -174,6 +174,20 @@ func extractTasksBlocks(content string) ([]tasksBlock, error) {
 		curBody.WriteString(line)
 		curBody.WriteByte('\n')
 	}
+
+	// Content fallback: a raw, unfenced document whose top level is `tasks:` is
+	// valid YAML and should import directly — no Markdown fence required. Only
+	// fires when no fenced candidate was found, so fenced plans are unaffected.
+	// The synthetic block spans the whole document, so the warning and
+	// unknown-key paths operate over it exactly as for a fenced block.
+	if len(blocks) == 0 {
+		var probe map[string]any
+		if err := yaml.Unmarshal([]byte(content), &probe); err == nil {
+			if _, ok := probe["tasks"]; ok {
+				blocks = append(blocks, tasksBlock{body: content, lang: "", startLine: 1})
+			}
+		}
+	}
 	return blocks, lastErr
 }
 
@@ -258,7 +272,7 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 		if parseErr != nil {
 			return nil, fmt.Errorf("YAML parse error in %s: %w", filePath, parseErr)
 		}
-		return nil, fmt.Errorf("no YAML `tasks:` block found in %s", filePath)
+		return nil, fmt.Errorf("no importable tasks found in %s: provide a fenced ```yaml code block, or a bare YAML document whose top level is `tasks:`", filePath)
 	}
 
 	// Selection is unchanged: the first candidate block wins. But make that

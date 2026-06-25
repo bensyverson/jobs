@@ -89,8 +89,12 @@ func TestClaimNext_PrintsBriefingAfterAck(t *testing.T) {
 func TestDone_ClaimNext_PrintsBriefingForClaimed(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
-	a := job.MustAdd(t, db, "", "Closer")
-	b := job.MustAddDesc(t, db, "", "Next up", "What's next.")
+	// Siblings under a shared root so the default --claim-next scope (the
+	// closed task's root subtree) reaches the next leaf. This test exercises
+	// the briefing output, not cross-root claiming.
+	root := job.MustAdd(t, db, "", "Batch")
+	a := job.MustAdd(t, db, root, "Closer")
+	b := job.MustAddDesc(t, db, root, "Next up", "What's next.")
 	if err := job.RunClaim(db, a, "", "", "alice", false); err != nil {
 		t.Fatalf("seed claim: %v", err)
 	}

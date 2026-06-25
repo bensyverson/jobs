@@ -446,9 +446,52 @@ func TestImport_NoTasksBlock_Errors(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	want := "no YAML `tasks:` block found in " + path
-	if err.Error() != want {
-		t.Errorf("error:\n  got:  %q\n  want: %q", err.Error(), want)
+	// Reworded to name both accepted forms so the operator knows what to reach
+	// for, instead of the old message that implied only fenced blocks count.
+	msg := err.Error()
+	if !strings.Contains(msg, path) {
+		t.Errorf("error should name the file %q; got %q", path, msg)
+	}
+	if !strings.Contains(msg, "fenced") || !strings.Contains(msg, "tasks:") {
+		t.Errorf("error should name both accepted forms (fenced block + bare `tasks:` document); got %q", msg)
+	}
+}
+
+// A raw, unfenced document whose top level is `tasks:` is valid YAML and should
+// import directly — no Markdown fence required.
+func TestImport_BareTasksDocument_NoFence(t *testing.T) {
+	db := SetupTestDB(t)
+	body := "tasks:\n" +
+		"  - title: Bare one\n" +
+		"  - title: Bare two\n"
+	path := writeTempPlan(t, body)
+
+	res, err := RunImport(db, path, "", false, "alice")
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+	if len(res.Tasks) != 2 || res.Tasks[0].Title != "Bare one" || res.Tasks[1].Title != "Bare two" {
+		t.Fatalf("unexpected result: %#v", res.Tasks)
+	}
+}
+
+// A fenced block still takes precedence — the bare-document fallback only fires
+// when no fenced candidate is present, so existing plans are unaffected.
+func TestImport_FencedBlockStillPreferredOverBareDocument(t *testing.T) {
+	db := SetupTestDB(t)
+	body := "# Plan\n\n" +
+		"```yaml\n" +
+		"tasks:\n" +
+		"  - title: Fenced\n" +
+		"```\n"
+	path := writeTempPlan(t, body)
+
+	res, err := RunImport(db, path, "", false, "alice")
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+	if len(res.Tasks) != 1 || res.Tasks[0].Title != "Fenced" {
+		t.Fatalf("unexpected result: %#v", res.Tasks)
 	}
 }
 

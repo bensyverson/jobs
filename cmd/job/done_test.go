@@ -484,6 +484,105 @@ func TestDone_ClaimNext_RaceLostReportsStatus(t *testing.T) {
 	}
 }
 
+// --- done --claim-next scoping -----------------------------------------
+
+// The follow-on claim is scoped to the just-closed task's root subtree, so
+// closing a leaf in root A never hands you an unrelated leaf in root B.
+func TestDone_ClaimNext_ScopedToClosedTaskRoot(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	rootB := job.MustAdd(t, db, "", "Root B") // created first, sorts before A
+	b1 := job.MustAdd(t, db, rootB, "B1")
+	rootA := job.MustAdd(t, db, "", "Root A")
+	a1 := job.MustAdd(t, db, rootA, "A1")
+	a2 := job.MustAdd(t, db, rootA, "A2")
+	db.Close()
+
+	if _, _, err := runCLI(t, dbFile, "--as", "alice", "claim", a1); err != nil {
+		t.Fatalf("claim a1: %v", err)
+	}
+	stdout, _, err := runCLI(t, dbFile, "--as", "alice", "done", a1, "--claim-next")
+	if err != nil {
+		t.Fatalf("done --claim-next: %v", err)
+	}
+	if !strings.Contains(stdout, "Claimed: "+a2) {
+		t.Errorf("should claim A's next leaf %s:\n%s", a2, stdout)
+	}
+	if strings.Contains(stdout, "Claimed: "+b1) {
+		t.Errorf("must not claim %s in unrelated root B:\n%s", b1, stdout)
+	}
+}
+
+// --under <id> overrides the default scope to an arbitrary subtree.
+func TestDone_ClaimNext_Under_OverridesScope(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	rootA := job.MustAdd(t, db, "", "Root A")
+	a1 := job.MustAdd(t, db, rootA, "A1")
+	_ = job.MustAdd(t, db, rootA, "A2")
+	rootB := job.MustAdd(t, db, "", "Root B")
+	b1 := job.MustAdd(t, db, rootB, "B1")
+	db.Close()
+
+	if _, _, err := runCLI(t, dbFile, "--as", "alice", "claim", a1); err != nil {
+		t.Fatalf("claim a1: %v", err)
+	}
+	// Close a1 but direct the next claim into root B explicitly.
+	stdout, _, err := runCLI(t, dbFile, "--as", "alice", "done", a1, "--claim-next", "--under", rootB)
+	if err != nil {
+		t.Fatalf("done --claim-next --under: %v", err)
+	}
+	if !strings.Contains(stdout, "Claimed: "+b1) {
+		t.Errorf("--under %s should claim %s:\n%s", rootB, b1, stdout)
+	}
+}
+
+// --any restores the old repo-global next-leaf behavior.
+func TestDone_ClaimNext_Any_RestoresGlobal(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	rootB := job.MustAdd(t, db, "", "Root B") // sorts before A globally
+	b1 := job.MustAdd(t, db, rootB, "B1")
+	rootA := job.MustAdd(t, db, "", "Root A")
+	a1 := job.MustAdd(t, db, rootA, "A1") // A's only leaf
+	db.Close()
+
+	if _, _, err := runCLI(t, dbFile, "--as", "alice", "claim", a1); err != nil {
+		t.Fatalf("claim a1: %v", err)
+	}
+	// A is fully done after this close; --any should reach into B globally.
+	stdout, _, err := runCLI(t, dbFile, "--as", "alice", "done", a1, "--claim-next", "--any")
+	if err != nil {
+		t.Fatalf("done --claim-next --any: %v", err)
+	}
+	if !strings.Contains(stdout, "Claimed: "+b1) {
+		t.Errorf("--any should claim globally-next leaf %s:\n%s", b1, stdout)
+	}
+}
+
+// Default scope (no --any) must NOT fall through to another root when the
+// closed task's own root is exhausted.
+func TestDone_ClaimNext_DefaultScope_NoFallthrough(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	rootB := job.MustAdd(t, db, "", "Root B")
+	b1 := job.MustAdd(t, db, rootB, "B1")
+	rootA := job.MustAdd(t, db, "", "Root A")
+	a1 := job.MustAdd(t, db, rootA, "A1") // A's only leaf
+	db.Close()
+
+	if _, _, err := runCLI(t, dbFile, "--as", "alice", "claim", a1); err != nil {
+		t.Fatalf("claim a1: %v", err)
+	}
+	stdout, _, err := runCLI(t, dbFile, "--as", "alice", "done", a1, "--claim-next")
+	if err != nil {
+		t.Fatalf("done --claim-next: %v", err)
+	}
+	if strings.Contains(stdout, "Claimed: "+b1) {
+		t.Errorf("default scope must not fall through to root B leaf %s:\n%s", b1, stdout)
+	}
+}
+
 // --- P4: positional-prose detection -------------------------------------
 
 // A multi-word second positional to `done` is prose, not an ID. Suggest -m.

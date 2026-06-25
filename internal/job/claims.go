@@ -663,6 +663,27 @@ func RunClaimNext(db *sql.DB, parentShortID, duration, actor string, force bool)
 	return RunClaimNextFiltered(db, parentShortID, duration, actor, force, false)
 }
 
+// RunClaimNextUnderRootOf scopes a follow-on claim to the root subtree of the
+// just-closed task: it resolves closedShortID's top ancestor and claims the
+// next available leaf within that root. This is the default for
+// `done --claim-next` so closing a leaf in one root never hands the worker an
+// unrelated leaf in a different root. Pass the resolved root directly to
+// RunClaimNextFiltered for an explicit `--under <id>`, or "" for `--any`.
+func RunClaimNextUnderRootOf(db *sql.DB, closedShortID, duration, actor string, force bool) (*Task, error) {
+	closed, err := GetTaskByShortID(db, closedShortID)
+	if err != nil {
+		return nil, err
+	}
+	if closed == nil {
+		return nil, fmt.Errorf("task %q not found", closedShortID)
+	}
+	root, err := findTopAncestor(db, closed)
+	if err != nil {
+		return nil, err
+	}
+	return RunClaimNextFiltered(db, root.ShortID, duration, actor, force, false)
+}
+
 func RunClaimNextFiltered(db *sql.DB, parentShortID, duration, actor string, force, includeParents bool) (*Task, error) {
 	task, err := RunNextFiltered(db, parentShortID, actor, "", includeParents)
 	if err != nil {

@@ -17,6 +17,7 @@ job add abc12 "Important task" -b xyz99             # insert before sibling xyz9
 job add abc12 "Bake compliance" --criterion "audit log lines exist" \
                                 --criterion "PII redacted in transit"
 job add abc12 "Refactor parser" -l p0 -l infra
+ID=$(job add abc12 "Then claim it" --id-only)        # capture just the new id
 ```
 
 The non-obvious moves:
@@ -24,6 +25,7 @@ The non-obvious moves:
 - `--criterion` is repeatable and seeds [acceptance criteria](../../concepts/criteria/) on the new task. Add as many as you want; each lands as `pending` and is referenced by a short id later.
 - `--before <sib>` (or `-b`) is the only way to position a new task without a follow-up `move`. Without it, new children land at the end of the parent's child list.
 - `--parent` and the positional parent argument are interchangeable — useful for scripts that pass the parent as a flag.
+- `--id-only` makes `add` scriptable: stdout is exactly the new task's bare id, with the advisory lines (auto-release, child-count hint) suppressed, so `ID=$(job add … --id-only)` captures a clean value for an immediate `claim`. (Criteria are still attached; only the chatter is suppressed.)
 - `add` is leaf-only behavior on the parent: the parent stays open, but its leaf status flips off as soon as the first child is added.
 - The positional order is **strict**: `add <parent> <title>`. If the leading arg doesn't resolve as a short id, `add` errors with `add: no such parent …` and reminds you of the order. If you pass a single arg that *does* resolve as an existing short id (the "forgot the title" slip), `add` refuses with `add: ambiguous single arg …` rather than silently creating a root task literally named after the id. Both errors lead with a stable, greppable prefix and tell you the fix. To create a root task whose title happens to look like a short id, pass `--parent=""` to declare the literal-title intent.
 
@@ -31,7 +33,7 @@ For more than three tasks at a time, prefer `import` — it's atomic and roundtr
 
 ## `import`
 
-Parses a Markdown file, finds the first fenced YAML block whose top-level key is `tasks:`, and creates every task in one transaction.
+Parses a file and creates every task in one transaction. It finds the first fenced YAML block whose top-level key is `tasks:`; if the file has no fenced block at all, a bare YAML document whose top level is `tasks:` (a plain `.yaml`) is imported directly.
 
 ```sh
 job import plan.md
@@ -45,6 +47,7 @@ What to remember:
 - The whole import is atomic. A typo in row 47 reverts rows 1–46. The `--dry-run` ack tells you what *would* be created without touching the database.
 - `--parent <id>` lets one plan import as a subtree of another. Useful when an agent wants to pull a phase plan into the parent it was scoped from.
 - **Block selection is observable.** Import picks the *first* `tasks:` block, but it warns on stderr when the choice is ambiguous (more than one candidate block — naming the one used by line) or lossy (the chosen block carries keys outside the grammar, which are silently dropped). A Markdown file that merely *illustrates* output YAML can otherwise hijack the import; the warnings make that visible. They never block an otherwise valid import, and they fire under `--dry-run` too.
+- **A bare `tasks:` file needs no fence.** Hand `import` a plain `.yaml` whose top level is `tasks:` and it's parsed directly — the Markdown fence is only required when the `tasks:` block is embedded in prose. A file with neither a fenced block nor a bare `tasks:` document fails with a message naming both accepted forms.
 - The schema is exhaustively documented in the [Plan grammar](../../plan-grammar/) section, and `job schema` prints the live source of truth.
 
 ## `edit`
