@@ -403,6 +403,13 @@ func RunClaim(db *sql.DB, shortID, duration, note, actor string, force bool) err
 		return err
 	}
 
+	// Claiming is the focus setter (last-claim-wins): a claim outside the
+	// actor's focused root flips their focus to the new root, atomically
+	// with the claim itself.
+	if err := flipFocusOnClaim(tx, task, actor); err != nil {
+		return err
+	}
+
 	return tx.Commit()
 }
 
@@ -638,11 +645,35 @@ func RunNextFiltered(db *sql.DB, parentShortID, actor, labelName string, include
 	if err := expireStaleClaims(db, actor); err != nil {
 		return nil, err
 	}
-	tasks, err := queryAvailableTasks(db, parentShortID, 1, labelName, includeParents)
+
+	// With no explicit parent, the actor's focus scopes the walk: the
+	// frontier stays inside the focused root, and an exhausted focused
+	// root fails loudly instead of silently crossing into another tree.
+	// An explicit parent (or no focus) leaves behavior untouched.
+	scope := parentShortID
+	var focus *Task
+	if parentShortID == "" {
+		var err error
+		focus, err = GetFocus(db, actor)
+		if err != nil {
+			return nil, err
+		}
+		if focus != nil {
+			scope = focus.ShortID
+		}
+	}
+
+	tasks, err := queryAvailableTasks(db, scope, 1, labelName, includeParents)
 	if err != nil {
 		return nil, err
 	}
 	if len(tasks) == 0 {
+		if focus != nil {
+			return nil, fmt.Errorf(
+				"No available tasks in focused root %s %q. Claim in another tree ('claim --next <id>' or 'claim <id>') to shift focus, or release it with 'job focus --clear'.",
+				focus.ShortID, focus.Title,
+			)
+		}
 		return nil, fmt.Errorf("No available tasks. Run 'list all' to see blocked or claimed work.")
 	}
 	return tasks[0], nil

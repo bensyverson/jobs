@@ -51,15 +51,27 @@ type CriteriaTally struct {
 // field order: the task itself, its outbound blocks, criteria with state, and
 // substantive notes (history) last. Target marks the orient target. Closed is
 // the close timestamp (Unix seconds) for done nodes, 0 otherwise.
+//
+// Desc is the assembly-owned projection of Task.Description: renderers must
+// read Desc, never Task.Description, so history elision stays an assembly
+// decision. In the default (elided) view, done leaves drop desc, and done
+// nodes of any shape drop notes and criteria; done containers keep desc
+// because that's where the plan narrative lives.
 type OrientNode struct {
 	Task     *Task
 	Target   bool
 	Closed   int64    // close timestamp for done nodes; 0 when not done
+	Desc     string   // renderable description; "" when elided
 	Labels   []string // the node's own labels
 	Blocks   []string // outbound block target short ids
 	Criteria []Criterion
-	Notes    []NoteEntry
-	Children []*OrientNode
+	// CompletionNote is the single "what just happened" breadcrumb of the
+	// elided view: set on exactly one node in the tree — the most recently
+	// closed done task that has a completion note — and empty everywhere
+	// else. The full view leaves it empty (completion notes fold into Notes).
+	CompletionNote string
+	Notes          []NoteEntry
+	Children       []*OrientNode
 }
 
 // RunOrient assembles an OrientView for a target leaf. An empty targetShortID
@@ -67,7 +79,17 @@ type OrientNode struct {
 // rendered tree defaults to the whole root tree containing the target; an
 // optional scopeShortID narrows rendering to that subtree. Target and scope
 // are orthogonal: scope only bounds what is rendered, never what is targeted.
+//
+// The default view elides done-node history (see OrientNode) so orient output
+// stays within an agent's context budget as a plan accumulates history; use
+// RunOrientOpts with full=true for the unelided view.
 func RunOrient(db *sql.DB, targetShortID, scopeShortID, actor string) (*OrientView, error) {
+	return RunOrientOpts(db, targetShortID, scopeShortID, actor, false)
+}
+
+// RunOrientOpts is RunOrient with the elision policy explicit: full=true
+// keeps desc, notes, and criteria on every node regardless of status.
+func RunOrientOpts(db *sql.DB, targetShortID, scopeShortID, actor string, full bool) (*OrientView, error) {
 	target, err := resolveOrientTarget(db, targetShortID, actor)
 	if err != nil {
 		return nil, err
@@ -96,9 +118,14 @@ func RunOrient(db *sql.DB, targetShortID, scopeShortID, actor string) (*OrientVi
 		}
 	}
 
-	tree, err := buildOrientNode(db, scopeRoot, target.ID)
+	tree, err := buildOrientNode(db, scopeRoot, target.ID, full)
 	if err != nil {
 		return nil, err
+	}
+	if !full {
+		if err := annotateRecentCompletionNote(db, tree); err != nil {
+			return nil, err
+		}
 	}
 
 	header, err := buildOrientHeader(db, target, root)
@@ -126,37 +153,43 @@ func resolveOrientTarget(db *sql.DB, targetShortID, actor string) (*Task, error)
 }
 
 // buildOrientNode recursively assembles the subtree rooted at t, flagging the
-// node whose id matches targetID.
-func buildOrientNode(db *sql.DB, t *Task, targetID int64) (*OrientNode, error) {
-	notes, err := substantiveNotes(db, t)
-	if err != nil {
-		return nil, err
+// node whose id matches targetID. Unless full is set, done nodes are elided:
+// notes and criteria are dropped outright, and desc survives only on done
+// containers (children carry the plan narrative; done leaves are reduced to
+// title/id/status/closed).
+func buildOrientNode(db *sql.DB, t *Task, targetID int64, full bool) (*OrientNode, error) {
+	elide := t.Status == "done" && !full
+
+	node := &OrientNode{
+		Task:   t,
+		Target: t.ID == targetID,
 	}
-	criteria, err := GetCriteria(db, t.ID)
-	if err != nil {
-		return nil, err
+
+	if !elide {
+		notes, err := substantiveNotes(db, t)
+		if err != nil {
+			return nil, err
+		}
+		criteria, err := GetCriteria(db, t.ID)
+		if err != nil {
+			return nil, err
+		}
+		node.Notes = notes
+		node.Criteria = criteria
 	}
+
 	blocked, err := GetBlocked(db, t.ShortID)
 	if err != nil {
 		return nil, err
 	}
-	var blocks []string
 	for _, b := range blocked {
-		blocks = append(blocks, b.ShortID)
+		node.Blocks = append(node.Blocks, b.ShortID)
 	}
 	labels, err := GetLabels(db, t.ID)
 	if err != nil {
 		return nil, err
 	}
-
-	node := &OrientNode{
-		Task:     t,
-		Target:   t.ID == targetID,
-		Labels:   labels,
-		Blocks:   blocks,
-		Criteria: criteria,
-		Notes:    notes,
-	}
+	node.Labels = labels
 
 	// Done nodes carry their close timestamp, sourced from the `done` event.
 	if t.Status == "done" {
@@ -172,11 +205,17 @@ func buildOrientNode(db *sql.DB, t *Task, targetID int64) (*OrientNode, error) {
 		return nil, err
 	}
 	for _, c := range children {
-		child, err := buildOrientNode(db, c, targetID)
+		child, err := buildOrientNode(db, c, targetID, full)
 		if err != nil {
 			return nil, err
 		}
 		node.Children = append(node.Children, child)
+	}
+
+	// Desc is decided after children are known: an elided done leaf drops
+	// it; a done container keeps it (the slice-level narrative).
+	if !elide || len(node.Children) > 0 {
+		node.Desc = t.Description
 	}
 	return node, nil
 }
@@ -291,6 +330,54 @@ func substantiveNotes(db *sql.DB, t *Task) ([]NoteEntry, error) {
 // doneEventMeta returns the actor and timestamp of a task's most recent `done`
 // event, used to attribute its completion note. Returns zero values when no
 // `done` event exists.
+// annotateRecentCompletionNote sets CompletionNote on the single done node in
+// the assembled tree whose note-bearing close is the most recent (done-event
+// recency, ties broken by event id). Noteless closes — cascade-closed
+// containers foremost — are passed over so they never blank the breadcrumb.
+func annotateRecentCompletionNote(db *sql.DB, tree *OrientNode) error {
+	byID := map[int64]*OrientNode{}
+	var collect func(n *OrientNode)
+	collect = func(n *OrientNode) {
+		if n.Task.Status == "done" {
+			byID[n.Task.ID] = n
+		}
+		for _, c := range n.Children {
+			collect(c)
+		}
+	}
+	collect(tree)
+	if len(byID) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, 0, len(byID))
+	args := make([]any, 0, len(byID))
+	for id := range byID {
+		placeholders = append(placeholders, "?")
+		args = append(args, id)
+	}
+	row := db.QueryRow(fmt.Sprintf(`
+		SELECT e.task_id, t.completion_note
+		FROM events e
+		JOIN tasks t ON t.id = e.task_id
+		WHERE e.event_type = 'done'
+		  AND t.completion_note IS NOT NULL AND t.completion_note != ''
+		  AND e.task_id IN (%s)
+		ORDER BY e.created_at DESC, e.id DESC
+		LIMIT 1
+	`, strings.Join(placeholders, ",")), args...)
+	var taskID int64
+	var note string
+	if err := row.Scan(&taskID, &note); err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	byID[taskID].CompletionNote = note
+	return nil
+}
+
 func doneEventMeta(db *sql.DB, taskID int64) (string, int64, error) {
 	row := db.QueryRow(`
 		SELECT actor, created_at

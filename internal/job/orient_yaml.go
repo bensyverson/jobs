@@ -54,17 +54,20 @@ type tallyDoc struct {
 }
 
 type orientNodeDoc struct {
-	Title    string           `yaml:"title"`
-	ID       string           `yaml:"id"`
-	Status   string           `yaml:"status"`
-	Target   bool             `yaml:"target,omitempty"`
-	Closed   string           `yaml:"closed,omitempty"`
-	Desc     string           `yaml:"desc,omitempty"`
-	Labels   []string         `yaml:"labels,omitempty"`
-	Blocks   []string         `yaml:"blocks,omitempty"`
-	Criteria []criterionDoc   `yaml:"criteria,omitempty"`
-	Notes    []string         `yaml:"notes,omitempty"`
-	Children []*orientNodeDoc `yaml:"children,omitempty"`
+	Title    string         `yaml:"title"`
+	ID       string         `yaml:"id"`
+	Status   string         `yaml:"status"`
+	Target   bool           `yaml:"target,omitempty"`
+	Closed   string         `yaml:"closed,omitempty"`
+	Desc     string         `yaml:"desc,omitempty"`
+	Labels   []string       `yaml:"labels,omitempty"`
+	Blocks   []string       `yaml:"blocks,omitempty"`
+	Criteria []criterionDoc `yaml:"criteria,omitempty"`
+	// CompletionNote is the elided view's single most-recent-close
+	// breadcrumb; at most one node in the document carries it.
+	CompletionNote string           `yaml:"completion_note,omitempty"`
+	Notes          []string         `yaml:"notes,omitempty"`
+	Children       []*orientNodeDoc `yaml:"children,omitempty"`
 }
 
 type criterionDoc struct {
@@ -116,13 +119,14 @@ func toHeaderDoc(h OrientHeader) orientHeaderDoc {
 
 func toNodeDoc(n *OrientNode) *orientNodeDoc {
 	d := &orientNodeDoc{
-		Title:  n.Task.Title,
-		ID:     n.Task.ShortID,
-		Status: n.Task.Status,
-		Target: n.Target,
-		Desc:   n.Task.Description,
-		Labels: n.Labels,
-		Blocks: n.Blocks,
+		Title:          n.Task.Title,
+		ID:             n.Task.ShortID,
+		Status:         n.Task.Status,
+		Target:         n.Target,
+		Desc:           n.Desc,
+		Labels:         n.Labels,
+		Blocks:         n.Blocks,
+		CompletionNote: n.CompletionNote,
 	}
 	if n.Task.Status == "done" && n.Closed > 0 {
 		d.Closed = time.Unix(n.Closed, 0).Format("2006-01-02")

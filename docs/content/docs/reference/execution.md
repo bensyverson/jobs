@@ -21,11 +21,28 @@ job claim abc12 -q                         # one-line ack only, no briefing
 
 The `--next` modes:
 
-- `claim --next` walks the leaf frontier in plan order and atomically claims the first available one. The race-safe contract is: if two agents call `claim --next` at the same moment, exactly one wins each leaf — the loser gets the *next* leaf, not an error. This is the canonical spawn pattern for parallel agents.
+- `claim --next` walks the leaf frontier in plan order and atomically claims the first available one. With a [focus](#focus) set, the no-argument walk stays inside your focused root; an explicit parent argument searches that subtree regardless of focus. The race-safe contract is: if two agents call `claim --next` at the same moment, exactly one wins each leaf — the loser gets the *next* leaf, not an error. This is the canonical spawn pattern for parallel agents.
 - `--include-parents` widens the walk to include any available task, not only leaves. Reach for it only when you genuinely want to claim a task that has open children — usually you don't.
 - `--label <name>` restricts the search to tasks carrying a label. Combined with multi-agent setups, this is how you steer different agents toward different streams of work.
 
 Idiomatic combination: `job claim --next 1h && do-the-work && job done <id> --claim-next`. See `done --claim-next` below.
+
+## `focus`
+
+Your **focus** (active root) is the tree that scopes every no-argument default: bare `claim --next`, `job next`, `status`'s Next: hint, and `orient`'s target all stay inside it. It exists so a blocked or paused tree elsewhere in the forest never silently hands you a leaf from the wrong plan.
+
+```sh
+job focus                                  # show your focus + availability rollup
+job focus --clear                          # release it (no-arg defaults go global)
+```
+
+The rules, in claim order:
+
+- **Claiming is the setter.** Any successful claim outside your focused root flips your focus to the claimed task's root (`focus_set` in the event log) — last claim wins, no ceremony. There is deliberately no `focus <id>` setter.
+- **Focus is per-actor.** Two agents sharing a database each keep their own lane; one agent switching trees never moves another's defaults.
+- **It releases itself.** When the focused root completes (including by cascade) or is canceled, focus releases automatically. `focus --clear` is the manual version — the "pause this tree" case.
+- **Exhaustion fails loudly.** When your focused root has no available leaf, no-arg `next`/`claim --next` return an error naming the root and the escapes — claim in another tree to shift focus, or `focus --clear` — instead of silently crossing into a different plan.
+- **Explicit arguments always win.** `claim --next <id>`, `next <id>`, `orient <id>`, and `status <id>` behave exactly as if focus didn't exist.
 
 ## `release` (and its alias `unclaim`)
 

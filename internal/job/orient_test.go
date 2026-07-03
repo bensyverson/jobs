@@ -266,9 +266,11 @@ func TestRunOrient_Notes_IncludeNotedAndCompletion_ExcludeChurn(t *testing.T) {
 		t.Fatalf("done: %v", err)
 	}
 
-	view, err := RunOrient(db, available, "", TestActor)
+	// Done-leaf notes only surface in the full view (the default elides done
+	// history); the note-filtering contract itself is unchanged.
+	view, err := RunOrientOpts(db, available, "", TestActor, true)
 	if err != nil {
-		t.Fatalf("RunOrient: %v", err)
+		t.Fatalf("RunOrientOpts: %v", err)
 	}
 	node := findOrientNode(view.Tree, doneLeaf)
 	if node == nil {

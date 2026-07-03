@@ -172,7 +172,9 @@ func TestRenderOrientYAML_CriteriaAndTargetFlag(t *testing.T) {
 	}
 }
 
-// BIW — Done nodes include a `closed` date; full descriptions are never truncated.
+// BIW — Done nodes include a `closed` date; full descriptions are never
+// truncated. Desc folding is asserted through the full view since the
+// default elides done-leaf descriptions; the closed date renders in both.
 func TestRenderOrientYAML_ClosedDateAndFullDesc(t *testing.T) {
 	db := SetupTestDB(t)
 	longDesc := strings.Repeat("This is a long description that must survive folding without truncation. ", 8)
@@ -181,9 +183,9 @@ func TestRenderOrientYAML_ClosedDateAndFullDesc(t *testing.T) {
 	doneLeaf := MustAddDesc(t, db, root, "Done leaf", longDesc)
 	MustDone(t, db, doneLeaf)
 
-	view, err := RunOrient(db, available, "", TestActor)
+	view, err := RunOrientOpts(db, available, "", TestActor, true)
 	if err != nil {
-		t.Fatalf("RunOrient: %v", err)
+		t.Fatalf("RunOrientOpts: %v", err)
 	}
 	out := renderOrient(t, view)
 

@@ -70,9 +70,9 @@ job status abc12                           # subtree-only
 job status --format=json                   # machine-parsable form
 ```
 
-`status` is the right command to open every session with — identity check and landscape briefing in one call. The "Next:" hint at the bottom of the global view names the leaf the system would hand you if you ran `claim --next` next.
+`status` is the right command to open every session with — identity check and landscape briefing in one call. The "Next:" hint at the bottom of the global view names the leaf the system would hand you if you ran `claim --next` next. With a [focus](../execution/#focus) set, the global view adds a `Focus:` line and the Next: hint resolves *inside* the focused root — when that root is exhausted, the hint spells out the escapes instead of pointing at another tree. The per-root rollup rows and pending decisions always stay forest-wide; focus narrows the hint, never the landscape.
 
-`--format=json` mirrors the human output's structure. Forest scope returns `{identity, counts, last_activity_unix, roots, next, stale, decisions}`; subtree scope swaps the preamble for `{target, children, …}`. See [the JSON output reference](../machine-interface/json-output/) for the per-field shape.
+`--format=json` mirrors the human output's structure. Forest scope returns `{identity, counts, last_activity_unix, roots, next, focus, stale, decisions}`; subtree scope swaps the preamble for `{target, children, …}`. See [the JSON output reference](../machine-interface/json-output/) for the per-field shape.
 
 `summary` is a deprecated alias and emits a stderr notice on every call.
 
@@ -89,19 +89,21 @@ job next --label p0                        # restrict to a label
 job next --include-parents                 # widen to non-leaf availables
 ```
 
-Two facts to keep straight:
+Three facts to keep straight:
 
 - `next` returns *leaves* by default. A task with open children is descended through, never returned. `--include-parents` is the legacy "any available" behavior — useful if you genuinely need to claim a parent task, otherwise leave it off.
+- With a [focus](../execution/#focus) set, bare `next` stays inside your focused root and fails loudly (naming the escapes) when it's exhausted; an explicit parent argument bypasses focus.
 - `all` (in either position) returns the whole frontier instead of the single next leaf. Pair with `--format=json` to feed a fanout script that spawns one agent per id.
 
 ## `orient`
 
-The worker's session-opener. Where `status` hands the orchestrator a forest-wide landscape, `orient` regenerates the full plan tree around a *single leaf* — the one you're about to work on — with every node's complete description, its substantive notes folded in, and criteria as a checklist. It replaces the old habit of pasting a whole plan doc at a fresh agent: the tree is live, so the notes prior agents left on already-closed siblings (the plan's running memory) come along for free.
+The worker's session-opener. Where `status` hands the orchestrator a forest-wide landscape, `orient` regenerates the full plan tree around a *single leaf* — the one you're about to work on — with live nodes carrying their complete descriptions, substantive notes, and criteria as a checklist. It replaces the old habit of pasting a whole plan doc at a fresh agent: the tree is live, so the current state of the plan comes along for free.
 
 ```sh
 job orient                                 # target the next available leaf
 job orient abc12                           # target a specific task
 job orient abc12 --scope def34             # render only the def34 subtree
+job orient --full                          # keep done-task history (unelided)
 job orient --format yaml                   # explicit default
 ```
 
@@ -113,10 +115,12 @@ Output is a top-level `orient:` header followed by the `tasks:` tree. The header
 - `own_notes` — the target's *own* prior progress notes, inlined for primacy (often empty on a fresh leaf).
 - `weigh_notes` — a pointer list of node ids whose notes bear on this task: the target's same-parent sibling leaves that carry notes. Their bodies stay folded in the tree; the header just points at them.
 
-Two things to keep straight:
+Four things to keep straight:
 
+- **The default target respects your focus.** With no id and a [focus](../execution/#focus) set, orient targets the next available leaf *inside your focused root* (and fails loudly, naming the escapes, when it's exhausted). An explicit id ignores focus entirely.
 - **Target and scope are orthogonal.** The positional id (or the next leaf) is *what you're working on*; `--scope` only bounds *what gets rendered*. By default the scope is the target's whole root tree — the full context the plan doc used to supply. `--scope <id>` narrows it to a subtree for very large plans, but `root` in the header still names the true root.
-- **Notes are filtered to substance.** Each node folds in its `noted` events and completion note; churn — heartbeats, claims, releases, moves, label edits, block/unblock — is excluded. The raw trail is always there in `job log`.
+- **Done tasks are elided to stay in context.** A plan accumulates history monotonically, and re-emitting all of it eventually pushes orient output past what an agent can read in one gulp (a real 90-task tree measured 231KB, 91% of it done-task history). So the default view reduces done tasks to `title / id / status / closed`: their notes and criteria are dropped, and their `desc` is dropped too *unless the done task has children* — container descriptions carry the slice-level plan narrative and are kept. The shape and order of finished work stays visible; any elided history is one `job show <id>` away. One breadcrumb survives: the most recently closed task with a completion note carries it as `completion_note`, so a fresh agent sees what just happened. `--full` restores the unelided view.
+- **Notes are filtered to substance.** Each live node folds in its `noted` events and completion note; churn — heartbeats, claims, releases, moves, label edits, block/unblock — is excluded. The raw trail is always there in `job log`.
 
 `orient` is read-only and never requires `--as`. `--format` defaults to `yaml`; a leaner `--format md` (YAML front-matter plus a markdown checklist tree) is planned and currently returns a not-yet-implemented message.
 

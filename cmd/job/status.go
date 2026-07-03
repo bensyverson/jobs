@@ -62,7 +62,7 @@ func newStatusCmd() *cobra.Command {
 			var decisions []*job.Task
 
 			if target != nil {
-				rollup, err := job.BuildRollup(db, target)
+				rollup, err := job.BuildRollup(db, target, "")
 				if err != nil {
 					return err
 				}
@@ -95,7 +95,11 @@ func newStatusCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				rollup, err := job.BuildRollup(db, nil)
+				// Forest scope is focus-aware: resolve the identity softly
+				// (status is read-only, never requires --as) so the rollup
+				// can scope Next to the actor's focused root.
+				actor, _ := job.ResolveIdentity(db, asFlag)
+				rollup, err := job.BuildRollup(db, nil, actor)
 				if err != nil {
 					return err
 				}
@@ -148,6 +152,7 @@ func renderStatusForestJSON(w io.Writer, s *job.StatusSummary, rollup *job.Summa
 		"last_activity_unix": s.LastActivity,
 		"roots":              rollupRowsJSON(rollup.DirectChildren),
 		"next":               nextJSON(rollup.Next),
+		"focus":              nextJSON(rollup.Focus),
 		"stale":              staleJSON(stales),
 		"decisions":          decisionsJSON(decisions),
 	}

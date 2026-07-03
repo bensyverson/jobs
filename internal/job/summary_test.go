@@ -100,7 +100,7 @@ func TestRunSummary_NotFound(t *testing.T) {
 	}
 }
 
-// Forest scope: BuildRollup(db, nil) aggregates the whole DB. Target
+// Forest scope: BuildRollup(db, nil, "") aggregates the whole DB. Target
 // is nil (there's no single anchor); Children are the top-level tasks,
 // each carrying its own subtree counts.
 // Forest scope must hide root tasks that are fully closed (done or canceled
@@ -124,7 +124,7 @@ func TestBuildRollup_ForestScope_HidesClosedRoots(t *testing.T) {
 		t.Fatalf("cancel: %v", err)
 	}
 
-	rollup, err := BuildRollup(db, nil)
+	rollup, err := BuildRollup(db, nil, "")
 	if err != nil {
 		t.Fatalf("BuildRollup: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestBuildRollup_ForestScope_ReturnsRootsAsChildren(t *testing.T) {
 	r2 := MustAdd(t, db, "", "Root2")
 	MustAdd(t, db, r2, "L2a")
 
-	rollup, err := BuildRollup(db, nil)
+	rollup, err := BuildRollup(db, nil, "")
 	if err != nil {
 		t.Fatalf("BuildRollup: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestRenderSummary_ForestScope_NoHeadline(t *testing.T) {
 	MustAdd(t, db, r1, "L1")
 	_ = MustAdd(t, db, "", "Root2")
 
-	rollup, err := BuildRollup(db, nil)
+	rollup, err := BuildRollup(db, nil, "")
 	if err != nil {
 		t.Fatalf("BuildRollup: %v", err)
 	}
@@ -369,7 +369,7 @@ func TestRenderSummary_AppendsNextHint_ForestScope(t *testing.T) {
 	leaf := MustAdd(t, db, r1, "L1")
 	_ = MustAdd(t, db, "", "Root2")
 
-	rollup, err := BuildRollup(db, nil)
+	rollup, err := BuildRollup(db, nil, "")
 	if err != nil {
 		t.Fatalf("BuildRollup: %v", err)
 	}

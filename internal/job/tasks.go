@@ -456,6 +456,14 @@ func cascadeAutoCloseAncestors(tx dbtx, taskID int64, triggerShortID, triggerKin
 			}
 		}
 
+		// A cascade that reaches a root ends that tree: release every
+		// actor's focus on it, visibly.
+		if p.ParentID == nil {
+			if err := releaseFocusOnRootClose(tx, p); err != nil {
+				return nil, err
+			}
+		}
+
 		result = append(result, AutoClosedAncestor{ShortID: p.ShortID, Title: p.Title, Status: destination})
 		cursorID = p.ID
 	}
@@ -698,6 +706,13 @@ func RunDone(db *sql.DB, ids []string, cascade bool, note string, result json.Ra
 		}
 		if err := recordBlocksUnblockedOn(tx, p.target.task.ID, p.target.shortID, actor); err != nil {
 			return nil, nil, err
+		}
+
+		// Closing a root directly ends that tree: release focus visibly.
+		if targetTask.ParentID == nil {
+			if err := releaseFocusOnRootClose(tx, targetTask); err != nil {
+				return nil, nil, err
+			}
 		}
 
 		// Leaf-frontier cascade: after closing this target, auto-close any
@@ -1604,7 +1619,7 @@ func findNextSibling(db *sql.DB, siblings []*Task, closed *Task) (next *Task, sk
 	return nil, nil, "", nil
 }
 
-func findTopAncestor(db *sql.DB, task *Task) (*Task, error) {
+func findTopAncestor(db dbtx, task *Task) (*Task, error) {
 	current := task
 	for current.ParentID != nil {
 		parent, err := getTaskByID(db, *current.ParentID)

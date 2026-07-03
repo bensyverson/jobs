@@ -18,7 +18,11 @@ type Summary struct {
 	Target         *SubtreeRollup
 	DirectChildren []*SubtreeRollup
 	Next           *Task
-	DecisionTasks  []*Task
+	// Focus is the actor's focused root in forest scope (nil when unset,
+	// when no actor was given, or in subtree scope). When set, Next was
+	// resolved inside it.
+	Focus         *Task
+	DecisionTasks []*Task
 }
 
 type SubtreeRollup struct {
@@ -51,7 +55,7 @@ func RunSummary(db *sql.DB, shortID string) (*Summary, error) {
 	if target == nil {
 		return nil, fmt.Errorf("task %q not found", shortID)
 	}
-	return BuildRollup(db, target)
+	return BuildRollup(db, target, "")
 }
 
 // BuildRollup is the shared subtree-rollup engine used by both `status`
@@ -60,7 +64,11 @@ func RunSummary(db *sql.DB, shortID string) (*Summary, error) {
 // enumerates every top-level task; when target is non-nil the result
 // mirrors the target-plus-direct-children shape `summary <id>` has
 // always produced.
-func BuildRollup(db *sql.DB, target *Task) (*Summary, error) {
+//
+// In forest scope the actor's focus (when set) scopes Next to the focused
+// root and is carried on Summary.Focus for rendering. Subtree scope ignores
+// focus — an explicit target always wins.
+func BuildRollup(db *sql.DB, target *Task, actor string) (*Summary, error) {
 	var targetRollup *SubtreeRollup
 	var directChildren []*Task
 	var err error
@@ -93,10 +101,20 @@ func BuildRollup(db *sql.DB, target *Task) (*Summary, error) {
 	}
 
 	// Next: the first claimable leaf inside scope. Forest scope scans the
-	// whole DB; subtree scope scans under target.
+	// whole DB — unless the actor has a focus, which narrows the scan to
+	// the focused root; subtree scope scans under target.
 	var parentID *int64
+	var focus *Task
 	if target != nil {
 		parentID = &target.ID
+	} else if actor != "" {
+		focus, err = GetFocus(db, actor)
+		if err != nil {
+			return nil, err
+		}
+		if focus != nil {
+			parentID = &focus.ID
+		}
 	}
 	leaves, err := queryAvailableLeafFrontier(db, parentID, 1, "")
 	if err != nil {
@@ -107,12 +125,19 @@ func BuildRollup(db *sql.DB, target *Task) (*Summary, error) {
 		next = leaves[0]
 	}
 
-	decisions, err := queryDecisionTasks(db, parentID)
+	// Decisions stay scope-wide (never focus-narrowed): status is the
+	// landscape briefing, and a pending decision in another tree is
+	// exactly the kind of thing it must not hide.
+	var decisionScope *int64
+	if target != nil {
+		decisionScope = &target.ID
+	}
+	decisions, err := queryDecisionTasks(db, decisionScope)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Summary{Target: targetRollup, DirectChildren: childRollups, Next: next, DecisionTasks: decisions}, nil
+	return &Summary{Target: targetRollup, DirectChildren: childRollups, Next: next, Focus: focus, DecisionTasks: decisions}, nil
 }
 
 // queryDecisionTasks returns open tasks labeled "decision" within the
@@ -352,8 +377,15 @@ func RenderSummary(w io.Writer, s *Summary) {
 		}
 	}
 
+	if s.Focus != nil {
+		fmt.Fprintf(w, "Focus: %s %q\n", s.Focus.ShortID, s.Focus.Title)
+	}
 	if s.Next != nil {
 		fmt.Fprintf(w, "Next: %s %q\n", s.Next.ShortID, s.Next.Title)
+	} else if s.Focus != nil {
+		// Exhausted focused root: keep the loud-failure contract instead
+		// of silently pointing at another tree.
+		fmt.Fprintf(w, "Next: none available in focused root — 'claim --next <id>' in another tree to shift focus, or 'job focus --clear' to release it\n")
 	}
 }
 

@@ -32,8 +32,14 @@ func newNextCmd() *cobra.Command {
 				}
 			}
 
+			// `next` is read-only: resolve the identity softly (like
+			// status/orient) so the actor's focus scopes the single-next
+			// walk. `all` stays forest-wide — focus narrows the default,
+			// never the explicit "show me everything" form.
+			actor, _ := job.ResolveIdentity(db, asFlag)
+
 			if showAll {
-				tasks, err := job.RunNextAllFiltered(db, parentShortID, "", labelFilter, includeParents)
+				tasks, err := job.RunNextAllFiltered(db, parentShortID, actor, labelFilter, includeParents)
 				if err != nil {
 					return err
 				}
@@ -44,7 +50,7 @@ func newNextCmd() *cobra.Command {
 				return nil
 			}
 
-			task, err := job.RunNextFiltered(db, parentShortID, "", labelFilter, includeParents)
+			task, err := job.RunNextFiltered(db, parentShortID, actor, labelFilter, includeParents)
 			if err != nil {
 				return err
 			}

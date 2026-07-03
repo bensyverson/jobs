@@ -53,6 +53,11 @@ Criteria:
 - `criteria_added` — criterion list authored on a task.
 - `criterion_state` — single criterion transitioned (`pending` → `passed` / `skipped` / `failed`).
 
+Focus:
+
+- `focus_set` — the actor's [focus](../../reference/execution/#focus) moved to a root, almost always as a side effect of claiming outside it (`detail.via = "claim"` names the claimed task). Same-root claims emit nothing.
+- `focus_released` — the actor's focus cleared: manually (`job focus --clear`) or automatically when the focused root closed (`detail.via = "root_closed"`, one event per focused actor).
+
 Liveness:
 
 - `heartbeat` — explicit `job heartbeat` call. Hidden by default in `tail` output; pass `--events heartbeat` to see them.

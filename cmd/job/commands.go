@@ -95,6 +95,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newSchemaCmd())
 	cmd.AddCommand(newStatusCmd())
 	cmd.AddCommand(newOrientCmd())
+	cmd.AddCommand(newFocusCmd())
 	cmd.AddCommand(newServeCmd())
 	return cmd
 }
@@ -155,7 +156,7 @@ VERBS (grouped by role)
   Planning:     add, import, edit, block, move, label
     Reserved label:  "decision" → surfaces as "Decision:" in status until done/canceled
   Execution:    claim, claim --next, release/unclaim, note, done, reopen, cancel, heartbeat
-  Observation:  ls, show, log, status, next, next all, tail
+  Observation:  ls, show, log, status, next, next all, orient, focus, tail
   Web UI:       serve (read-only dashboard, binds 127.0.0.1:7823 by default)
 
   Grammar:
@@ -182,6 +183,10 @@ CLAIMS
   Claims default to 30m. Any write to a claimed task by its holder (note, edit, label add/remove) auto-extends the TTL. Reach for ` + "`heartbeat`" + ` only during a genuine pause ("thinking, not writing").
 
   After a successful ` + "`done`" + `, the ack ends with a "Next:" hint naming the next suggested leaf. The walk prefers forward siblings, then earlier siblings, walking up the closed task's ancestor chain before crossing root trees; follow the hint to stay inside the current plan.
+
+FOCUS
+
+  Claiming any task focuses its root for you (per-actor, last claim wins). While focused, no-arg ` + "`claim --next`" + `, ` + "`next`" + `, ` + "`status`" + `'s Next: hint, and ` + "`orient`" + ` stay inside that root; an exhausted focused root fails loudly instead of handing you a leaf from another tree. Explicit ids always override. Focus releases when the root closes, or manually via ` + "`job focus --clear`" + `. ` + "`job focus`" + ` shows yours.
 
 OUTPUT
 
