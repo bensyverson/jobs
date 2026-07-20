@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,11 +12,13 @@ import (
 
 func newStatusCmd() *cobra.Command {
 	var format string
+	var usage bool
+	var since string
 	cmd := &cobra.Command{
 		Use:     "status [id]",
 		Aliases: []string{"summary"},
 		Short:   "Show a session preamble and work landscape, or a single subtree",
-		Long:    "Without an argument, prints a session preamble (claimed/open/done counts, time since last event, identity) followed by the forest-level rollup — one row per top-level task with its own subtree counts. With an id, scopes the renderer to the subtree rooted at that task and skips the session preamble (the preamble is DB-wide metadata and doesn't belong on a subtree view). Pass --format=json for the same data in a machine-parsable shape. `job summary [id]` is a deprecated alias and emits a stderr notice on every call. No --as required.",
+		Long:    "Without an argument, prints a session preamble (claimed/open/done counts, time since last event, identity) followed by the forest-level rollup — one row per top-level task with its own subtree counts. With an id, scopes the renderer to the subtree rooted at that task and skips the session preamble (the preamble is DB-wide metadata and doesn't belong on a subtree view). Pass --format=json for the same data in a machine-parsable shape. `job summary [id]` is a deprecated alias and emits a stderr notice on every call. No --as required.\n\nWith --usage, prints an activity report instead of the briefing + rollup: status counts (open/claimed/done/canceled/blocked, zero-counts omitted in md), completion & cancellation rates, event count, first/last event timestamps, velocity (done events / calendar days), and DB file size. All-time by default; --since <RFC3339|duration> (same grammar as `job log`) scopes to a window. Positional [id] scopes to a subtree. --since without --usage is a no-op and errors.",
 		Args:    cobra.MaximumNArgs(1),
 		PreRun: func(cmd *cobra.Command, args []string) {
 			if cmd.CalledAs() == "summary" {
@@ -27,11 +30,23 @@ func newStatusCmd() *cobra.Command {
 				return fmt.Errorf("status: --format must be one of md, json (got %q)", format)
 			}
 
+			sincePtr, err := job.ParseSince(since)
+			if err != nil {
+				return err
+			}
+			if sincePtr != nil && !usage {
+				return fmt.Errorf("--since requires --usage on `job status`; --since is otherwise a no-op here")
+			}
+
 			db, err := openDBFromCmd()
 			if err != nil {
 				return err
 			}
 			defer db.Close()
+
+			if usage {
+				return runUsage(cmd, args, db, sincePtr, format)
+			}
 
 			out := cmd.OutOrStdout()
 
@@ -125,6 +140,8 @@ func newStatusCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "md", "output format (md|json)")
+	cmd.Flags().BoolVar(&usage, "usage", false, "print the activity report instead of the briefing + rollup")
+	cmd.Flags().StringVarP(&since, "since", "s", "", "with --usage: report window (RFC3339 timestamp or relative duration, e.g. 5m, 2h, 7d)")
 	return cmd
 }
 
@@ -246,4 +263,39 @@ func writeJSON(w io.Writer, payload any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(payload)
+}
+
+// runUsage renders the --usage activity report. Resolves a positional
+// [id] to a subtree scope (mirroring `job status [id]` and `job log
+// [id]`), then dispatches to the md or json renderer.
+func runUsage(cmd *cobra.Command, args []string, db *sql.DB, sincePtr *int64, format string) error {
+	var scopeID *int64
+	if len(args) == 1 {
+		target, err := job.GetTaskByShortID(db, args[0])
+		if err != nil {
+			return err
+		}
+		if target == nil {
+			return fmt.Errorf("task %q not found", args[0])
+		}
+		scopeID = &target.ID
+	}
+
+	u, err := job.RunUsage(db, scopeID, sincePtr)
+	if err != nil {
+		return err
+	}
+
+	out := cmd.OutOrStdout()
+	if format == "json" {
+		b, err := job.MarshalUsageJSON(u)
+		if err != nil {
+			return err
+		}
+		_, _ = out.Write(b)
+		fmt.Fprintln(out)
+		return nil
+	}
+	job.RenderUsage(out, u)
+	return nil
 }

@@ -76,6 +76,37 @@ job status --format=json                   # machine-parsable form
 
 `summary` is a deprecated alias and emits a stderr notice on every call.
 
+### `--usage`
+
+`--usage` switches `status` into an **activity report** mode. The briefing and rollup are replaced by a compact report — for a human glancing at a repo's amount of activity, not for orchestrating the next claim. Read-only and fast; reuses the same indexes as `log`.
+
+```sh
+job status --usage                         # all-time activity report
+job status --usage --since 7d              # last 7 days
+job status --usage --since 30d            # last 30 days
+job status --usage abc12                  # scoped to a subtree
+job status --usage --format=json          # machine-parsable form
+```
+
+The md report (omitting any status whose count is zero) looks like:
+
+```
+Usage (all-time)
+  open 5 · done 378 · canceled 17 · blocked 2
+  completion 95% · cancellation 4%
+
+Activity
+  events 1,204 · first 2026-04-29 · last 17d ago
+  velocity 3.2/day (over 118d)
+  db 412 KB
+```
+
+- **Default window is all-time.** Any `--since <duration>` enters windowed mode and the header becomes `Usage (last 7d)` (or whatever duration). `--since` accepts the same RFC3339 or relative-duration grammar as `job log` (`5m`, `2h`, `7d`, `30d`, or `2026-04-28T10:00:00Z`).
+- `--since` without `--usage` is a no-op on the default briefing and errors with a pointer to add `--usage`.
+- **Status taxonomy** matches the data model: open (= `available`), claimed, done, canceled, and a separate `blocked` count derived from the `blocks` table (an available task with ≥1 non-done blocker). Zero counts are suppressed in the md output but kept in JSON.
+- **Velocity is `done events / calendar days`** — the numerator counts every `done` event in scope (a task done → reopened → re-done counts each completion), and the denominator is the calendar span from the first event to now (all-time) or the window length (windowed: literal days, e.g. `--since 30d` → divide by 30). Idle days are not excluded; calendar span is the honest, simple metric. We do not average per-day rates then mean them — that collapses to the same number as `total / N`.
+- **JSON shape** carries every status count (zeros preserved), completion/cancellation rates as percentages, the event span as both unix timestamps and ISO strings, and a `velocity` object with `{rate, denominator_days, window, window_days}`. Forest scope omits `scope_task_id`; subtree scope sets it.
+
 ## `next`
 
 Shows the next leaf the planner would hand you, without claiming it.

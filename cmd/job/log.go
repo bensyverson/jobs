@@ -4,7 +4,6 @@ import (
 	"fmt"
 	job "github.com/bensyverson/jobs/internal/job"
 	"github.com/spf13/cobra"
-	"time"
 )
 
 func newLogCmd() *cobra.Command {
@@ -23,17 +22,9 @@ func newLogCmd() *cobra.Command {
 			}
 			defer db.Close()
 
-			var sincePtr *int64
-			if since != "" {
-				if ts, perr := time.Parse(time.RFC3339, since); perr == nil {
-					u := ts.Unix()
-					sincePtr = &u
-				} else if seconds, derr := job.ParseDuration(since); derr == nil {
-					u := time.Now().Unix() - seconds
-					sincePtr = &u
-				} else {
-					return fmt.Errorf("--since: expected RFC3339 timestamp or duration (e.g. 5m, 2h), got %q", since)
-				}
+			sincePtr, err := job.ParseSince(since)
+			if err != nil {
+				return err
 			}
 
 			shortID := ""
