@@ -2195,16 +2195,18 @@ a.c-graph-node__bug:focus-visible {
   margin-top: var(--space-xs);
 }
 
-/* Description from the task record — reads as the second line of each row.
+/* Description from the task record — reads as narrative under the title.
    Inherits the row's status-tinted color so the description reinforces the
    title's state, just at a quieter register (slight opacity reduction).
-   Line length caps at ~40em for comfortable reading on wide monitors. */
+   Newlines in the description render as linebreaks (white-space: pre-wrap),
+   matching the peek sheet and full task page (.c-note). Line length caps at
+   ~40em for comfortable reading on wide monitors. */
 .c-plan-row__desc {
   font-size: var(--font-body-sm-size);
   line-height: 1.4;
   color: inherit;
   opacity: 0.75;
-  white-space: normal;
+  white-space: pre-wrap;
   max-width: 40em;
 }
 

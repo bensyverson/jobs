@@ -183,6 +183,27 @@ func TestComponentsCSS_CursorDotAtTop(t *testing.T) {
 	}
 }
 
+// TestComponentsCSS_PlanRowDescPreservesLinebreaks pins the plan row's
+// description treatment: newlines in the task description must render
+// as linebreaks, matching the peek sheet and full task page (.c-note
+// uses white-space: pre-wrap). Both render paths — the server template
+// (plan.html.tmpl) and the client scrub renderer (plan-scrub-render.mjs)
+// — share the .c-plan-row__desc class, so the CSS rule is the single
+// place that controls this.
+func TestComponentsCSS_PlanRowDescPreservesLinebreaks(t *testing.T) {
+	body, err := fs.ReadFile(assets.FS(), "css/components.css")
+	if err != nil {
+		t.Fatalf("read components.css: %v", err)
+	}
+	rule := regexp.MustCompile(`(?s)\.c-plan-row__desc\s*{[^}]*}`).Find(body)
+	if rule == nil {
+		t.Fatal("components.css: missing .c-plan-row__desc rule")
+	}
+	if !regexp.MustCompile(`white-space\s*:\s*pre-wrap`).Match(rule) {
+		t.Errorf(".c-plan-row__desc must set white-space: pre-wrap so description linebreaks render, matching the peek sheet and task page")
+	}
+}
+
 // TestBaseCSS_HiddenAttributeRule pins the global rule that makes the
 // HTML `hidden` attribute work uniformly across components. Without
 // it, any component with a class-level `display: ...` (e.g.
