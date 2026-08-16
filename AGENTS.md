@@ -97,18 +97,18 @@ Pre-launch, zero users, no existing data. Never spend effort on backward compati
 - **`r.ParseForm()` reads a body only when it is urlencoded**; for multipart it leaves it empty without erroring. Keep one wire format per route — a handler that accepts two body shapes needs two sets of checks where the design wanted one.
 <!-- agents:end go -->
 
-<!-- agents:begin web@3c49b7 -->
+<!-- agents:begin web@5195a0 -->
 ## Web
 
 - **Vanilla HTML, CSS and JS** — no frameworks or build tools beyond the server. WebComponents are the enhancement layer: the server ships each element's real content as HTML inside it, and the component's JS upgrades what's already there — never an empty tag that renders itself.
 - **Follow `DESIGN.md` when the project has one** — tokens, type scale, colour roles and component conventions come from there, not from ad-hoc values.
-- **Every page works without JavaScript — ship full HTML.** Then use JS to enhance where users expect modern interactivity (re-sorting a list, a live-updating form field) so those don't need a full reload. No client-side routing and no client-side data fetching to render a page: this is the middle ground between 1994-style brutalism and shipping one `<div>` and a JS blob.
+- **Every page works without JavaScript by default — ship full HTML.** Then use JS to enhance where users expect modern interactivity (re-sorting a list, a live-updating form field) so those don't need a full reload. No client-side routing and no client-side data fetching to render a page: this is the middle ground between 1994-style brutalism and shipping one `<div>` and a JS blob. A surface that is inherently live — a chat, a streaming dashboard — is the exception; the head names it.
 - **No inline `style` attributes**; styles live in stylesheets under a class or selector.
 - **Responsive and mobile-optimized from the first draft.** Without a brand identity, default to a simple, modern, clean aesthetic.
 - **Paths over query strings** (`/api/people/89`, not `?id=89`); queries only for search, sort, filters.
 - **Public pages carry rich `<head>` metadata** including schema.org data.
 - **Server-side tests cannot see the browser.** Keep a JS/browser runner and run it by hand whenever you change behaviour a browser can observe — a green server suite is not evidence about the page.
-- **One custom element per file, named for the element** (`<app>-thing` lives in `app-thing.js`), with a shadow root so component styles don't leak.
+- **New components: one custom element per file, named for the element** (`<app>-thing` lives in `app-thing.js`), with a shadow root so component styles don't leak. Don't retrofit existing scripts as a side quest.
 <!-- agents:end web -->
 
 <!-- agents:begin docs@7ba2fd -->

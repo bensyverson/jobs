@@ -1,4 +1,4 @@
-<!-- agents:begin evidence@667078 -->
+<!-- agents:begin evidence@35eccf -->
 # Working with evidence
 
 Principles, not procedures. Each was paid for at least once; the incidents are deliberately left out — a rule you accept on the strength of its anecdote is a rule you have not understood. Read this before measuring anything, verifying a claim, or writing down a cause.
@@ -8,6 +8,7 @@ Principles, not procedures. Each was paid for at least once; the incidents are d
 - **Absence of a row is not an observation.** Distinguish "observed X", "observed not-X", and "nothing was recorded" every time. Collapsing the last two has shipped repeatedly.
 - **Before quoting a zero, ask whether the thing counted could ever have been non-zero.** A definitional zero reads as "it costs nothing".
 - **Calibrate a new measurement against a known answer before trusting anything else it says**, and freeze that target — one the codebase can repair out from under you is a countdown, not a calibration.
+- **When two tools measure the same thing, reconcile them numerically and say so.** Two figures that differ for an understood reason are fine; two nobody has subtracted are not.
 - **Move one variable at a time**, or the result is uninterpretable and gets misread in whichever direction someone already believed.
 
 ## What counts as verified
@@ -16,6 +17,7 @@ Principles, not procedures. Each was paid for at least once; the incidents are d
 - **Reading the source is not running it.** A claim verified only by reading code is a hypothesis.
 - **One plausible cause is not one cause.** Necessary is not sufficient; re-measure after the fix rather than declaring victory on the mechanism.
 - **When a user says nothing happened, the cheapest hypothesis is that nothing happened.** "It works, it's just hard to find" is itself a claim about behaviour and needs the same evidence.
+- **Real data can validate a wrong rule.** A rule can pass against the entire live stream purely because no case happened to exercise it. Constructed cases must sit beside real-data checks; neither substitutes for the other.
 - **Prove a guard by mutation**: remove it, show the specific breakage with a number, put it back. "The COALESCE is needed" is an assertion; "dropping it inserts 386 duplicates" is a measurement.
 - **Inspecting a generated artifact's source is not inspecting its output** — render the SVG/PDF/chart and look at it.
 
