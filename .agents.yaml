@@ -1,0 +1,10 @@
+modules:
+  - core
+  - principles
+  - stage-build
+  - go
+  - web
+  - docs
+  - delegation-brief
+  - delegation
+  - evidence

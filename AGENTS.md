@@ -1,4 +1,4 @@
-IMPORTANT: As you're implementing features, you MUST keep the [Documentation](docs/content/docs/) up to date, updating [README](README.md) only if a new documentation file has been added, or if new users NEED to know about your changes.
+IMPORTANT: As you implement features, keep the [documentation](docs/content/docs/) up to date; update [README.md](README.md) only when a doc file is added or new users must know.
 
 ## Overview
 
@@ -6,61 +6,131 @@ You are working on Jobs, a hierarchical task manager for the CLI, backed by an e
 
 ## Documentation
 
-When you need additional context, consult the docs:
+- [docs/content/docs/](docs/content/docs/) — the published documentation site (Hugo); `make docs` serves it locally
+- [DOCS.md](DOCS.md) — the full CLI reference; the fastest way to learn what a command does
+- [README.md](README.md) — what Jobs is and a quick start, written for humans
+- [DESIGN.md](DESIGN.md) — the dashboard's design system: tokens, type scale, component specs
+- [project/](project/) — dated design documents and agent-feedback reports; [project/gotchas.md](project/gotchas.md) holds project traps and rule feedback
+- [Makefile](Makefile) — `build`, `install`, `test`, `test-js`, and the docs targets
+- [scripts/](scripts/) — re-runnable tooling (screenshots, snapshot replay, getting-started verification)
 
-- [README.md](README.md) - Project overview and quick start
-- [project/](project/) - Historical design documents and past project plans
+## Architecture
 
-## CLI conventions
+`internal/job` is the product — the SQLite event store, the plan grammar, and the rendering. `cmd/job` is a thin cobra CLI over it, and `internal/web` is a server-rendered dashboard over the same core.
 
-- **Open by running `job orient` (standalone tool, no arguments).** At session start, `job orient` is the landscape briefing.
+- Schema changes are numbered migrations in [internal/migrations/](internal/migrations/). They are applied when the database is opened, so *any* `job` invocation migrates — there is no server to restart.
+- [DESIGN.md](DESIGN.md) is the design system the web rules below defer to, authoritative for everything under `internal/web/` — including its desktop-first density target, which outranks the web rules' mobile-first default. The dashboard is localhost-only and read-only, so the rule about public-page `<head>` metadata does not apply here.
+- The dashboard's JS is mostly plain progressive-enhancement modules in `internal/web/assets/js/`, not custom elements; only `peek-sheet` and `live-region` are registered, and neither uses a shadow root. The web rules' one-element-per-file-with-a-shadow-root convention governs *new* components — don't retrofit the existing scripts to it as a side quest.
+- **This repo builds `job`.** The `job` on your `PATH` and the `./job` at the repo root are both stale until `make install` / `make build`, so a CLI change you just wrote is not exercised by running `job` until you rebuild.
 
-## General
+<!-- agents:begin core@f0c45b -->
+## Working rules
 
-- If a requirement is ambiguous or could be solved in several ways, choose the most idiomatic way to solve the problem in the given language if that would resolve the ambiguity.
-- If the ambiguity is more about the requirement itself, or you face an architectural question, don't make a decision—stop and ask the user instead.
-- Avoid dependencies unless the required functionality would be unreasonable to re-implement. If you MUST bring in a dependency, get the user's permission first.
-- IMPORTANT: In this project we ALWAYS follow strict "red/green" TDD; write tests for all example cases we need to handle and any new methods we're implementing, verify that they fail, and *then* proceed to implement your code changes. If you must alter a previous test to get it to pass, explain exactly WHY to the user and get their consent.
-- Before fixing a bug, try to create a regression test to catch it in the future.
-- DO NOT begin a new chat by doing an extensive exploration of the entire codebase. That is wasteful, as this is a large codebase. Instead, read the README and use an Explore agent to read the DocC documentation if you want to get the lay of the land. Of course, once you have a specific need, you can explore as much of the code as you require.
-- To create and manage plans and task lists, always use the `job` command. Do not use Plan Mode.
+**Understand the why.** If the goal behind a request isn't clear, ask before solving — beware the XY problem.
 
-## Understand the "why"
-Before you answer a question or respond to a request, you must understand **why** the user has made this request. Beware of the "XY Problem." If the user's motivation or goal is not 100% clear, first ask clarifying questions until you fully understand what they're trying to achieve.
+**Diverge, then converge.** Brainstorm options, weigh them against the user's goals, recommend one, confirm, then execute.
 
-## Diverge, then converge
-Once you understand the prompt, rather than jumping to a solution, you will use divergent thinking. Brainstorm other options. Weigh these options against the user's preferences and overall objectives. Then, converge on a recommendation, and ask for confirmation from the user. Only then can you fully converge and begin executing on a direction.
+**Ambiguity.** If the *code* could go several ways, choose the idiomatic one for the language. If the *requirement* is ambiguous or the question is architectural, stop and ask — don't decide.
 
-## Analysis
-It will sometimes be valuable to create a script or tool in order to aid your analysis. Before you do, check the `scripts` directory to make sure it doesn't already exist. If it doesn't, rather than creating a disposable or inline script, add it to the `scripts` directory, so the user can re-run the tool in the future.
+**Dependencies.** Avoid them unless re-implementing would be unreasonable; ask before adding one; each is security and maintenance surface.
 
-## Pre-completion Critique
-Before you declare a task done, or a question answered, pause and critique your own work. Return to the context of the original user request—have you truly addressed their need? If you're producing code, do all linting and unit tests pass? If you're synthesizing or analyzing information, what are the gaps or weaknesses in your answer? What would a relevant and intelligent expert say about your work? If you identify serious flaws, keep working until you resolve them.
+**TDD, strictly red/green.** Write tests for every case and every new method first, watch them *all* fail, then implement. A test that is green during red tests nothing — remove or rewrite it. If an existing test must change to pass, explain why clearly. Every bug fix starts with a regression test.
 
-## Tidiness
-Don't create temporary files in the root of the directory and leave them there. If you truly need a transient file, that's fine, but delete it when you're done. But if the artifact is something valuable (such as an agent's report, or a script), please save it in the correct directory.
+**Plans and tasks live in `job`.** Open every session with `job orient` (no arguments), then read `project/gotchas.md`. Don't use Plan Mode or ad-hoc todo lists.
 
-## Git workflow
-At moments when significant work has been completed and accepted by the user, offer to commit the changes for them. You may need to pull changes and resolve conflicts, which you should do for the user using git rebase whenever possible. If there is a real conflict, ask the user how they want to resolve it, explaining the situation clearly. Always commit all uncommitted files together, as your changes may depend on prior changes, and we don't want to commit the code in a half-working state. Do not amend previous commits.
+**Don't tour the codebase.** Start from the README and the docs (an Explore agent is fine); dig only where the task leads — once you have a specific need, read as much as that need requires.
 
-## Development workflow
+**Scripts.** Analysis tooling goes in `scripts/` so it can be re-run — check there before writing one.
 
-- All Git commit messages should complete the sentence "This commit...", e.g. "Adds an email verification flow". You can then go on to detail the change with bullets or headers in the body of the commit.
-- IMPORTANT: In this project we ALWAYS follow strict "red/green" TDD; write tests for all example cases we need to handle and any new methods we're implementing, verify that they *all* fail, and *then* proceed to implement your code changes. If a new test is green during the red stage, it's testing nothing and should be removed or refactored.
-- If, during development, you must update an existing test to get it to pass, explain exactly WHY to the user and get their consent.
-- Before fixing any bug, try to create a regression test to catch it in the future.
-- DO NOT begin by doing an extensive exploration of the entire codebase. That is wasteful, as this is a large codebase. Instead, read the README and use an Explore agent to read the documentation if you want to get the lay of the land. Of course, once you have a specific need, you can explore as much of the code as you require.
+**Critique before declaring done.** Re-read the original request: is the need actually met? Do lint and tests pass? Are docs updated? What would an expert flag? Fix serious flaws before reporting.
 
-## Development Stage
+**Tidiness.** No stray files in the repo root; delete transients, and file valuable artifacts (reports, scripts) where they belong.
 
-- We are in BUILD mode. This library is pre-launch, with zero users or existing files. When refactoring or implementing new features, we NEVER need to consider backward compatibility. We can assume that every use of the project is green-field. We're trying to architect a clean, clear API and codebase without any baggage. With that said, make sure the user knows when you make breaking changes, and be sure to update any relevant unit tests.
-- In build mode, we are ambitious. Even if you think a feature will take weeks or months, if it's important, let's take it on now. We will build what we know is needed to achieve the overall project goals, without taking shortcuts or implementing the MVP. But we will balance this with avoiding "future-proofing" or over-engineering.
+**Documentation.** Keep the project docs current as you build. Touch the README only when a doc file is added or new users must know.
 
-## Database Migrations
+**Gotchas.** When a project quirk costs you time and no rule predicts it, append it to `project/gotchas.md`. If a rule in this file was wrong or misled you, record that there too, prefixed `rule:`.
 
-- Whenever you need to make a change to the database schema, you must create a migration in the [migrations](./internal/migrations/) folder, with an incremented leading number.
-- DO NOT run this migration manually. There is an automatic migration system that runs when the server starts up, and it records the current migration number in the database. So instead of manually migrating the database, just start or restart the server.
+**Where these rules come from.** The marked regions are generated and shared across repos — don't edit inside them. If a rule here is wrong or cost you time, say so in `project/gotchas.md` prefixed `rule:`; that is how shared rules get reviewed.
 
-## Golang-specific
+## Git
 
-- Prior to commiting changes, you MUST run `go fix` and `gofmt` to correctly format your code, and you must run the tests related to any features you added or changed. `go fix`, `gofmt` and unit tests with all be run as pre-commit hooks, so this will allow you to catch problems before attempting a commit.
+- Offer to commit when a unit of work is complete and accepted. Rebase onto upstream; ask on real conflicts, explaining the conflict in plain terms first.
+- Commit all uncommitted files together — later changes usually depend on earlier ones, and a half-working state helps nobody. Never amend.
+- The subject completes "This commit…": present-tense verb first — "Adds…", "Fixes…", "Retires…". Detail goes in the body.
+- Pass the message with `-F <file>`, not inline `-m`; the shell interprets `-m` first. The same hazard applies to any `-m` flag, `job note -m` included.
+- Pre-commit hooks run the formatter and tests. Run them yourself first (see the stack rules).
+<!-- agents:end core -->
+
+<!-- agents:begin principles@7bc78e -->
+## Principles
+
+Defaults, not laws. When we break one, we do it consciously and say so in the report and the docs.
+
+- **Pragmatism.** Builders, not purists. Practical choices that serve the near-term goal and protect the long-term one.
+- **Eat the frog.** No band-aids. Given an easy-but-compromised path and a correct one, take the correct one; fix problems at the source. Keep YAGNI in mind, but when a need is obvious, don't underdeliver.
+- **Composability.** Simple, strong components composed into systems — never a monolith.
+- **Library + thin executable.** Core logic in a library; the app or CLI is a light consumer, so the core can be reused elsewhere. An adapter that holds a decision rather than wiring one is a bug.
+- **Decoupling.** Tight coupling makes testing, debugging and refactoring hard — separate concerns. Separating a model, its storage and its UI is the everyday case: databases and UI frameworks change; today's web app may grow a CLI or mobile app.
+- **Just enough abstraction.** One layer around an LLM provider is prudent; a `TextGenerationProvider` above it is not.
+- **Readable file sizes.** Aim for files a reader can hold in their head (a few hundred lines; ~400 is the comfortable ceiling). Past ~2k lines, navigation degrades and errors accumulate; splitting also makes functionality discoverable by filename.
+- **Comments say why, not what.** Doc comments state *what* concisely; other comments only explain the non-obvious. No change history in comments. Most code needs none.
+- **Strongly typed.** Prefer enums, named constants and config over magic strings and numbers; prefer typed structs over dictionaries, even for wire types.
+- **Previews.** Give each UI component a way to render in its various states — a SwiftUI `#Preview`, a demo page, a story — the foundation for tests and for human review.
+- **Async by default.** Keep the app interactive during heavy work; surface loading and error states. On the web, prefer progressive enhancement over full reloads.
+- **Event streams where they fit.** Append-only logs are auditable, undoable, and time-travelable.
+<!-- agents:end principles -->
+
+<!-- agents:begin stage-build@3d5d83 -->
+## Stage: BUILD
+
+Pre-launch, zero users, no existing data. Never spend effort on backward compatibility — assume every use is green-field — but flag breaking changes and update the affected tests. Be ambitious: if a feature is important, build it fully now rather than an MVP; balance that against over-engineering and future-proofing.
+<!-- agents:end stage-build -->
+
+<!-- agents:begin go@b74e8c -->
+## Go
+
+- Before committing: `go fix ./...`, `gofmt -w .`, `go vet ./...` and `go mod tidy`, then the tests you touched. `go fix` converges over several passes — "re-run to apply more" is progress, not failure; re-run until clean before editing code.
+- **Schema changes are numbered migrations** in the project's migrations directory (the head names it). Never run one by hand — the binary migrates on startup and records the version; to apply one, restart it. Read the full note history on the task (`job show <id>`) before writing schema; it is the most expensive thing to change.
+- **On SQLite:** **`CHECK` passes on NULL.** `CHECK (a = b)` admits any row where either side is NULL — guard every comparison with `IS NOT NULL`, or it enforces nothing.
+- **On SQLite:** **NULLs are distinct in a `UNIQUE` index.** A nullable column in a dedup key admits duplicates forever; wrap it in `COALESCE(col, '')` in the index expression.
+- Wire types are structs, not `map[string]any`, unless the shape is genuinely dynamic.
+- **`r.ParseForm()` reads a body only when it is urlencoded**; for multipart it leaves it empty without erroring. Keep one wire format per route — a handler that accepts two body shapes needs two sets of checks where the design wanted one.
+<!-- agents:end go -->
+
+<!-- agents:begin web@3c49b7 -->
+## Web
+
+- **Vanilla HTML, CSS and JS** — no frameworks or build tools beyond the server. WebComponents are the enhancement layer: the server ships each element's real content as HTML inside it, and the component's JS upgrades what's already there — never an empty tag that renders itself.
+- **Follow `DESIGN.md` when the project has one** — tokens, type scale, colour roles and component conventions come from there, not from ad-hoc values.
+- **Every page works without JavaScript — ship full HTML.** Then use JS to enhance where users expect modern interactivity (re-sorting a list, a live-updating form field) so those don't need a full reload. No client-side routing and no client-side data fetching to render a page: this is the middle ground between 1994-style brutalism and shipping one `<div>` and a JS blob.
+- **No inline `style` attributes**; styles live in stylesheets under a class or selector.
+- **Responsive and mobile-optimized from the first draft.** Without a brand identity, default to a simple, modern, clean aesthetic.
+- **Paths over query strings** (`/api/people/89`, not `?id=89`); queries only for search, sort, filters.
+- **Public pages carry rich `<head>` metadata** including schema.org data.
+- **Server-side tests cannot see the browser.** Keep a JS/browser runner and run it by hand whenever you change behaviour a browser can observe — a green server suite is not evidence about the page.
+- **One custom element per file, named for the element** (`<app>-thing` lives in `app-thing.js`), with a shadow root so component styles don't leak.
+<!-- agents:end web -->
+
+<!-- agents:begin docs@7ba2fd -->
+## Documentation practice
+
+- **Plans, findings, designs and decisions go in `project/` as dated documents** (`YYYY-MM-DD-title.md`) — the written history of the project. They are point-in-time records: correct an earlier one *in place*, as a marked block quote, rather than silently editing a number or leaving a stale claim standing.
+- **Every figure names the tool and flags that reproduce it.**
+- **Work decided against goes in `project/backlog.md`**, not into silence: one dated H2 per item — what it is, why it's parked, and *what would un-park it*. Nothing there is scheduled or blocking; active work lives in `job`. Check it before proposing something that sounds novel.
+- **When a finding overturns a premise, edit the premise.** Readers act on the title and opening; a correction appended underneath doesn't reach them.
+- **A wrong documented cause is worse than none** — it stops the next reader looking. Correcting one means saying it was wrong, not quietly rewording.
+- **Open the note before you cite it**, and check whether a recorded ruling has been superseded before passing it on.
+- **Every repo has a README; if none exists, write one (delegate it if you can).** It is tight: the project's name and a one-line description a non-technical reader understands (6th-grade reading level); one short paragraph of what it is; how to install or consume it; a crisp Quick Start with an example or two; links out to the specific docs for anything more; authorship and license at the end.
+- **The head of `AGENTS.md` lists where the docs live; keep that list current.**
+<!-- agents:end docs -->
+
+<!-- agents:begin delegation-brief@4fe3f0 -->
+## Delegating to subagents
+
+Design on the main thread; dispatch execution to agents for anything larger than a small change. **Read `project/agents/delegation.md` before dispatching** — it carries what to delegate, the worktree workflow, the traps, and the briefing template.
+
+- Commit **and push** before dispatching: worktrees branch from `origin/main`, so anything unpushed is invisible to the agent.
+- Assign work by files, not strictly by task, and read across every open tree — there is usually more parallel work than `job orient` showed.
+- Agents `claim` and `note` (unique `--as` each), never `done`, and never commit; the main thread integrates, runs the full suite once, commits, then closes leaves.
+- Choose the model deliberately, end every brief with **"what in this brief is wrong?"**, and verify what comes back — the pushback, not the typing, is usually the value.
+<!-- agents:end delegation-brief -->
