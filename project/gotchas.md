@@ -22,10 +22,6 @@ Format: one dated H2 per entry, a bold headline, then what happened and what to 
 
 **`make test` is `go test ./...` only; the dashboard's JS tests are `make test-js` (`node --test internal/web/jstest/*.test.mjs`).** They live outside `internal/web/assets/` deliberately so they are not embedded and served, and they import the production modules from `internal/web/assets/js/`. A green Go suite says nothing about the dashboard — run `make test-js` after any change under `internal/web/`.
 
-## 2026-08-16 — rule: the Go migration rule says "restart it", but Jobs has no server to restart
-
-**`go.md` says the binary "migrates on startup … to apply one, restart it".** In a CLI there is nothing running to restart: `internal/job.OpenDB` calls `RunMigrations` when it opens the database, so the *next* `job` invocation applies it. The wording is server-shaped and reads as an instruction an agent cannot follow here; the head states the actual mechanism. Consider "the binary migrates when it opens the database — the next run applies it".
-
 ## 2026-08-16 — rule: the web rules assume a public site
 
 **`web.md`'s "Public pages carry rich `<head>` metadata including schema.org data" has no meaning for this dashboard**, which is localhost-only, read-only, and not crawled. The head notes the exception, but every internal-tool repo that adopts `web` will need the same note — the module could scope the bullet to public-facing pages itself.
