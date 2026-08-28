@@ -28,7 +28,6 @@ The `--next` modes:
 - `--include-parents` widens the walk to include any available task, not only leaves. Reach for it only when you genuinely want to claim a task that has open children — usually you don't.
 - `--issues` points the no-argument walk at [issue-trees](../../concepts/tree-kinds/) instead of task-trees. Without it, `claim --next` never hands you a bug — it answers "what is next in my plan". Like `next --issues`, it is forest-wide. An explicit parent argument, or a focus set on an issue root, overrides the default without the flag.
 - `-m "<text>"` / `-F <path>` work the same under `--next` as on `claim <id>`: the starting note is recorded on whichever leaf the walk picks, in the same transaction as the claim. A malformed body aborts before anything is claimed.
-- `--label <name>` restricts the search to tasks carrying a label. Combined with multi-agent setups, this is how you steer different agents toward different streams of work.
 
 Idiomatic combination: `job claim --next 1h && do-the-work && job done <id> --claim-next`. See `done --claim-next` below.
 
