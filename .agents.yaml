@@ -8,3 +8,8 @@ modules:
   - delegation-brief
   - delegation
   - evidence
+  - jobs-brief
+  - jobs
+  - harness-brief
+  - harness
+  - background

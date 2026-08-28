@@ -376,42 +376,71 @@ func loadLogEvents(db *sql.DB, f LogFilters) (rows []LogEventRow, total int, has
 	now := time.Now()
 	rows = make([]LogEventRow, len(filtered))
 	for i, e := range filtered {
-		ts := time.Unix(e.CreatedAt, 0)
-		row := LogEventRow{
-			EventID:   e.ID,
-			ShortID:   e.ShortID,
-			Actor:     e.Actor,
-			EventType: e.EventType,
-			VerbText:  e.EventType,
-			Title:     titles[e.TaskID],
-			RelTime:   render.RelativeTime(now, ts),
-			ISOTime:   ts.UTC().Format(time.RFC3339),
-			TaskURL:   "/tasks/" + e.ShortID,
-			ActorURL:  "/actors/" + url.PathEscape(e.Actor),
-		}
-		if e.EventType == "claim_expired" {
-			row.VerbText = "expired"
-			row.Actor = "Jobs"
-			row.ActorURL = ""
-			row.IsSystem = true
-		}
-		// Verbs collapse to a single word for events that carry extra
-		// detail; the detail itself folds into the metadata cell. Keeps
-		// the verb column the same width as DONE / CLAIMED.
-		switch e.EventType {
-		case "criteria_added":
-			row.VerbText = "criteria"
-		case "criterion_state":
-			row.VerbText = "criterion"
-		case "found_in_set", "found_in_cleared":
-			row.VerbText = "found in"
-		case "kind_changed":
-			row.VerbText = "kind"
-		}
-		row.Metadata = buildLogRowMetadata(e.EventType, e.Detail)
-		rows[i] = row
+		rows[i] = buildLogEventRow(e, titles[e.TaskID], now)
 	}
 	return rows, total, hasMore, nil
+}
+
+// systemActor is the name shown as the doer of housekeeping events
+// (claim_expired) — the Jobs runtime, not whoever held the claim.
+const systemActor = "Jobs"
+
+// buildLogEventRow folds one stored event into the row shape the
+// "log-row" template renders. Kept separate from loadLogEvents so the
+// parity test can build a row from a synthetic event, and so the shape
+// of a row is defined in exactly one place on the server side.
+//
+// The client mirror is assets/js/log-row.mjs; log_row_parity_test.go
+// renders the same event both ways and diffs the markup.
+func buildLogEventRow(e job.EventEntry, title string, now time.Time) LogEventRow {
+	ts := time.Unix(e.CreatedAt, 0)
+	row := LogEventRow{
+		EventID:   e.ID,
+		ShortID:   e.ShortID,
+		Actor:     e.Actor,
+		EventType: e.EventType,
+		VerbText:  logRowVerb(e.EventType),
+		Title:     title,
+		RelTime:   render.RelativeTime(now, ts),
+		ISOTime:   ts.UTC().Format(time.RFC3339),
+		TaskURL:   "/tasks/" + e.ShortID,
+		ActorURL:  "/actors/" + url.PathEscape(e.Actor),
+	}
+	if isSystemEventType(e.EventType) {
+		row.Actor = systemActor
+		row.ActorURL = ""
+		row.IsSystem = true
+	}
+	row.Metadata = buildLogRowMetadata(e.EventType, e.Detail)
+	return row
+}
+
+// isSystemEventType reports whether an event's actor is the Jobs
+// runtime rather than a human or agent. Only the claim-expiration
+// sweep qualifies today.
+func isSystemEventType(eventType string) bool {
+	return eventType == "claim_expired"
+}
+
+// logRowVerb is the human-readable verb for an event type. Verbs
+// collapse to a single word for events that carry extra detail; the
+// detail itself folds into the metadata cell. Keeps the verb column
+// the same width as DONE / CLAIMED. Unmapped types render their raw
+// event type, which the CSS uppercases.
+func logRowVerb(eventType string) string {
+	switch eventType {
+	case "claim_expired":
+		return "expired"
+	case "criteria_added":
+		return "criteria"
+	case "criterion_state":
+		return "criterion"
+	case "found_in_set", "found_in_cleared":
+		return "found in"
+	case "kind_changed":
+		return "kind"
+	}
+	return eventType
 }
 
 // buildLogRowMetadata folds the per-event payload into the trailing

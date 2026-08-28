@@ -51,13 +51,17 @@
     return Math.max(Math.floor(BACKOFF_BASE_MS / 2), ms);
   }
 
-  // Event types we know about. Listening for 'message' is not enough
-  // because SSE frames with `event: <name>` dispatch only to the
-  // matching listener. Keep this list in sync with the server's
-  // event_type vocabulary.
+  // Every event type the store can emit. Listening for 'message' is
+  // not enough: an SSE frame carrying `event: <name>` dispatches only
+  // to a listener registered for that exact name, so an event type
+  // missing here never reaches any live module at all — the row simply
+  // never arrives. TestLiveSubscribesToEveryEmittedEventType (Go)
+  // scrapes the recordEvent call sites in internal/job and fails if
+  // this list falls behind them.
   const KNOWN_EVENT_TYPES = [
     "created",
     "claimed",
+    "claim_expired",
     "released",
     "done",
     "reopened",
@@ -68,7 +72,16 @@
     "labeled",
     "unlabeled",
     "moved",
+    "reparented",
     "edited",
+    "criteria_added",
+    "criterion_state",
+    "found_in_set",
+    "found_in_cleared",
+    "kind_changed",
+    "focus_set",
+    "focus_released",
+    "purged",
     "heartbeat",
   ];
 

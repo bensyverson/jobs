@@ -141,3 +141,25 @@ Design on the main thread; dispatch execution to agents for anything larger than
 - Agents `claim` and `note` (unique `--as` each), never `done`, and never commit; the main thread integrates, runs the full suite once, commits, then closes leaves.
 - Choose the model deliberately, end every brief with **"what in this brief is wrong?"**, and verify what comes back — the pushback, not the typing, is usually the value.
 <!-- agents:end delegation-brief -->
+
+<!-- agents:begin jobs-brief@42b137 -->
+## Jobs
+
+`job` is the tracker for plans and tasks. **Read `project/agents/jobs.md` before filing or claiming work** — it carries the shape of the tree, criteria and blockers, the identity rules for agents, and how big a leaf should be.
+
+- Subagents pass a unique `--as <name>` and an absolute `--db` on every call; they `claim`, `note` and `release`, never `done`.
+<!-- agents:end jobs-brief -->
+
+<!-- agents:begin harness-brief@a03f30 -->
+## Harness
+
+The harness an agent runs inside has facts of its own — the Bash sandbox, `$TMPDIR`, no TTY, worktree isolation, background processes. **`project/agents/harness.md` carries them.** Read it the first time a tool call fails with a permission error or a "too complex to verify" refusal, and before writing a brief for a subagent.
+<!-- agents:end harness-brief -->
+
+<!-- agents:begin background@882e19 -->
+## Background
+
+**Weigh decisions against `project/background.md` where it exists** — who the work is for, the people involved, the constraints that come with them, what they want, and what they call things. It is context for judging a decision rather than for writing code: read it when a choice turns on who is on the other end, and use its vocabulary in what you write.
+
+**It holds *current* state, so it is rewritten, not appended.** Every number, date and name appears there once and links the dated `project/` document it came from; when a fact changes, edit the sentence that holds it and let the dated record keep the history.
+<!-- agents:end background -->

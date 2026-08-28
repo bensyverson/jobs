@@ -150,6 +150,8 @@ data: {"id":7,"task_id":"bBE83","task_title":"Child B","event_type":"done","acto
 
 (blank line terminates the frame). The SSE `id:` field is the event log id and matches `data.id`; the SSE `event:` field is the event type and matches `data.event_type`.
 
+Because every frame is named, a browser `EventSource` client must call `addEventListener` once per event type it wants: frames carrying an `event:` field never reach a `message` listener, so an event type the client forgot to name is silently dropped. Line-oriented consumers (`curl`, the bash printer below) see every frame regardless.
+
 A small bash live-printer:
 
 ```sh

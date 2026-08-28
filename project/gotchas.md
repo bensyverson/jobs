@@ -39,3 +39,13 @@ Three of four parallel agents lost time to the same two things. **The default sa
 **`job done` refuses a leaf whose criteria are unticked**, even when the integrator has just verified every one. Verify, then close with `job done <id> --all-passed`; don't tick rows one at a time. **Agents forget to `release`** — say "RELEASE when done" in the brief in capitals, and if `done` reports "claimed by agent-x", `job release <id> --as agent-x` first. **`git apply --3way` stages what it applies**, so review with `git diff --cached`, not `git diff`, or the diff looks empty. **Two dashboard agents will both append to `components.css`** and both define `mustAddIssueRoot`-style test helpers in package `handlers_test`; brief them to append delimited blocks (they merge with markers stripped) and expect one helper collision.
 
 **The Issues root auto-closed when its last child closed** (fixed in 8988033) — if an issue root ever shows `[x]` again, `job reopen <root>` and check the cascade; and an issue root is never a candidate for `next --issues`, so an exhausted issue tree is "nothing next", not the root.
+
+## 2026-08-28 — SSE frames are *named*, so a browser client sees only the types it subscribes to
+
+**Every `/events` frame carries `event: <event_type>`, and a named SSE frame never reaches a `message` listener.** `live.js` therefore registers one `addEventListener` per type from a hardcoded list — and that list had gone stale, so `found_in_set`, `kind_changed`, `criteria_added`, `criterion_state`, `claim_expired`, `focus_*`, `reparented` and `purged` were dropped before any live module saw them: the rows simply never arrived on /log. If a live view is missing one event type but fine on reload, check that list first. `TestLiveSubscribesToEveryEmittedEventType` now scrapes the `recordEvent` call sites in `internal/job` and fails when it falls behind.
+
+## 2026-08-28 — `sleepy` must be invoked by absolute path from a worktree
+
+**Run it as `/Users/ben/.swiftpm/bin/sleepy`, not `sleepy`.** Invoked through `PATH`, it resolves its own session helper relative to the working directory and dies with "Couldn't start a session helper from '<cwd>/sleepy': The file 'sleepy' doesn't exist" — only for the session verbs (`open`), so `load`/`shot` look fine and then `open` fails.
+
+Also: sleepy renders offscreen with `document.visibilityState === "hidden"`, so **CSS animations never advance** — an element that animates in from `opacity: 0` screenshots as blank space. `getAnimations().forEach(a => a.finish())` before `shot` if you need to see it.
