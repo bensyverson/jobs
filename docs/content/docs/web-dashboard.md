@@ -16,7 +16,7 @@ The dashboard is for the human watching agents work. The CLI remains the surface
 | View       | URL          | What it shows                                                                                  |
 |------------|--------------|------------------------------------------------------------------------------------------------|
 | Home       | `/`          | Activity histogram (last 60m), three alarm cards, active claims, recent completions.           |
-| Plan       | `/plan`      | The task tree, scoped (`/plan/{id}`) or filtered by label (`/labels/{name}`). Issue trees are not here. |
+| Plan       | `/plan`      | The task tree, scoped (`/plan/{id}`) or filtered by label (`?label=<name>`; `/labels/{name}` redirects there). Issue trees are not here. |
 | Issues     | `/issues`    | The same tree view over your [issue trees](../concepts/tree-kinds/), scoped at `/issues/{root-id}`. |
 | Actors     | `/actors`    | Column-per-actor board — one stack of cards per identity, freshest at the bottom. Click through to `/actors/{name}` for a single actor's stream. |
 | Log        | `/log`       | Linear stream of every event in the database, filterable by actor, label, type.               |
