@@ -120,6 +120,17 @@ func newStatusCmd() *cobra.Command {
 				}
 				decisions = rollup.DecisionTasks
 
+				// Issues: line scoping — Claimed follows the same rule the
+				// preamble's own claimed tally uses (raw --as, not the
+				// softly-resolved default identity); Next follows the same
+				// rule `job next --issues` uses (the softly-resolved `actor`
+				// already computed above).
+				issues, err := job.BuildIssuesStatus(db, asFlag, actor)
+				if err != nil {
+					return err
+				}
+				rollup.Issues = issues
+
 				if format == "json" {
 					return renderStatusForestJSON(out, s, rollup, stales, decisions)
 				}
@@ -172,8 +183,24 @@ func renderStatusForestJSON(w io.Writer, s *job.StatusSummary, rollup *job.Summa
 		"focus":              nextJSON(rollup.Focus),
 		"stale":              staleJSON(stales),
 		"decisions":          decisionsJSON(decisions),
+		"issues":             issuesJSON(rollup.Issues),
 	}
 	return writeJSON(w, payload)
+}
+
+// issuesJSON renders the `issues` object: {open, claimed, next}, matching
+// the shape nextJSON uses for `next` (short_id + title, null when unset).
+// null (not omitted) when the database has no issue-tree root — every
+// forest-scope payload carries the same key set.
+func issuesJSON(i *job.IssuesStatus) map[string]any {
+	if i == nil {
+		return nil
+	}
+	return map[string]any{
+		"open":    i.Open,
+		"claimed": i.Claimed,
+		"next":    nextJSON(i.Next),
+	}
 }
 
 // renderStatusSubtreeJSON emits the subtree-scope JSON shape: the same

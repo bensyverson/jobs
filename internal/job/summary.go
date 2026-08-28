@@ -23,6 +23,12 @@ type Summary struct {
 	// resolved inside it.
 	Focus         *Task
 	DecisionTasks []*Task
+	// Issues summarizes work across issue-tree roots (nil when the database
+	// has none, and always nil in subtree scope). BuildRollup never sets
+	// this itself — forest-scope callers attach it via BuildIssuesStatus
+	// so the claimed-actor scoping can differ from Next's (see that
+	// function's doc comment) — but RenderSummary renders it when set.
+	Issues *IssuesStatus
 }
 
 type SubtreeRollup struct {
@@ -88,6 +94,13 @@ func BuildRollup(db *sql.DB, target *Task, actor string) (*Summary, error) {
 
 	var childRollups []*SubtreeRollup
 	for _, c := range directChildren {
+		// Issue-tree roots are demoted out of the per-root rollup entirely —
+		// they get their own Issues: line instead (decision 4,
+		// project/2026-08-28-issues-ux.md). BuildIssuesStatus computes that
+		// line; the caller attaches it to Summary.Issues.
+		if target == nil && c.Kind.IsIssue() {
+			continue
+		}
 		cr, err := buildRollup(db, c)
 		if err != nil {
 			return nil, err
@@ -378,6 +391,14 @@ func RenderSummary(w io.Writer, s *Summary) {
 			fmt.Fprintf(w, "  %s (%s)\n", c.Title, c.ShortID)
 		} else {
 			fmt.Fprintf(w, "  %s (%s): %s\n", c.Title, c.ShortID, tail)
+		}
+	}
+
+	if i := s.Issues; i != nil {
+		if i.Next != nil {
+			fmt.Fprintf(w, "Issues: %d open (%d claimed) · next %s\n", i.Open, i.Claimed, i.Next.ShortID)
+		} else {
+			fmt.Fprintf(w, "Issues: %d open (%d claimed)\n", i.Open, i.Claimed)
 		}
 	}
 

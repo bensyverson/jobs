@@ -145,6 +145,35 @@ func TestBuildRollup_ForestScope_HidesClosedRoots(t *testing.T) {
 	}
 }
 
+// Issue-tree roots are demoted to the Issues: line (project/2026-08-28-issues-ux.md
+// decision 4) — the per-root rollup must never carry one, open or closed.
+func TestBuildRollup_ForestScope_ExcludesIssueRoots(t *testing.T) {
+	db := SetupTestDB(t)
+
+	task := MustAdd(t, db, "", "TaskRoot")
+	MustAdd(t, db, task, "Child")
+
+	bugs := MustAdd(t, db, "", "Bugs")
+	MustAdd(t, db, bugs, "Issue leaf")
+	mustSetKind(t, db, bugs, KindIssue)
+
+	rollup, err := BuildRollup(db, nil, "")
+	if err != nil {
+		t.Fatalf("BuildRollup: %v", err)
+	}
+
+	ids := make(map[string]bool)
+	for _, c := range rollup.DirectChildren {
+		ids[c.ShortID] = true
+	}
+	if !ids[task] {
+		t.Errorf("task root %q must appear in forest scope", task)
+	}
+	if ids[bugs] {
+		t.Errorf("issue root %q must not appear in the per-root rollup", bugs)
+	}
+}
+
 func TestBuildRollup_ForestScope_ReturnsRootsAsChildren(t *testing.T) {
 	db := SetupTestDB(t)
 	r1 := MustAdd(t, db, "", "Root1")
