@@ -215,6 +215,48 @@ type ListFilter struct {
 	// ClosedTailSinceUnix, when non-zero, restricts closed-tail rows to
 	// events at or after this unix timestamp. Ignored by RunListFiltered.
 	ClosedTailSinceUnix int64
+	// KindScope narrows the top-level forest by tree kind (see kind.go).
+	// Meaningful only when ParentID is empty: an explicit parent already
+	// pins the scope to one subtree, whose nodes all share a kind, so
+	// KindScope is ignored once ParentID is set. The zero value,
+	// ListKindScopeAny, applies no split — the behavior every caller other
+	// than `ls` relies on.
+	KindScope ListKindScope
+}
+
+// ListKindScope controls which tree kind(s) RunListFiltered and
+// RunListWithTail return at the top level of an unscoped (ParentID == "")
+// forest. `ls` is the only caller that sets this to anything but the zero
+// value — every other caller wants the mixed forest it always got.
+type ListKindScope int
+
+const (
+	// ListKindScopeAny returns roots of every kind: the default, mixed
+	// forest every caller other than `ls` expects.
+	ListKindScopeAny ListKindScope = iota
+	// ListKindScopeTasks keeps only task-tree roots — the default `ls`
+	// forest, which omits issue-tree roots.
+	ListKindScopeTasks
+	// ListKindScopeIssues keeps only issue-tree roots — `ls --issues`.
+	ListKindScopeIssues
+)
+
+// filterRootsByKind narrows a top-level forest to one tree kind. It must
+// only be applied to actual roots (ParentID == ""): kind is root-only (see
+// kind.go), so applying it to a node's Children would test the wrong
+// property. ListKindScopeAny is a no-op.
+func filterRootsByKind(nodes []*TaskNode, scope ListKindScope) []*TaskNode {
+	if scope == ListKindScopeAny {
+		return nodes
+	}
+	wantIssue := scope == ListKindScopeIssues
+	out := nodes[:0:0]
+	for _, n := range nodes {
+		if n.Task.Kind.IsIssue() == wantIssue {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // DefaultClosedTailCap is the row cap applied to RunListWithTail when the
@@ -235,6 +277,13 @@ type ListResult struct {
 	Open        []*TaskNode
 	ClosedTail  []ClosedTailRow
 	ClosedTotal int
+	// IssuesOpen is the open (not done, not canceled) task count across
+	// every issue-tree root in the database, root included, computed
+	// independently of every other ListFilter field — the number `ls`'s
+	// "Issues: N open" trailer reports stays a stable backlog size rather
+	// than shifting with --label/--mine/etc. on the invocation that
+	// printed it. Nil when the database has no issue-tree root.
+	IssuesOpen *int
 }
 
 func runList(db *sql.DB, parentShortID, actor string, showAll bool) ([]*TaskNode, error) {
@@ -259,6 +308,8 @@ func RunListFiltered(db *sql.DB, f ListFilter) ([]*TaskNode, error) {
 			return nil, fmt.Errorf("task %q not found", f.ParentID)
 		}
 		tree = parent.Children
+	} else {
+		tree = filterRootsByKind(tree, f.KindScope)
 	}
 
 	blockedIDs, err := getBlockedTaskIDs(db)

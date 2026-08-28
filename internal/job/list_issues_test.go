@@ -6,40 +6,37 @@ import (
 	"testing"
 )
 
-func TestIssueOpenCount_NoIssueRoots(t *testing.T) {
+func TestListResultIssuesOpen_NoIssueRoots(t *testing.T) {
 	db := SetupTestDB(t)
 	MustAdd(t, db, "", "Plan")
 
-	has, open, err := IssueOpenCount(db)
+	result, err := RunListWithTail(db, ListFilter{})
 	if err != nil {
-		t.Fatalf("IssueOpenCount: %v", err)
+		t.Fatalf("RunListWithTail: %v", err)
 	}
-	if has {
-		t.Error("has = true, want false with no issue roots")
-	}
-	if open != 0 {
-		t.Errorf("open = %d, want 0", open)
+	if result.IssuesOpen != nil {
+		t.Errorf("IssuesOpen = %d, want nil with no issue roots", *result.IssuesOpen)
 	}
 }
 
-func TestIssueOpenCount_CountsRootAndOpenDescendants(t *testing.T) {
+func TestListResultIssuesOpen_CountsRootAndOpenDescendants(t *testing.T) {
 	db := SetupTestDB(t)
 	_, bugs, _ := seedMixedRoots(t, db)
 	// seedMixedRoots leaves `bugs` (root) and `issueLeaf` (child) both open.
 
-	has, open, err := IssueOpenCount(db)
+	result, err := RunListWithTail(db, ListFilter{})
 	if err != nil {
-		t.Fatalf("IssueOpenCount: %v", err)
+		t.Fatalf("RunListWithTail: %v", err)
 	}
-	if !has {
-		t.Fatal("has = false, want true")
+	if result.IssuesOpen == nil {
+		t.Fatal("IssuesOpen = nil, want non-nil")
 	}
-	if open != 2 {
-		t.Errorf("open = %d, want 2 (root %s + its open leaf)", open, bugs)
+	if *result.IssuesOpen != 2 {
+		t.Errorf("IssuesOpen = %d, want 2 (root %s + its open leaf)", *result.IssuesOpen, bugs)
 	}
 }
 
-func TestIssueOpenCount_ExcludesDoneAndCanceled(t *testing.T) {
+func TestListResultIssuesOpen_ExcludesDoneAndCanceled(t *testing.T) {
 	db := SetupTestDB(t)
 	_, bugs, issueLeaf := seedMixedRoots(t, db)
 	// A second open sibling keeps the root open despite closing the first —
@@ -48,47 +45,44 @@ func TestIssueOpenCount_ExcludesDoneAndCanceled(t *testing.T) {
 	MustAdd(t, db, bugs, "still open issue")
 	MustDone(t, db, issueLeaf)
 
-	has, open, err := IssueOpenCount(db)
+	result, err := RunListWithTail(db, ListFilter{})
 	if err != nil {
-		t.Fatalf("IssueOpenCount: %v", err)
+		t.Fatalf("RunListWithTail: %v", err)
 	}
-	if !has {
-		t.Fatal("has = false, want true")
+	if result.IssuesOpen == nil {
+		t.Fatal("IssuesOpen = nil, want non-nil")
 	}
 	// The done leaf doesn't count; the root and its open sibling do.
-	if open != 2 {
-		t.Errorf("open = %d, want 2 (root + the still-open sibling)", open)
+	if *result.IssuesOpen != 2 {
+		t.Errorf("IssuesOpen = %d, want 2 (root + the still-open sibling)", *result.IssuesOpen)
 	}
 }
 
-func TestIssueOpenCount_MultipleIssueRoots(t *testing.T) {
+func TestListResultIssuesOpen_MultipleIssueRoots(t *testing.T) {
 	db := SetupTestDB(t)
 	_, _, _ = seedMixedRoots(t, db)
 	second := MustAdd(t, db, "", "More bugs")
 	mustSetKind(t, db, second, KindIssue)
 
-	has, open, err := IssueOpenCount(db)
-	if err != nil {
-		t.Fatalf("IssueOpenCount: %v", err)
-	}
-	if !has {
-		t.Fatal("has = false, want true")
-	}
-	if open != 3 {
-		t.Errorf("open = %d, want 3 (2 from first issue tree + 1 for the new root)", open)
-	}
-}
-
-func TestScopeListResult_OpenForestKeepsOnlyRequestedKind(t *testing.T) {
-	db := SetupTestDB(t)
-	seedMixedRoots(t, db)
-
-	result, err := RunListWithTail(db, ListFilter{ShowAll: true})
+	result, err := RunListWithTail(db, ListFilter{})
 	if err != nil {
 		t.Fatalf("RunListWithTail: %v", err)
 	}
-	if err := ScopeListResult(db, result, false, 0); err != nil {
-		t.Fatalf("ScopeListResult: %v", err)
+	if result.IssuesOpen == nil {
+		t.Fatal("IssuesOpen = nil, want non-nil")
+	}
+	if *result.IssuesOpen != 3 {
+		t.Errorf("IssuesOpen = %d, want 3 (2 from first issue tree + 1 for the new root)", *result.IssuesOpen)
+	}
+}
+
+func TestListFilterKindScope_TasksKeepsOnlyTaskRoots(t *testing.T) {
+	db := SetupTestDB(t)
+	seedMixedRoots(t, db)
+
+	result, err := RunListWithTail(db, ListFilter{ShowAll: true, KindScope: ListKindScopeTasks})
+	if err != nil {
+		t.Fatalf("RunListWithTail: %v", err)
 	}
 	for _, n := range result.Open {
 		if n.Task.Kind.IsIssue() {
@@ -100,23 +94,39 @@ func TestScopeListResult_OpenForestKeepsOnlyRequestedKind(t *testing.T) {
 	}
 }
 
-func TestScopeListResult_IssuesScopeKeepsOnlyIssueRoots(t *testing.T) {
+func TestListFilterKindScope_IssuesKeepsOnlyIssueRoots(t *testing.T) {
 	db := SetupTestDB(t)
 	_, bugs, _ := seedMixedRoots(t, db)
 
-	result, err := RunListWithTail(db, ListFilter{ShowAll: true})
+	result, err := RunListWithTail(db, ListFilter{ShowAll: true, KindScope: ListKindScopeIssues})
 	if err != nil {
 		t.Fatalf("RunListWithTail: %v", err)
-	}
-	if err := ScopeListResult(db, result, true, 0); err != nil {
-		t.Fatalf("ScopeListResult: %v", err)
 	}
 	if len(result.Open) != 1 || result.Open[0].Task.ShortID != bugs {
 		t.Fatalf("issues-scoped Open = %v, want just %s", result.Open, bugs)
 	}
 }
 
-func TestScopeListResult_ClosedTailScopedAndRecapped(t *testing.T) {
+func TestListFilterKindScope_IgnoredWithExplicitParent(t *testing.T) {
+	db := SetupTestDB(t)
+	_, bugs, issueLeaf := seedMixedRoots(t, db)
+
+	nodes, err := RunListFiltered(db, ListFilter{ParentID: bugs, ShowAll: true, KindScope: ListKindScopeTasks})
+	if err != nil {
+		t.Fatalf("RunListFiltered: %v", err)
+	}
+	var found bool
+	for _, n := range nodes {
+		if n.Task.ShortID == issueLeaf {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("KindScope should be ignored once ParentID pins the subtree; issue leaf %s missing from %v", issueLeaf, nodes)
+	}
+}
+
+func TestListFilterKindScope_ClosedTailScopedAndCapped(t *testing.T) {
 	db := SetupTestDB(t)
 	// Bare closed roots (no children) land directly in the flat closed-tail
 	// footer with no cascade or inline-merge complications, one per kind.
@@ -127,16 +137,17 @@ func TestScopeListResult_ClosedTailScopedAndRecapped(t *testing.T) {
 	mustSetKind(t, db, issueRoot, KindIssue)
 	MustDone(t, db, issueRoot)
 
-	result, err := RunListWithTail(db, ListFilter{ShowAll: true, ClosedTailCap: -1})
+	unscoped, err := RunListWithTail(db, ListFilter{ShowAll: true, ClosedTailCap: -1})
 	if err != nil {
 		t.Fatalf("RunListWithTail: %v", err)
 	}
-	if len(result.ClosedTail) != 2 {
-		t.Fatalf("setup: want 2 closed-tail rows before scoping, got %d", len(result.ClosedTail))
+	if len(unscoped.ClosedTail) != 2 {
+		t.Fatalf("setup: want 2 closed-tail rows unscoped, got %d", len(unscoped.ClosedTail))
 	}
 
-	if err := ScopeListResult(db, result, false, 0); err != nil {
-		t.Fatalf("ScopeListResult: %v", err)
+	result, err := RunListWithTail(db, ListFilter{ShowAll: true, KindScope: ListKindScopeTasks})
+	if err != nil {
+		t.Fatalf("RunListWithTail: %v", err)
 	}
 	if len(result.ClosedTail) != 1 || result.ClosedTail[0].Task.ShortID != taskRoot {
 		t.Fatalf("task-scoped ClosedTail = %v, want just %s", result.ClosedTail, taskRoot)
@@ -146,7 +157,7 @@ func TestScopeListResult_ClosedTailScopedAndRecapped(t *testing.T) {
 	}
 }
 
-func TestScopeListResult_ClosedTailRespectsRequestedCap(t *testing.T) {
+func TestListFilterKindScope_ClosedTailRespectsCap(t *testing.T) {
 	db := SetupTestDB(t)
 	for range 3 {
 		r := MustAdd(t, db, "", "closed issue root")
@@ -154,12 +165,9 @@ func TestScopeListResult_ClosedTailRespectsRequestedCap(t *testing.T) {
 		MustDone(t, db, r)
 	}
 
-	result, err := RunListWithTail(db, ListFilter{ShowAll: true, ClosedTailCap: -1})
+	result, err := RunListWithTail(db, ListFilter{ShowAll: true, ClosedTailCap: 2, KindScope: ListKindScopeIssues})
 	if err != nil {
 		t.Fatalf("RunListWithTail: %v", err)
-	}
-	if err := ScopeListResult(db, result, true, 2); err != nil {
-		t.Fatalf("ScopeListResult: %v", err)
 	}
 	if len(result.ClosedTail) != 2 {
 		t.Errorf("len(ClosedTail) = %d, want cap of 2", len(result.ClosedTail))

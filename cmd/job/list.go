@@ -121,14 +121,12 @@ Issue-tree roots are omitted from the default forest and summarized in one trail
 			issuesScope := parentShortID == ""
 			scopeByKind := issuesScope && (format != "json" || issuesFlag)
 
-			if issuesFlag && issuesScope && format != "json" {
-				hasIssueRoots, _, ierr := job.IssueOpenCount(db)
-				if ierr != nil {
-					return ierr
-				}
-				if !hasIssueRoots {
-					fmt.Fprintln(cmd.OutOrStdout(), "No issue-tree roots. Run `job add <title> --kind issue` (or `job kind <id> issue`) to create one.")
-					return nil
+			kindScope := job.ListKindScopeAny
+			if scopeByKind {
+				if issuesFlag {
+					kindScope = job.ListKindScopeIssues
+				} else {
+					kindScope = job.ListKindScopeTasks
 				}
 			}
 
@@ -141,14 +139,7 @@ Issue-tree roots are omitted from the default forest and summarized in one trail
 				Status:              effectiveStatus,
 				ClosedTailCap:       closedCap,
 				ClosedTailSinceUnix: sinceUnix,
-			}
-			// The closed-tail cap applies per kind once we're about to split
-			// the forest: fetch it uncapped here and re-cap after scoping
-			// (below) so the "N of M" footer counts the half being shown,
-			// not both kinds combined.
-			requestedCap := filter.ClosedTailCap
-			if scopeByKind && renderTail && filter.ClosedTailCap != -1 {
-				filter.ClosedTailCap = -1
+				KindScope:           kindScope,
 			}
 			result, err := job.RunListWithTail(db, filter)
 			if err != nil {
@@ -158,10 +149,10 @@ Issue-tree roots are omitted from the default forest and summarized in one trail
 				result.ClosedTail = nil
 				result.ClosedTotal = 0
 			}
-			if scopeByKind {
-				if err := job.ScopeListResult(db, result, issuesFlag, requestedCap); err != nil {
-					return err
-				}
+
+			if issuesFlag && issuesScope && format != "json" && result.IssuesOpen == nil {
+				fmt.Fprintln(cmd.OutOrStdout(), "No issue-tree roots. Run `job add <title> --kind issue` (or `job kind <id> issue`) to create one.")
+				return nil
 			}
 			nodes := result.Open
 
@@ -173,12 +164,8 @@ Issue-tree roots are omitted from the default forest and summarized in one trail
 				if !issuesScope || issuesFlag || format == "json" {
 					return nil
 				}
-				hasIssueRoots, openCount, ierr := job.IssueOpenCount(db)
-				if ierr != nil {
-					return ierr
-				}
-				if hasIssueRoots {
-					fmt.Fprintf(cmd.OutOrStdout(), "Issues: %d open · job ls --issues\n", openCount)
+				if result.IssuesOpen != nil {
+					fmt.Fprintf(cmd.OutOrStdout(), "Issues: %d open · job ls --issues\n", *result.IssuesOpen)
 				}
 				return nil
 			}

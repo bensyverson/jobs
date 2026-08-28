@@ -101,12 +101,21 @@ func RunListWithTail(db *sql.DB, f ListFilter) (*ListResult, error) {
 	}
 	tree := buildTree(tasks)
 
+	// IssuesOpen is computed against the full, unscoped forest — before
+	// ParentID narrows to a subtree and before KindScope drops the other
+	// kind's roots — so the trailer's backlog size never shifts with the
+	// filter that happened to produce this result.
+	issuesOpen := issuesOpenCount(tree)
+
+	scoped := tree
 	if f.ParentID != "" {
 		parent := findNodeByShortID(tree, f.ParentID)
 		if parent == nil {
 			return nil, fmt.Errorf("task %q not found", f.ParentID)
 		}
-		tree = parent.Children
+		scoped = parent.Children
+	} else {
+		scoped = filterRootsByKind(tree, f.KindScope)
 	}
 
 	blockedIDs, err := getBlockedTaskIDs(db)
@@ -117,9 +126,9 @@ func RunListWithTail(db *sql.DB, f ListFilter) (*ListResult, error) {
 	effectiveShowAll := f.ShowAll || f.ClaimedByActor != "" || f.Status != ""
 	var open []*TaskNode
 	if effectiveShowAll {
-		open = filterTreeHybrid(tree)
+		open = filterTreeHybrid(scoped)
 	} else {
-		open = filterTree(tree, false, blockedIDs)
+		open = filterTree(scoped, false, blockedIDs)
 	}
 	if f.ClaimedByActor != "" {
 		open = filterByClaimedActor(open, f.ClaimedByActor)
@@ -149,6 +158,17 @@ func RunListWithTail(db *sql.DB, f ListFilter) (*ListResult, error) {
 	inTree := collectTaskIDs(open)
 	tail = filterClosedTailExclude(tail, inTree)
 
+	// A closed-tail row is rarely a root itself, so KindScope can't be
+	// tested on the row's own Task the way filterRootsByKind tests a root —
+	// it has to walk up to the row's root ancestor instead. Scoping here,
+	// before total/cap are computed, keeps the "N of M" footer counting the
+	// kind being shown rather than both kinds combined.
+	if f.ParentID == "" && f.KindScope != ListKindScopeAny {
+		rootKind := rootKindByTask(tasks)
+		wantIssue := f.KindScope == ListKindScopeIssues
+		tail = filterClosedTailByKind(tail, rootKind, wantIssue)
+	}
+
 	total := len(tail)
 	cap := f.ClosedTailCap
 	if cap == 0 {
@@ -158,7 +178,75 @@ func RunListWithTail(db *sql.DB, f ListFilter) (*ListResult, error) {
 		tail = tail[:cap]
 	}
 
-	return &ListResult{Open: open, ClosedTail: tail, ClosedTotal: total}, nil
+	return &ListResult{Open: open, ClosedTail: tail, ClosedTotal: total, IssuesOpen: issuesOpen}, nil
+}
+
+// issuesOpenCount reports the open (not done, not canceled) task count
+// across every issue-tree root in tree, root included, or nil if tree has
+// no issue-tree root. tree must be the full, unscoped forest — see the
+// ListResult.IssuesOpen doc comment for why this is independent of any
+// other ListFilter narrowing.
+func issuesOpenCount(tree []*TaskNode) *int {
+	hasIssueRoots := false
+	open := 0
+	for _, root := range tree {
+		if !root.Task.Kind.IsIssue() {
+			continue
+		}
+		hasIssueRoots = true
+		open += countOpenInSubtree(root)
+	}
+	if !hasIssueRoots {
+		return nil
+	}
+	return &open
+}
+
+func countOpenInSubtree(node *TaskNode) int {
+	n := 0
+	if node.Task.Status != "done" && node.Task.Status != "canceled" {
+		n++
+	}
+	for _, c := range node.Children {
+		n += countOpenInSubtree(c)
+	}
+	return n
+}
+
+// rootKindByTask maps every task ID to the tree kind of its root ancestor,
+// walking the parent chain (kind is root-only, see kind.go). tasks must
+// already be loaded (RunListWithTail has it in hand), so this needs no
+// database round-trip of its own.
+func rootKindByTask(tasks []*Task) map[int64]TreeKind {
+	byID := make(map[int64]*Task, len(tasks))
+	for _, t := range tasks {
+		byID[t.ID] = t
+	}
+	out := make(map[int64]TreeKind, len(tasks))
+	for _, t := range tasks {
+		cur := t
+		for cur.ParentID != nil {
+			parent, ok := byID[*cur.ParentID]
+			if !ok {
+				break
+			}
+			cur = parent
+		}
+		out[t.ID] = cur.Kind
+	}
+	return out
+}
+
+// filterClosedTailByKind keeps only rows whose root ancestor's kind matches
+// wantIssue.
+func filterClosedTailByKind(rows []ClosedTailRow, rootKind map[int64]TreeKind, wantIssue bool) []ClosedTailRow {
+	out := rows[:0:0]
+	for _, r := range rows {
+		if rootKind[r.Task.ID].IsIssue() == wantIssue {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // filterTreeHybrid is the open-tree filter used when ShowAll is in effect.

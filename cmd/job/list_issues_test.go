@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	job "github.com/bensyverson/jobs/internal/job"
 	"strings"
 	"testing"
 )
@@ -221,5 +222,45 @@ func TestLsAllClosedFooterScopedByKindInBothModes(t *testing.T) {
 	}
 	if strings.Contains(out, taskRoot) {
 		t.Errorf("issues footer should not include the closed task root, got:\n%s", out)
+	}
+}
+
+// TestLsFormatJSONShapeMatchesLibraryOutput pins `ls --format=json` and `ls
+// --issues --format=json` to job.FormatTaskNodesJSON's own output for the
+// equivalent job.RunListFiltered call, so a refactor of the CLI's kind-split
+// wiring (cmd/job/list.go) can't silently change the JSON shape — wrap it in
+// an envelope, rename a field, drop a root — without a library-level filter
+// change to match. Short IDs are random per run, so this compares structure
+// against a freshly computed reference rather than a fixed golden string.
+func TestLsFormatJSONShapeMatchesLibraryOutput(t *testing.T) {
+	dbFile, _, _, _, _ := seedIssueRootsCLI(t)
+	db := openTestDB(t, dbFile)
+
+	cases := []struct {
+		name   string
+		args   []string
+		filter job.ListFilter
+	}{
+		{"default", []string{"ls", "--format=json"}, job.ListFilter{}},
+		{"issues", []string{"ls", "--issues", "--format=json"}, job.ListFilter{KindScope: job.ListKindScopeIssues}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, _, err := runCLI(t, dbFile, tc.args...)
+			if err != nil {
+				t.Fatalf("job %v: %v", tc.args, err)
+			}
+			nodes, err := job.RunListFiltered(db, tc.filter)
+			if err != nil {
+				t.Fatalf("RunListFiltered: %v", err)
+			}
+			want, err := job.FormatTaskNodesJSON(nodes)
+			if err != nil {
+				t.Fatalf("FormatTaskNodesJSON: %v", err)
+			}
+			if got := strings.TrimRight(out, "\n"); got != string(want) {
+				t.Errorf("job %v JSON shape changed:\ngot:  %s\nwant: %s", tc.args, got, want)
+			}
+		})
 	}
 }
