@@ -39,6 +39,16 @@ job add "Flaky auth test on CI" --kind issue
 
 A plan can declare it too: `kind: task|issue` on a root of a `job import` document, refused on a child — see [the plan grammar](../../plan-grammar/#tree-kind-and-found-in).
 
+## Filing into an issue-tree
+
+`job issue <title>` is the everyday path — `add` with the parent resolved and the provenance defaulted, so filing a bug costs no ids:
+
+```sh
+job issue "Router drops the trailing slash"
+```
+
+It targets your focused issue root, else the only issue-tree root in the database; with several and none focused it names them and asks you to `job focus <id>`, and with none at all it points you back at `job add <title> --kind issue`. It also defaults [`--found-in`](../found-in/) to your live claim when you hold exactly one. See [the `issue` verb](../../reference/planning/#issue).
+
 ## What the default readers do
 
 `next`, `orient`, and the no-argument `claim --next` answer "what is next in my plan", so they **skip issue-trees**. `job status`'s `Next:` hint and the trailing `Next:` hint on a `done` ack follow the same rule — the `done` hint skips issue-tree roots when it crosses out of the closed task's own tree, and never filters inside it. Pass `--issues` to ask the opposite question — the frontier across issue-trees — as a deliberate triage move:

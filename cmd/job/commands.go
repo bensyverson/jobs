@@ -175,6 +175,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&asFlag, "as", "", "identity to use for writes (e.g. --as alice)")
 	cmd.AddCommand(newInitCmd())
 	cmd.AddCommand(newAddCmd())
+	cmd.AddCommand(newIssueCmd())
 	cmd.AddCommand(newListCmd())
 	cmd.AddCommand(newDoneCmd())
 	cmd.AddCommand(newReopenCmd())

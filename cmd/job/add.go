@@ -2,9 +2,27 @@ package main
 
 import (
 	"fmt"
+	"io"
+
 	job "github.com/bensyverson/jobs/internal/job"
 	"github.com/spf13/cobra"
 )
+
+// printAddAdvisories writes the lines that follow a new task's id: a parent
+// claim released because the parent just grew a child, and the parent's new
+// child count. `issue` creates through the same path and prints the same
+// lines, so they live in one place.
+func printAddAdvisories(out io.Writer, res *job.AddResult, parentShortID string, priorChildCount int, parentIsIssueRoot bool) {
+	if res.AutoReleasedParent != "" {
+		fmt.Fprintf(out, "Released: %s (prior claim by %s auto-released — parent now has open children)\n",
+			res.AutoReleasedParent, res.AutoReleasedByActor)
+	}
+	// An issue root never auto-closes, so the advisory would be false there.
+	if parentShortID != "" && priorChildCount > 0 && !parentIsIssueRoot {
+		fmt.Fprintf(out, "  %s now has %d children; complete them all to auto-close the parent.\n",
+			parentShortID, priorChildCount+1)
+	}
+}
 
 func newAddCmd() *cobra.Command {
 	var desc string
@@ -109,8 +127,12 @@ func newAddCmd() *cobra.Command {
 			}
 
 			var priorChildCount int
+			var parentIsIssueRoot bool
 			if parentShortID != "" {
 				priorChildCount, _, _ = job.CountOpenChildrenOfShortID(db, parentShortID)
+				if parent, perr := job.GetTaskByShortID(db, parentShortID); perr == nil && parent != nil {
+					parentIsIssueRoot = parent.Kind.IsIssue()
+				}
 			}
 
 			kind := job.KindTask
@@ -140,15 +162,7 @@ func newAddCmd() *cobra.Command {
 			// clean value. Criteria are still attached (side effect preserved);
 			// only the advisory chatter is suppressed.
 			if !idOnly {
-				if res.AutoReleasedParent != "" {
-					fmt.Fprintf(cmd.OutOrStdout(), "Released: %s (prior claim by %s auto-released — parent now has open children)\n",
-						res.AutoReleasedParent, res.AutoReleasedByActor)
-				}
-				if parentShortID != "" && priorChildCount > 0 {
-					fmt.Fprintf(cmd.OutOrStdout(),
-						"  %s now has %d children; complete them all to auto-close the parent.\n",
-						parentShortID, priorChildCount+1)
-				}
+				printAddAdvisories(cmd.OutOrStdout(), res, parentShortID, priorChildCount, parentIsIssueRoot)
 			}
 			if len(criteria) > 0 {
 				items := make([]job.Criterion, 0, len(criteria))

@@ -3,7 +3,7 @@ title: Planning
 weight: 2
 ---
 
-The verbs that shape the tree before — and during — work: `add`, `import`, `edit`, `block`, `move`, `kind`, `label`, `split`. Every one of them is a write that emits an event.
+The verbs that shape the tree before — and during — work: `add`, `issue`, `import`, `edit`, `block`, `move`, `kind`, `label`, `split`. Every one of them is a write that emits an event.
 
 ## `add`
 
@@ -33,6 +33,33 @@ The non-obvious moves:
 - The positional order is **strict**: `add <parent> <title>`. If the leading arg doesn't resolve as a short id, `add` errors with `add: no such parent …` and reminds you of the order. If you pass a single arg that *does* resolve as an existing short id (the "forgot the title" slip), `add` refuses with `add: ambiguous single arg …` rather than silently creating a root task literally named after the id. Both errors lead with a stable, greppable prefix and tell you the fix. To create a root task whose title happens to look like a short id, pass `--parent=""` to declare the literal-title intent.
 
 For more than three tasks at a time, prefer `import` — it's atomic and roundtrips through `job schema`.
+
+## `issue`
+
+Files an issue: `add` with the parent resolved for you and the provenance defaulted for you. It is the everyday path for the bug you just hit, and it takes no ids.
+
+```sh
+job issue "Router drops the trailing slash"
+job issue "Panics on an empty tree" -d "Reproduces with an empty .jobs.db." -l p0
+job issue "Unrelated typo in the README" --found-in none
+job issue "Found while reviewing" --found-in kTuMb
+```
+
+How the parent is chosen, in order:
+
+1. Your focused [issue root](../../concepts/tree-kinds/) — claiming inside an issue-tree sets it, and `job focus <id>` sets it by hand.
+2. The only issue-tree root in the database, when there is exactly one.
+3. Otherwise it exits non-zero. With several roots it names each one (id and title) and points at `job focus <id>`; with none it tells you to run `job add <title> --kind issue` first. Nothing is created either way.
+
+How the source is chosen:
+
+- **Your live claim**, when you hold exactly one — an agent mid-task types `job issue "…"` and the [found-in](../../concepts/found-in/) edge is right by construction.
+- **No edge**, when you hold none.
+- **No edge and a one-line hint** naming `--found-in`, when you hold several: guessing between them would be worse than asking.
+- `--found-in <id>` overrides the default; `--found-in none` records no edge at all.
+
+Everything else matches `add`: `-d`/`--desc`, `-F <path>` (and `-F -` for stdin), and repeatable `-l`/`--label`. Output matches it too — the new short id on the first line, then the parent's advisory lines, then a `Found in:` acknowledgement when an edge was recorded.
+
 
 ## `import`
 

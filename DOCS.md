@@ -134,6 +134,9 @@ All writes additionally require `--as <name>` (see [Identity](#identity)).
 | | `-b, --before <id>` Insert before this sibling. |
 | | `--found-in <id>` Record the task that surfaced this one. Provenance only — no parenting, no blocking. The source is resolved before the task is created, so a bad id leaves nothing behind. |
 | | `--kind task\|issue` Tree kind for a new **root** (default `task`). See [Tree kinds](#tree-kinds). Invalid with a parent — kind is root-only. |
+| `job issue <title>` | File an issue: a task under the resolved issue-tree root, with its provenance defaulted. The root is your focused issue root, else the only issue-tree root in the database; with several and none focused it exits non-zero naming each one and `job focus <id>`, and with none it says to run `job add <title> --kind issue`. See [Tree kinds](#tree-kinds) and [Found-in](#found-in). |
+| | `--found-in <id>\|none` Source of the issue. Defaults to your live claim when you hold exactly one; with several, no edge is recorded and a one-line hint names the flag. `none` records no edge. |
+| | `-d, --desc <text>` / `-F, --file <path>` / `-l, --label <name>` Behave exactly as on `add`. |
 
 ### Viewing tasks
 
@@ -243,6 +246,7 @@ Kind is a property of the **root only**. Children of an issue root are ordinary 
 | `job kind <root>` | Print the root's current kind. |
 | `job --as <name> kind <root> task\|issue` | Set it. Records a `kind_changed` event with the before and after. Setting a kind on a non-root is an error. A no-op set records nothing. |
 | `job add <title> --kind issue` | Create a new root already marked as an issue-tree. Invalid with a parent. |
+| `job issue <title>` | File an issue under the issue-tree root you are working in — the everyday path, resolved through your issue [focus](#focus). |
 
 **The default readers skip issue-trees.** `next`, `orient`, `claim --next`, `status`'s `Next:` hint and the `done` ack's `Next:` hint all answer "what is next in my plan", so they never surface a bug. Pass `--issues` to `next`, `orient` or `claim --next` to ask the opposite question:
 
@@ -313,6 +317,7 @@ A **found-in** reference records where a task was surfaced — the leaf someone 
 | `job found-in <task> in <source>` | Record that the task was found while working the source. One source per task; setting a new one replaces the old, and the event records both ids. A task cannot be found in itself; longer loops are allowed, since nothing traverses the edge. |
 | `job found-in <task> --clear` | Remove the reference. Clearing a task that has none is an error, so a mistyped id is caught. |
 | `job add <parent> <title> --found-in <source>` | Record it at creation time, when the issue is filed onto its own root. |
+| `job issue <title>` | The everyday path: files onto the resolved issue-tree root and defaults the source to your single live claim, so an agent mid-task records the provenance without typing an id. `--found-in none` suppresses the default. |
 
 `job show` prints both ends: `Found in: <id> <title> (<status>)` on the task, and a `Surfaced:` checklist on the source. `--format=json` carries them as `found_in` and `surfaced`.
 

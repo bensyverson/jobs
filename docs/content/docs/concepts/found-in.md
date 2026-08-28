@@ -15,7 +15,15 @@ Found-in is the missing half: the reference without the gate.
 
 ## Recording it
 
-At creation time, when the bug is filed onto an issues root:
+The everyday path is `job issue`, which needs no ids at all: it files onto the issue root you are working in and defaults the source to your live claim, so an agent that hits a bug mid-task records the provenance by construction.
+
+```sh
+job issue "Router drops the trailing slash"
+```
+
+With no live claim it records no edge, and with several it records none and hints at the flag rather than guessing. `--found-in none` suppresses the default; `--found-in <id>` names a different source. See [the `issue` verb](../../reference/planning/#issue).
+
+Spelled out, when you want to name both ends:
 
 ```sh
 job add <issues-root> "Router drops the trailing slash" --found-in <leaf>
