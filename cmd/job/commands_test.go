@@ -7,6 +7,7 @@ import (
 	"fmt"
 	job "github.com/bensyverson/jobs/internal/job"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -988,11 +989,14 @@ func TestInit_GitignoreFlag_CreatesFile(t *testing.T) {
 	if !strings.Contains(content, ".jobs.db-wal") {
 		t.Errorf(".gitignore missing -wal entry:\n%s", content)
 	}
-	if strings.Contains(content, "\n.jobs.db\n") {
-		t.Errorf(".gitignore should not include .jobs.db itself:\n%s", content)
+	// .jobs.db itself is a recommended entry too: every project using Jobs
+	// ends up ignoring it, and the agent-worktree workflow assumes it isn't
+	// checked in.
+	if !strings.Contains(content, "\n.jobs.db\n") {
+		t.Errorf(".gitignore should include .jobs.db itself:\n%s", content)
 	}
 	out := outBuf.String()
-	if !strings.Contains(out, "Wrote 2 entries to .gitignore") {
+	if !strings.Contains(out, "Wrote 3 entries to .gitignore") {
 		t.Errorf("missing success output:\n%s", out)
 	}
 }
@@ -1091,13 +1095,54 @@ func TestInit_GitignoreFlag_PartialPresent(t *testing.T) {
 	if !strings.Contains(content, ".jobs.db-wal") {
 		t.Errorf("missing -wal append:\n%s", content)
 	}
+	if !strings.Contains(content, "\n.jobs.db\n") {
+		t.Errorf("missing .jobs.db append:\n%s", content)
+	}
 	// Only one -shm entry (not duplicated).
 	if strings.Count(content, ".jobs.db-shm") != 1 {
 		t.Errorf("duplicated -shm entry:\n%s", content)
 	}
 	out := outBuf.String()
-	if !strings.Contains(out, "Wrote 1 entries") && !strings.Contains(out, ".jobs.db-wal") {
+	if !strings.Contains(out, "Wrote 2 entries") {
 		t.Errorf("missing wrote message:\n%s", out)
+	}
+}
+
+// TestInit_GitignoreFlag_GitActuallyIgnoresTheEntries drives real `git` on a
+// real repo: the earlier tests only inspect the .gitignore text, which
+// missed that a trailing inline comment makes git treat the whole line as
+// one literal (never-matching) pattern. Skips if git isn't on PATH.
+func TestInit_GitignoreFlag_GitActuallyIgnoresTheEntries(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("JOBS_DB", "")
+	resetFlags()
+	t.Cleanup(resetFlags)
+
+	gitInit := exec.Command("git", "init", "-q")
+	gitInit.Dir = dir
+	if out, err := gitInit.CombinedOutput(); err != nil {
+		t.Skipf("git init failed, skipping: %v\n%s", err, out)
+	}
+
+	root := newRootCmd()
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"init", "--gitignore"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	for _, name := range []string{".jobs.db", ".jobs.db-shm", ".jobs.db-wal"} {
+		check := exec.Command("git", "check-ignore", "-q", name)
+		check.Dir = dir
+		if err := check.Run(); err != nil {
+			t.Errorf("git check-ignore -q %s: not ignored (%v)", name, err)
+		}
 	}
 }
 

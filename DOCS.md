@@ -113,7 +113,7 @@ Multiple agents can work in the same directory simultaneously. Each passes its o
 
 | Command | Description |
 |---------|-------------|
-| `job init [--force] [--gitignore] [--default-identity <name>] [--strict]` | Create a `.jobs.db` in the current directory. `--force` overwrites an existing one. `init` always creates the database in the current directory even if an ancestor already has one — there is no silent no-op. `--gitignore` appends recommended entries (`.jobs.db-shm`, `.jobs.db-wal`) to `./.gitignore`. `--default-identity <name>` records the writer identity (defaults to `$USER`); `--strict` opts out and requires `--as` on every write. See [Identity](#identity). |
+| `job init [--force] [--gitignore] [--default-identity <name>] [--strict]` | Create a `.jobs.db` in the current directory. `--force` overwrites an existing one. `init` always creates the database in the current directory even if an ancestor already has one — there is no silent no-op. `--gitignore` appends recommended entries (`.jobs.db`, `.jobs.db-shm`, `.jobs.db-wal`) to `./.gitignore`. `--default-identity <name>` records the writer identity (defaults to `$USER`); `--strict` opts out and requires `--as` on every write. See [Identity](#identity). |
 | `job identity set <name>` | Change the default writer identity. Requires `--as <name>` on the call (bootstrap discipline — the change itself is attributed). |
 | `job identity strict on\|off` | Toggle strict mode. Requires `--as`. |
 | `job schema` | Print the JSON Schema for the `job import` grammar. Useful for feeding an agent the exact shape it should produce. |

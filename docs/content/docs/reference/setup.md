@@ -13,7 +13,7 @@ Creates a `.jobs.db` in the current directory and records a default writer ident
 job init                                  # uses $USER as the default
 job init --default-identity claude        # pin a specific name
 job init --strict                         # no default; every write needs --as
-job init --gitignore                      # also append SQLite WAL/SHM lines
+job init --gitignore                      # also append .jobs.db and its SQLite WAL/SHM lines
 job init --force                          # overwrite an existing .jobs.db
 ```
 

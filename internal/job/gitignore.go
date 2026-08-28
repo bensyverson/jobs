@@ -8,13 +8,11 @@ import (
 )
 
 const GitignoreHint = `Recommended .gitignore entries:
+  .jobs.db          # Jobs event store (local by default; remove this line to share it)
   .jobs.db-shm      # SQLite WAL index (always local)
   .jobs.db-wal      # SQLite WAL journal (always local)
 
-To also keep the tracker local (don't check in the tree):
-  .jobs.db
-
-Or run: job init --gitignore  to write these for you.`
+Run: job init --gitignore  to write these for you.`
 
 type gitignoreEntry struct {
 	name    string
@@ -22,6 +20,7 @@ type gitignoreEntry struct {
 }
 
 var jobGitignoreEntries = []gitignoreEntry{
+	{".jobs.db", "Jobs event store (local by default; remove this line to share it)"},
 	{".jobs.db-shm", "SQLite WAL index (always local)"},
 	{".jobs.db-wal", "SQLite WAL journal (always local)"},
 }
@@ -60,9 +59,10 @@ func WriteGitignoreEntries(dir string) (written []string, alreadyPresent []strin
 		if gitignoreHasEntry(existing, e.name) {
 			continue
 		}
-		buf.WriteString(e.name)
-		buf.WriteString("\t# ")
+		buf.WriteString("# ")
 		buf.WriteString(e.comment)
+		buf.WriteString("\n")
+		buf.WriteString(e.name)
 		buf.WriteString("\n")
 	}
 
@@ -73,14 +73,14 @@ func WriteGitignoreEntries(dir string) (written []string, alreadyPresent []strin
 	return written, alreadyPresent, nil
 }
 
+// gitignoreHasEntry reports whether content already has a bare-pattern line
+// matching name exactly. gitignore has no trailing-comment syntax: a line
+// like "name\t# comment" is one literal pattern, not name plus a comment, so
+// it does NOT satisfy the entry — an old line like that is left in place and
+// a correct bare line is appended alongside it rather than rewritten.
 func gitignoreHasEntry(content, name string) bool {
 	for line := range strings.SplitSeq(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		fields := strings.Fields(trimmed)
-		if len(fields) > 0 && fields[0] == name {
+		if strings.TrimSpace(line) == name {
 			return true
 		}
 	}
