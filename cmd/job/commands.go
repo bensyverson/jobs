@@ -434,7 +434,23 @@ type doneAckOptions struct {
 	actor string
 }
 
-func buildDoneAckLines(closed []*job.ClosedResult, alreadyDone []string, finalCtx *job.DoneContext, opts doneAckOptions) []AckLine {
+// formatSurfacedLine renders the `done` ack's per-task `Surfaced:` line
+// naming the still-open issues the closed task produced (Decision 5,
+// project/2026-08-28-issues-ux.md). Closed surfaced issues are filtered out
+// upstream, in job.ComputeDoneContext.
+func formatSurfacedLine(open []*job.Task) AckLine {
+	noun := "issues"
+	if len(open) == 1 {
+		noun = "issue"
+	}
+	names := make([]string, len(open))
+	for i, t := range open {
+		names[i] = fmt.Sprintf("%s %q", t.ShortID, t.Title)
+	}
+	return AckLine(fmt.Sprintf("  Surfaced: %d open %s — %s", len(open), noun, strings.Join(names, ", ")))
+}
+
+func buildDoneAckLines(closed []*job.ClosedResult, alreadyDone []string, ctxByID map[string]*job.DoneContext, finalCtx *job.DoneContext, opts doneAckOptions) []AckLine {
 	var lines []AckLine
 
 	appendNoteEcho := func(note string) {
@@ -443,6 +459,15 @@ func buildDoneAckLines(closed []*job.ClosedResult, alreadyDone []string, finalCt
 		}
 		count, preview := job.NotePreview(note)
 		lines = append(lines, AckLine(fmt.Sprintf("  note: %d chars · %q", count, preview)))
+	}
+
+	appendSurfaced := func(shortID string) {
+		if ctxByID == nil {
+			return
+		}
+		if cc, ok := ctxByID[shortID]; ok && len(cc.SurfacedOpen) > 0 {
+			lines = append(lines, formatSurfacedLine(cc.SurfacedOpen))
+		}
 	}
 
 	asTag := ""
@@ -454,10 +479,12 @@ func buildDoneAckLines(closed []*job.ClosedResult, alreadyDone []string, finalCt
 		c := closed[0]
 		lines = append(lines, AckLine(fmt.Sprintf("Done: %s %q%s", c.ShortID, c.Title, asTag)))
 		appendNoteEcho(c.Note)
+		appendSurfaced(c.ShortID)
 	} else if len(closed) == 1 && len(closed[0].CascadeClosed) > 0 && len(alreadyDone) == 0 {
 		c := closed[0]
 		lines = append(lines, AckLine(fmt.Sprintf("Done: %s %q (and %d subtasks)%s", c.ShortID, c.Title, len(c.CascadeClosed), asTag)))
 		appendNoteEcho(c.Note)
+		appendSurfaced(c.ShortID)
 	} else if len(closed) > 0 {
 		lines = append(lines, AckLine(fmt.Sprintf("Closed %d tasks:", len(closed))))
 		for _, c := range closed {
@@ -467,6 +494,7 @@ func buildDoneAckLines(closed []*job.ClosedResult, alreadyDone []string, finalCt
 				lines = append(lines, AckLine(fmt.Sprintf("- Done: %s %q", c.ShortID, c.Title)))
 			}
 			appendNoteEcho(c.Note)
+			appendSurfaced(c.ShortID)
 		}
 	}
 	if len(alreadyDone) > 0 {
@@ -527,12 +555,12 @@ func buildDoneAckLines(closed []*job.ClosedResult, alreadyDone []string, finalCt
 	return lines
 }
 
-func renderDoneAck(w io.Writer, closed []*job.ClosedResult, alreadyDone []string, finalCtx *job.DoneContext) {
-	renderDoneAckWithOptions(w, closed, alreadyDone, finalCtx, doneAckOptions{})
+func renderDoneAck(w io.Writer, closed []*job.ClosedResult, alreadyDone []string, ctxByID map[string]*job.DoneContext, finalCtx *job.DoneContext) {
+	renderDoneAckWithOptions(w, closed, alreadyDone, ctxByID, finalCtx, doneAckOptions{})
 }
 
-func renderDoneAckWithOptions(w io.Writer, closed []*job.ClosedResult, alreadyDone []string, finalCtx *job.DoneContext, opts doneAckOptions) {
-	for _, line := range buildDoneAckLines(closed, alreadyDone, finalCtx, opts) {
+func renderDoneAckWithOptions(w io.Writer, closed []*job.ClosedResult, alreadyDone []string, ctxByID map[string]*job.DoneContext, finalCtx *job.DoneContext, opts doneAckOptions) {
+	for _, line := range buildDoneAckLines(closed, alreadyDone, ctxByID, finalCtx, opts) {
 		fmt.Fprintln(w, string(line))
 	}
 }
@@ -542,6 +570,12 @@ type doneJSONClosed struct {
 	Title               string               `json:"title"`
 	CascadeClosed       []string             `json:"cascade_closed"`
 	AutoClosedAncestors []doneJSONAutoClosed `json:"auto_closed_ancestors,omitempty"`
+	SurfacedOpen        []doneJSONSurfaced   `json:"surfaced_open,omitempty"`
+}
+
+type doneJSONSurfaced struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
 }
 
 type doneJSONAutoClosed struct {
@@ -567,7 +601,7 @@ type doneJSON struct {
 	Parent      *doneJSONParent  `json:"parent"`
 }
 
-func renderDoneJSON(w io.Writer, closed []*job.ClosedResult, alreadyDone []string, ctx *job.DoneContext) error {
+func renderDoneJSON(w io.Writer, closed []*job.ClosedResult, alreadyDone []string, ctxByID map[string]*job.DoneContext, ctx *job.DoneContext) error {
 	out := doneJSON{
 		AlreadyDone: alreadyDone,
 	}
@@ -581,6 +615,11 @@ func renderDoneJSON(w io.Writer, closed []*job.ClosedResult, alreadyDone []strin
 		}
 		for _, anc := range c.AutoClosedAncestors {
 			jc.AutoClosedAncestors = append(jc.AutoClosedAncestors, doneJSONAutoClosed{ID: anc.ShortID, Title: anc.Title})
+		}
+		if cc, ok := ctxByID[c.ShortID]; ok {
+			for _, s := range cc.SurfacedOpen {
+				jc.SurfacedOpen = append(jc.SurfacedOpen, doneJSONSurfaced{ID: s.ShortID, Title: s.Title})
+			}
 		}
 		out.Closed = append(out.Closed, jc)
 	}

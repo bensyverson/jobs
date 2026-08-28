@@ -171,13 +171,29 @@ Tip: pass --claim-next to atomically close this task and claim the next availabl
 				}
 			}
 
-			var ctx *job.DoneContext
-			if lastCtxID != "" {
-				c, cerr := job.ComputeDoneContext(db, lastCtxID, autoClosedSet)
+			// Surfaced: is per-closed-task info (Decision 5,
+			// project/2026-08-28-issues-ux.md), so every closed task gets its
+			// own DoneContext; the trailing Next:/Parent:/whole-tree lines
+			// still describe only the last id, matching the existing ack.
+			ctxByID := make(map[string]*job.DoneContext, len(closed))
+			for _, c := range closed {
+				cc, cerr := job.ComputeDoneContext(db, c.ShortID, autoClosedSet)
 				if cerr != nil {
 					return cerr
 				}
-				ctx = c
+				ctxByID[c.ShortID] = cc
+			}
+			var ctx *job.DoneContext
+			if lastCtxID != "" {
+				if cc, ok := ctxByID[lastCtxID]; ok {
+					ctx = cc
+				} else {
+					c, cerr := job.ComputeDoneContext(db, lastCtxID, autoClosedSet)
+					if cerr != nil {
+						return cerr
+					}
+					ctx = c
+				}
 			}
 
 			// --claim-next: attempt to claim the next leaf. Done is irreversible,
@@ -216,7 +232,7 @@ Tip: pass --claim-next to atomically close this task and claim the next availabl
 			}
 
 			if format == "json" {
-				return renderDoneJSON(cmd.OutOrStdout(), closed, alreadyDone, ctx)
+				return renderDoneJSON(cmd.OutOrStdout(), closed, alreadyDone, ctxByID, ctx)
 			}
 
 			// Idempotent single-ID already-done: preserve Phase 3 wording.
@@ -229,7 +245,7 @@ Tip: pass --claim-next to atomically close this task and claim the next availabl
 			// claimed the next leaf: the Claimed line below already names
 			// the target. Race-lost claims still surface Next as a useful
 			// fallback ("you didn't get anything, try this instead").
-			renderDoneAckWithOptions(cmd.OutOrStdout(), closed, alreadyDone, ctx, doneAckOptions{
+			renderDoneAckWithOptions(cmd.OutOrStdout(), closed, alreadyDone, ctxByID, ctx, doneAckOptions{
 				suppressNext: claimed != nil,
 				actor:        actor,
 			})

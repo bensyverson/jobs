@@ -1346,6 +1346,10 @@ type DoneContext struct {
 	WholeTreeComplete  bool
 	WholeTreeDoneCount int
 	WholeTreeRootID    string
+	// SurfacedOpen lists the still-open tasks found-in the closed task, in
+	// short-id order — the `done` ack's `Surfaced:` line. Closed (done or
+	// canceled) and soft-deleted issues are excluded.
+	SurfacedOpen []*Task
 }
 
 // ComputeDoneContext computes the trailing-context block for a done ack.
@@ -1390,6 +1394,17 @@ func ComputeDoneContext(db *sql.DB, closedShortID string, autoClosedSet map[stri
 				}
 			}
 		}
+	}
+
+	surfaced, err := GetSurfaced(db, closed.ShortID)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range surfaced {
+		if s.Status == "done" || s.Status == "canceled" {
+			continue
+		}
+		ctx.SurfacedOpen = append(ctx.SurfacedOpen, s)
 	}
 
 	next, skipped, skippedBy, err := findNextClaimableLeafHierarchical(db, closed)

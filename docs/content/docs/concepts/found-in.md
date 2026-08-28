@@ -61,6 +61,8 @@ Surfaced:
 
 The source's status is printed inline because the interesting case is a closed source — the plan shipped, the bug did not. `--format=json` carries the same information as `found_in` and `surfaced`.
 
+Closing `kTuMb` surfaces the same edge from the other direction: `job done kTuMb` prints `Surfaced: 1 open issue — qP4nR "Router drops the trailing slash"` right after the closing line, dropping off the list the moment `qP4nR` itself closes — see [`done`](../../reference/execution/#done) for the multi-id and `--format=json` shapes.
+
 ## What it survives
 
 The whole point of the reference is that it outlives the work that produced it. It survives the source being marked `done`, being canceled, being canceled as part of a `cancel --cascade`, and being soft-deleted. None of the close or cancel paths touch the table.
