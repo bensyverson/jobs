@@ -1,6 +1,7 @@
 package handlers_test
 
 import (
+	"database/sql"
 	"net/http/httptest"
 	"strconv"
 	"strings"
@@ -442,7 +443,12 @@ func TestActors_EmptyDatabaseRendersEmptyBoard(t *testing.T) {
 	}
 	mustContain(t, body, `c-actors-board`)
 	mustContain(t, body, `class="c-actors-board__empty"`)
-	mustContain(t, body, `No actors have touched this store yet.`)
+	// The empty state is worded for the current window: with the
+	// default 7d range in force, "nothing ever" would be a claim the
+	// page cannot make. ?range=all is where the absolute wording
+	// still belongs.
+	mustContain(t, body, `No actor activity in the last 7 days.`)
+	mustContain(t, fetchActorsRange(t, deps, "range=all"), `No actors have touched this store yet.`)
 }
 
 // --- ?at time-travel tests (R0Ro4) ---
@@ -556,4 +562,189 @@ func TestActors_AtDerivesClaimFromEventWalk(t *testing.T) {
 	if !strings.Contains(body, `1 claim`) {
 		t.Errorf("?at=<claim event> should report 1 claim in the column status, got body:\n%s", body)
 	}
+}
+
+// --- range selector (?range=7d|14d|30d|all) ---
+
+// fetchActorsRange drives /actors with a raw query string.
+func fetchActorsRange(t *testing.T, deps handlers.Deps, query string) string {
+	t.Helper()
+	url := "/actors"
+	if query != "" {
+		url += "?" + query
+	}
+	req := httptest.NewRequest("GET", url, nil)
+	w := httptest.NewRecorder()
+	handlers.Actors(deps).ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("GET %s: status %d, body=%s", url, w.Code, w.Body.String())
+	}
+	return w.Body.String()
+}
+
+// backdateActorEvents rewrites every event by actor to age ago, so a
+// test can place an actor outside the default 7-day window.
+func backdateActorEvents(t *testing.T, db *sql.DB, actor string, age time.Duration) {
+	t.Helper()
+	ts := time.Now().Add(-age).Unix()
+	if _, err := db.Exec(`UPDATE events SET created_at = ? WHERE actor = ?`, ts, actor); err != nil {
+		t.Fatalf("backdateActorEvents(%q): %v", actor, err)
+	}
+}
+
+// backdateActorTaskEvents backdates only one actor's events on one
+// task, so a column can straddle the cutoff.
+func backdateActorTaskEvents(t *testing.T, db *sql.DB, actor, shortID string, age time.Duration) {
+	t.Helper()
+	ts := time.Now().Add(-age).Unix()
+	_, err := db.Exec(
+		`UPDATE events SET created_at = ?
+		  WHERE actor = ? AND task_id = (SELECT id FROM tasks WHERE short_id = ?)`,
+		ts, actor, shortID)
+	if err != nil {
+		t.Fatalf("backdateActorTaskEvents(%q, %q): %v", actor, shortID, err)
+	}
+}
+
+func countActorColumns(body string) int {
+	return strings.Count(body, `<section class="c-actor-col`)
+}
+
+func TestActors_DefaultRangeDropsActorsWithNoEventInSevenDays(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "fresh", "fresh-task", nil, nil)
+	mustAdd(t, db, "stale", "stale-task", nil, nil)
+	backdateActorEvents(t, db, "stale", 10*24*time.Hour)
+
+	deps := newLogDeps(t, db)
+	body := fetchActorsRange(t, deps, "")
+
+	if n := countActorColumns(body); n != 1 {
+		t.Errorf("default range column count: got %d, want 1", n)
+	}
+	mustContain(t, body, `data-actor="fresh"`)
+	if strings.Contains(stripInitialFrame(body), `data-actor="stale"`) {
+		t.Errorf("stale actor (10d old) should be outside the default 7d window")
+	}
+}
+
+func TestActors_WiderRangesReadmitOlderActors(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "fresh", "fresh-task", nil, nil)
+	mustAdd(t, db, "stale", "stale-task", nil, nil)
+	backdateActorEvents(t, db, "stale", 20*24*time.Hour)
+
+	deps := newLogDeps(t, db)
+
+	if n := countActorColumns(fetchActorsRange(t, deps, "range=14d")); n != 1 {
+		t.Errorf("range=14d column count: got %d, want 1 (stale is 20d old)", n)
+	}
+	if n := countActorColumns(fetchActorsRange(t, deps, "range=30d")); n != 2 {
+		t.Errorf("range=30d column count: got %d, want 2", n)
+	}
+	if n := countActorColumns(fetchActorsRange(t, deps, "range=all")); n != 2 {
+		t.Errorf("range=all column count: got %d, want 2", n)
+	}
+}
+
+func TestActors_InvalidRangeFallsBackToSevenDays(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "fresh", "fresh-task", nil, nil)
+	mustAdd(t, db, "stale", "stale-task", nil, nil)
+	backdateActorEvents(t, db, "stale", 10*24*time.Hour)
+
+	deps := newLogDeps(t, db)
+	body := fetchActorsRange(t, deps, "range=90d")
+
+	if n := countActorColumns(body); n != 1 {
+		t.Errorf("invalid range column count: got %d, want 1 (fall back to 7d)", n)
+	}
+	mustContain(t, body, `<a href="/actors" class="c-tab c-tab--active" aria-current="true">7D</a>`)
+}
+
+func TestActors_CardsAreLimitedToTheRange(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "alice", "recent-task", nil, nil)
+	ancient := mustAdd(t, db, "alice", "ancient-task", nil, nil)
+	backdateActorTaskEvents(t, db, "alice", ancient, 10*24*time.Hour)
+
+	deps := newLogDeps(t, db)
+
+	body := stripInitialFrame(fetchActorsRange(t, deps, ""))
+	if n := countOuterCards(body); n != 1 {
+		t.Errorf("default range card count: got %d, want 1", n)
+	}
+	mustContain(t, body, "recent-task")
+	if strings.Contains(body, "ancient-task") {
+		t.Errorf("card for a 10-day-old event should be outside the default 7d window\n---\n%s", body)
+	}
+
+	all := stripInitialFrame(fetchActorsRange(t, deps, "range=all"))
+	if n := countOuterCards(all); n != 2 {
+		t.Errorf("range=all card count: got %d, want 2", n)
+	}
+	mustContain(t, all, "ancient-task")
+}
+
+func TestActors_RangeTabsAreLinksAndMarkTheActiveOne(t *testing.T) {
+	db := setupLogTestDB(t)
+	deps := newLogDeps(t, db)
+
+	body := fetchActorsRange(t, deps, "")
+	mustContain(t, body, `<nav class="c-tabs" aria-label="Range">`)
+	mustContain(t, body, `<a href="/actors" class="c-tab c-tab--active" aria-current="true">7D</a>`)
+	mustContain(t, body, `<a href="/actors?range=14d" class="c-tab">14D</a>`)
+	mustContain(t, body, `<a href="/actors?range=30d" class="c-tab">30D</a>`)
+	mustContain(t, body, `<a href="/actors?range=all" class="c-tab">All</a>`)
+
+	all := fetchActorsRange(t, deps, "range=all")
+	mustContain(t, all, `<a href="/actors?range=all" class="c-tab c-tab--active" aria-current="true">All</a>`)
+	mustContain(t, all, `<a href="/actors" class="c-tab">7D</a>`)
+	if strings.Count(all, `aria-current="true"`) != 1 {
+		t.Errorf("exactly one range tab should carry aria-current\n---\n%s", all)
+	}
+}
+
+// Scrubbed into history, the window is measured back from the cursor
+// rather than from wall-clock now. Anchoring on now instead would
+// render an empty board here: every event predates now-7d.
+func TestActors_RangeIsAnchoredOnTheScrubberCursor(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "alice", "alice-task", nil, nil)
+	mustAdd(t, db, "bob", "bob-task", nil, nil)
+	mustAdd(t, db, "carol", "carol-task", nil, nil)
+	backdateActorEvents(t, db, "alice", 40*24*time.Hour)
+	backdateActorEvents(t, db, "bob", 38*24*time.Hour)
+
+	var bobEventID int64
+	err := db.QueryRow(`SELECT id FROM events WHERE actor = 'bob' ORDER BY id DESC LIMIT 1`).Scan(&bobEventID)
+	if err != nil {
+		t.Fatalf("select bob event: %v", err)
+	}
+
+	deps := newLogDeps(t, db)
+	body := stripInitialFrame(fetchActorsRange(t, deps,
+		"at="+strconv.FormatInt(bobEventID, 10)+"&range=7d"))
+
+	if n := countActorColumns(body); n != 2 {
+		t.Errorf("column count: got %d, want 2 (alice at -40d and bob at -38d are both inside the week before the cursor)\n---\n%s", n, body)
+	}
+	mustContain(t, body, `data-actor="alice"`)
+	mustContain(t, body, `data-actor="bob"`)
+	if strings.Contains(body, `data-actor="carol"`) {
+		t.Errorf("carol is past the ?at upper bound and should not appear")
+	}
+}
+
+// The range tabs keep ?at so switching windows doesn't jump the
+// scrubber back to live.
+func TestActors_RangeTabsPreserveTheAtCursor(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "alice", "alice-task", nil, nil)
+
+	deps := newLogDeps(t, db)
+	body := fetchActorsRange(t, deps, "at=1")
+
+	mustContain(t, body, `href="/actors?at=1"`)
+	mustContain(t, body, `href="/actors?at=1&amp;range=all"`)
 }

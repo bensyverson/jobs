@@ -17,6 +17,11 @@ import (
 type ActorsPageData struct {
 	templates.Chrome
 	Columns []ActorColumn
+	// RangeTabs is the 7D / 14D / 30D / All link group in the view
+	// header; RangeEmptyText is the empty state worded for the
+	// current window ("No actor activity in the last 7 days").
+	RangeTabs      []RangeTab
+	RangeEmptyText string
 }
 
 // ActorColumn is one column on the actors board: an actor plus the
@@ -73,16 +78,21 @@ var stateChangingTypes = map[string]bool{
 	"canceled":  true,
 }
 
-// Actors renders the column-per-actor board view at /actors. Single-
-// actor /actors/{name} and live updates land in later phase tasks.
+// Actors renders the column-per-actor board view at /actors.
 //
 // Accepts ?at=<event_id> as a time-travel upper bound: the event walk
 // is scoped to events with id <= at, and IsClaim/ClaimCount are
 // derived from the walk itself rather than the live tasks.claimed_by
 // column so the column reflects claim state as of that moment.
+//
 // /actors/{name} stays live-only — the hero stats and 24h timeline
 // rely on wall-clock now() in ways we deliberately do not thread a
 // synthetic "now" through.
+//
+// Accepts ?range=7d|14d|30d|all (default 7d) as a lower bound: only
+// actors with an event inside the window get a column, and a column
+// carries only the cards its in-window events produced. Under ?at=
+// the window is measured back from the cursor's event, not from now.
 func Actors(deps Deps) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		at, invalid := parseAtParam(r.URL.Query())
@@ -93,7 +103,13 @@ func Actors(deps Deps) http.Handler {
 			return
 		}
 		now := time.Now()
-		cols, err := loadActorColumns(r.Context(), deps.DB, now, at)
+		anchor, err := rangeAnchor(r.Context(), deps.DB, at, now)
+		if err != nil {
+			InternalError(deps, w, "actors range anchor", err)
+			return
+		}
+		rg := parseRange(r.URL.Query(), anchor)
+		cols, err := loadActorColumns(r.Context(), deps.DB, now, at, rg)
 		if err != nil {
 			InternalError(deps, w, "actors columns", err)
 			return
@@ -104,8 +120,10 @@ func Actors(deps Deps) http.Handler {
 			return
 		}
 		data := ActorsPageData{
-			Chrome:  chrome,
-			Columns: cols,
+			Chrome:         chrome,
+			Columns:        cols,
+			RangeTabs:      buildRangeTabs("/actors", r.URL.Query(), rg.Key),
+			RangeEmptyText: actorsEmptyText(rg),
 		}
 		renderPage(deps, w, "actors", data)
 	})
@@ -128,7 +146,14 @@ func Actors(deps Deps) http.Handler {
 //
 // atUpperBound is the time-travel anchor: when > 0, the walk is
 // restricted to events with id <= atUpperBound. Zero means "live."
-func loadActorColumns(ctx context.Context, db *sql.DB, now time.Time, atUpperBound int64) ([]ActorColumn, error) {
+//
+// rg is the lower bound. Its cutoff is applied in SQL, so the whole
+// rollup — cards, claim state, last-seen, which actors exist at all —
+// is derived from in-window events only. That keeps the board
+// internally consistent (a column never claims a claim it cannot
+// show) at the cost of hiding a claim older than the window; claims
+// expire in minutes, so in practice nothing survives that long.
+func loadActorColumns(ctx context.Context, db *sql.DB, now time.Time, atUpperBound int64, rg Range) ([]ActorColumn, error) {
 	query := `
 		SELECT e.id, e.actor, e.event_type, e.created_at,
 		       t.id, t.short_id, t.title, t.description
@@ -140,6 +165,10 @@ func loadActorColumns(ctx context.Context, db *sql.DB, now time.Time, atUpperBou
 	if atUpperBound > 0 {
 		query += " AND e.id <= ?"
 		args = append(args, atUpperBound)
+	}
+	if rg.Bounded() {
+		query += " AND e.created_at >= ?"
+		args = append(args, rg.Cutoff)
 	}
 	query += `
 		ORDER BY e.created_at ASC, e.id ASC`
@@ -290,6 +319,30 @@ func loadActorColumns(ctx context.Context, db *sql.DB, now time.Time, atUpperBou
 		return cols[i].Name < cols[j].Name
 	})
 	return cols, nil
+}
+
+// actorsEmptyText words the board's empty state for the current
+// window, so "nothing here" reads as "nothing lately" rather than
+// "nothing ever" whenever the range could be the reason.
+func actorsEmptyText(rg Range) string {
+	switch rg.Key {
+	case RangeAll:
+		return "No actors have touched this store yet."
+	default:
+		return "No actor activity in the last " + rangeSpanWords(rg.Key) + "."
+	}
+}
+
+// rangeSpanWords renders a bounded range key as prose.
+func rangeSpanWords(key RangeKey) string {
+	switch key {
+	case Range14D:
+		return "14 days"
+	case Range30D:
+		return "30 days"
+	default:
+		return "7 days"
+	}
 }
 
 func noteCountLabel(n int) string {

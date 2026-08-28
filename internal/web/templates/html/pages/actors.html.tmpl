@@ -4,9 +4,16 @@
      collapse to a "N notes" badge. CSS uses column-reverse on the
      stream, so DOM-first cards visually dock at the bottom — the
      handler emits active claims first so the chat-style "freshest at
-     the bottom" reading lands on the current claim. */ -}}
+     the bottom" reading lands on the current claim.
+     The view header carries the 7D / 14D / 30D / All range selector:
+     a plain link group (c-tabs), so it works with JS off. */ -}}
 {{define "title"}}Actors · Jobs{{end}}
 {{define "content"}}
+<div class="row row-gap-md c-view-header">
+  <nav class="c-tabs" aria-label="Range">
+    {{range .RangeTabs}}<a href="{{.URL}}" class="c-tab{{if .Active}} c-tab--active{{end}}"{{if .Active}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}
+  </nav>
+</div>
 <div class="c-actors-board" aria-label="Actors" data-actors-board>
   {{- if .Columns -}}
   {{- range .Columns -}}
@@ -47,7 +54,7 @@
     </section>
   {{- end -}}
   {{- else -}}
-    <p class="c-actors-board__empty">No actors have touched this store yet.</p>
+    <p class="c-actors-board__empty">{{.RangeEmptyText}}</p>
   {{- end -}}
 </div>
 {{end}}

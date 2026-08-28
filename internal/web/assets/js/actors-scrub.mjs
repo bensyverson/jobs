@@ -4,8 +4,11 @@
   When the scrubber pill dispatches 'jobs:scrubber-frame' on the
   document, this module rebuilds the .c-actors-board from the in-
   memory event log + frame, mirroring what handlers.Actors would
-  render server-side at the cursor's event id. Live mode is restored
-  by 'jobs:scrubber-live' via a fetch-and-swap of /actors.
+  render server-side at the cursor's event id — including the
+  ?range= window, re-anchored on the cursor. Live mode is restored
+  by 'jobs:scrubber-live' via a fetch-and-swap of the current URL,
+  which carries ?range= along. The range selector itself lives
+  outside the board element and is never swapped.
 
   Why we need events here, not just the frame: the actors-board's
   per-(actor, task) cards are derived from the event walk (latest
@@ -21,6 +24,7 @@
 
 import { buildActorColumns } from "./actors-scrub-build.mjs";
 import { renderActorsBoard } from "./actors-scrub-render.mjs";
+import { rangeFromSearch } from "./range.mjs";
 
 function findBoard(doc) {
   return doc.querySelector("[data-actors-board]");
@@ -50,7 +54,11 @@ async function applyFrameToDOM(frame, event) {
   const cursorId = event?.id ?? frame.eventId;
   const events = await buf.range(0, cursorId);
   const nowSec = event?.created_at ?? Math.floor(Date.now() / 1000);
-  const cols = buildActorColumns(events, frame, nowSec);
+  // The ?range= window is measured back from the cursor, not from
+  // wall-clock now — scrubbing to last month shows the week before
+  // *then*. Mirrors rangeAnchor + parseRange in handlers/range.go.
+  const { cutoff } = rangeFromSearch(window.location.search, nowSec);
+  const cols = buildActorColumns(events, frame, nowSec, cutoff);
   swapHTMLInto(renderActorsBoard(cols), findBoard(doc));
   rehydrate(doc);
 }

@@ -254,3 +254,68 @@ test("buildActorColumns: empty actor names are skipped (matches the SQL filter)"
     ["alice"],
   );
 });
+
+// --- range cutoff (?range=) --------------------------------------------
+
+test("buildActorColumns: cutoff drops actors whose only events predate it", () => {
+  const frame = frameWithTasks([
+    { shortId: "T0001", title: "Fresh", description: "", status: "available", sortOrder: 0 },
+    { shortId: "T0002", title: "Stale", description: "", status: "available", sortOrder: 1 },
+  ]);
+  const now = 1700000000;
+  const day = 86400;
+  const events = [
+    evt(1, "stale", "created", "T0002", now - 10 * day),
+    evt(2, "fresh", "created", "T0001", now - 1 * day),
+  ];
+
+  const cutoff = now - 7 * day;
+  const cols = buildActorColumns(events, frame, now, cutoff);
+  assert.equal(cols.length, 1);
+  assert.equal(cols[0].name, "fresh");
+});
+
+test("buildActorColumns: cutoff trims out-of-range cards from a surviving column", () => {
+  const frame = frameWithTasks([
+    { shortId: "T0001", title: "Recent", description: "", status: "available", sortOrder: 0 },
+    { shortId: "T0002", title: "Ancient", description: "", status: "available", sortOrder: 1 },
+  ]);
+  const now = 1700000000;
+  const day = 86400;
+  const events = [
+    evt(1, "alice", "created", "T0002", now - 20 * day),
+    evt(2, "alice", "created", "T0001", now - 2 * day),
+  ];
+
+  const cols = buildActorColumns(events, frame, now, now - 7 * day);
+  assert.equal(cols.length, 1);
+  assert.equal(cols[0].cards.length, 1);
+  assert.equal(cols[0].cards[0].taskShortID, "T0001");
+});
+
+test("buildActorColumns: cutoff 0 (or omitted) keeps every event — the 'all' range", () => {
+  const frame = frameWithTasks([
+    { shortId: "T0001", title: "Fresh", description: "", status: "available", sortOrder: 0 },
+    { shortId: "T0002", title: "Stale", description: "", status: "available", sortOrder: 1 },
+  ]);
+  const now = 1700000000;
+  const day = 86400;
+  const events = [
+    evt(1, "stale", "created", "T0002", now - 90 * day),
+    evt(2, "fresh", "created", "T0001", now - 1 * day),
+  ];
+
+  assert.equal(buildActorColumns(events, frame, now, 0).length, 2);
+  assert.equal(buildActorColumns(events, frame, now).length, 2);
+});
+
+test("buildActorColumns: an event exactly on the cutoff second is inside the window", () => {
+  const frame = frameWithTasks([
+    { shortId: "T0001", title: "Edge", description: "", status: "available", sortOrder: 0 },
+  ]);
+  const now = 1700000000;
+  const cutoff = now - 7 * 86400;
+  const events = [evt(1, "alice", "created", "T0001", cutoff)];
+
+  assert.equal(buildActorColumns(events, frame, now, cutoff).length, 1);
+});

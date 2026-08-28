@@ -18,7 +18,7 @@ The dashboard is for the human watching agents work. The CLI remains the surface
 | Home       | `/`          | Activity histogram (last 60m), three alarm cards, active claims, recent completions.           |
 | Plan       | `/plan`      | The task tree, scoped (`/plan/{id}`) or filtered by label (`?label=<name>`; `/labels/{name}` redirects there). Issue trees are not here. |
 | Issues     | `/issues`    | The same tree view over your [issue trees](../concepts/tree-kinds/), scoped at `/issues/{root-id}`. |
-| Actors     | `/actors`    | Column-per-actor board — one stack of cards per identity, freshest at the bottom. Click through to `/actors/{name}` for a single actor's stream. |
+| Actors     | `/actors`    | Column-per-actor board — one stack of cards per identity, freshest at the bottom, bounded by a range selector. Click through to `/actors/{name}` for a single actor's stream. |
 | Log        | `/log`       | Linear stream of every event in the database, filterable by actor, label, type.               |
 
 Plan and Issues are one view split by tree kind: a plan and a bug pile are different shapes, so they get different tabs. The Issues tab carries the number of open issues after its label — nothing when that number is zero — and the page itself opens with `N open · M closed in 7d` beside the Active/Archived/All tabs.
@@ -26,6 +26,17 @@ Plan and Issues are one view split by tree kind: a plan and a bug pile are diffe
 Number keys jump between the tabs in header order (`1` Home, `2` Plan, `3` Issues, `4` Actors, `5` Log); `` ` `` cycles forward through them and `~` cycles back.
 
 Two auxiliary pages — `/tasks/{id}` (single task with peek view at `/tasks/{id}/peek`) and `/search` — round out the click paths but aren't usually entry points. The task page also carries the [found-in](../concepts/found-in/) reference in both directions: `Found in` links the task that surfaced this one, and `Surfaced` lists the issues this task produced; the peek sheet shows `Found in` only.
+
+### The range selector
+
+The Actors board opens on the **last 7 days**. A `7D · 14D · 30D · All` control sits at the top of the view; picking one sets `?range=7d|14d|30d|all` and the page reloads — they are ordinary links, so the control works with JavaScript off and each range is a bookmarkable URL. An unrecognized value falls back to `7d` rather than erroring, and `7D` itself is the bare `/actors`.
+
+The range decides two things at once: an actor only gets a column when they have an event inside the window, and a column only carries the cards its in-window events produced. On a long-lived store that is the difference between a readable board and several hundred columns of agents who last ran in March. Widen to `All` when you want the whole history back.
+
+Two details worth knowing:
+
+- **A new actor still appears live.** An event from someone with no column adds one, whatever the range — the event just arrived, so it is inside every window.
+- **The scrubber moves the window with it.** Parked in history (`?at=`), the range is measured back from the moment you are parked at, not from now — so a 7-day view scrubbed to last month shows the week before *then*.
 
 ## Live updates
 
