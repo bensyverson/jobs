@@ -23,18 +23,18 @@ You are working on Jobs, a hierarchical task manager for the CLI, backed by an e
 - The dashboard's JS is mostly plain progressive-enhancement modules in `internal/web/assets/js/`, not custom elements; only `peek-sheet` and `live-region` are registered, and neither uses a shadow root. The web rules' one-element-per-file-with-a-shadow-root convention governs *new* components — don't retrofit the existing scripts to it as a side quest.
 - **This repo builds `job`.** The `job` on your `PATH` and the `./job` at the repo root are both stale until `make install` / `make build`, so a CLI change you just wrote is not exercised by running `job` until you rebuild.
 
-<!-- agents:begin core@f0c45b -->
+<!-- agents:begin core@3184e3 -->
 ## Working rules
 
 **Understand the why.** If the goal behind a request isn't clear, ask before solving — beware the XY problem.
 
-**Diverge, then converge.** Brainstorm options, weigh them against the user's goals, recommend one, confirm, then execute.
+**Diverge, then converge.** First brainstorm options (create choices), weigh them against the user's goals, recommend one (make choices), confirm, then execute.
 
 **Ambiguity.** If the *code* could go several ways, choose the idiomatic one for the language. If the *requirement* is ambiguous or the question is architectural, stop and ask — don't decide.
 
 **Dependencies.** Avoid them unless re-implementing would be unreasonable; ask before adding one; each is security and maintenance surface.
 
-**TDD, strictly red/green.** Write tests for every case and every new method first, watch them *all* fail, then implement. A test that is green during red tests nothing — remove or rewrite it. If an existing test must change to pass, explain why clearly. Every bug fix starts with a regression test.
+**TDD, strictly red/green.** Write tests for every case and every new method first, watch them *all* fail, then implement. A test that is green during red tests nothing — remove or rewrite it. If an existing test must change to pass because the behavior or expectation has changed, explain why clearly. Every bug fix starts with a regression test.
 
 **Plans and tasks live in `job`.** Open every session with `job orient` (no arguments), then read `project/gotchas.md`. Don't use Plan Mode or ad-hoc todo lists.
 
@@ -50,14 +50,14 @@ You are working on Jobs, a hierarchical task manager for the CLI, backed by an e
 
 **Gotchas.** When a project quirk costs you time and no rule predicts it, append it to `project/gotchas.md`. If a rule in this file was wrong or misled you, record that there too, prefixed `rule:`.
 
-**Where these rules come from.** The marked regions are generated and shared across repos — don't edit inside them. If a rule here is wrong or cost you time, say so in `project/gotchas.md` prefixed `rule:`; that is how shared rules get reviewed.
+**Where these rules come from.** The marked regions are generated and shared across repos via a CLI tool named `agents`; don't edit inside them. If a rule here is wrong or cost you time, say so in `project/gotchas.md` prefixed `rule:`; that is how shared rules get reviewed.
 
 ## Git
 
 - Offer to commit when a unit of work is complete and accepted. Rebase onto upstream; ask on real conflicts, explaining the conflict in plain terms first.
 - Commit all uncommitted files together — later changes usually depend on earlier ones, and a half-working state helps nobody. Never amend.
 - The subject completes "This commit…": present-tense verb first — "Adds…", "Fixes…", "Retires…". Detail goes in the body.
-- Pass the message with `-F <file>`, not inline `-m`; the shell interprets `-m` first. The same hazard applies to any `-m` flag, `job note -m` included.
+- Pass the message with `-F <file>`, not inline `-m`; the shell interprets `-m` first. Same for `job`: `note`, `done`, `add` and `edit` all take `-F <file>` (`-F -` reads stdin).
 - Pre-commit hooks run the formatter and tests. Run them yourself first (see the stack rules).
 <!-- agents:end core -->
 
@@ -97,17 +97,18 @@ Pre-launch, zero users, no existing data. Never spend effort on backward compati
 - **`r.ParseForm()` reads a body only when it is urlencoded**; for multipart it leaves it empty without erroring. Keep one wire format per route — a handler that accepts two body shapes needs two sets of checks where the design wanted one.
 <!-- agents:end go -->
 
-<!-- agents:begin web@5195a0 -->
+<!-- agents:begin web@32992c -->
 ## Web
 
 - **Vanilla HTML, CSS and JS** — no frameworks or build tools beyond the server. WebComponents are the enhancement layer: the server ships each element's real content as HTML inside it, and the component's JS upgrades what's already there — never an empty tag that renders itself.
-- **Follow `DESIGN.md` when the project has one** — tokens, type scale, colour roles and component conventions come from there, not from ad-hoc values.
+- **Follow `DESIGN.md` when the project has one** — tokens, type scale, color roles and component conventions come from there, not from ad-hoc values.
 - **Every page works without JavaScript by default — ship full HTML.** Then use JS to enhance where users expect modern interactivity (re-sorting a list, a live-updating form field) so those don't need a full reload. No client-side routing and no client-side data fetching to render a page: this is the middle ground between 1994-style brutalism and shipping one `<div>` and a JS blob. A surface that is inherently live — a chat, a streaming dashboard — is the exception; the head names it.
 - **No inline `style` attributes**; styles live in stylesheets under a class or selector.
 - **Responsive and mobile-optimized from the first draft.** Without a brand identity, default to a simple, modern, clean aesthetic.
 - **Paths over query strings** (`/api/people/89`, not `?id=89`); queries only for search, sort, filters.
 - **Public pages carry rich `<head>` metadata** including schema.org data.
-- **Server-side tests cannot see the browser.** Keep a JS/browser runner and run it by hand whenever you change behaviour a browser can observe — a green server suite is not evidence about the page.
+- **Server-side tests cannot see the browser.** Keep a JS/browser runner and run it by hand whenever you change behavior a browser can observe — a green server suite is not evidence about the page.
+- **`sleepy` is the browser-evidence tool on this machine** (SleepyHollow, headless WebKit, globally installed — `sleepy --help`): `load` for HTTP facts and console errors, `shot --full-page --size WxH` at any viewport, `ax` for the accessibility tree, `wire` to prove the request inventory (e.g. zero external requests), `query`/`find`/`style` for semantic checks, `open`/`fill`/`click` + `--session` to drive flows. Renders offscreen — never a window on the user's display; anything else an agent launches must be windowless too. **`sleepy` alone is the day-to-day check** — don't run a second engine for routine work; at final integration and QA, check once in a Blink engine (Chrome plus Android is what most visitors see; Firefox is not needed). Chrome for Testing lives in puppeteer's cache (`~/.cache/puppeteer/chrome/*/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`; glob the version); launch it `--headless=new --disable-gpu --no-first-run --password-store=basic --use-mock-keychain --user-data-dir=$TMPDIR/chrome --window-size=WxH --screenshot=out.png <url>` — the two keychain flags are mandatory or every launch raises a macOS keychain prompt that stacks and outlives the process. Two traps: **`eval` runs in an isolated world** — page-JS state (upgraded component methods) reads as missing while DOM state shows; don't diagnose components from it — and **`pdf` renders one unpaginated screen-media sheet**; use an `NSPrintOperation` harness for print evidence (working example: nobedan `scripts/print-proposal/`).
 - **New components: one custom element per file, named for the element** (`<app>-thing` lives in `app-thing.js`), with a shadow root so component styles don't leak. Don't retrofit existing scripts as a side quest.
 <!-- agents:end web -->
 
