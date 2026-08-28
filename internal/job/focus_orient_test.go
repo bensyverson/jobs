@@ -49,7 +49,7 @@ func TestRunOrient_NoArg_FocusedRootExhausted_FailsLoudly(t *testing.T) {
 	if err == nil {
 		t.Fatalf("no-arg orient with exhausted focused root: want loud error, got a view")
 	}
-	if !strings.Contains(err.Error(), rootB) || !strings.Contains(err.Error(), "focus --clear") {
+	if !strings.Contains(err.Error(), rootB) || !strings.Contains(err.Error(), "focus --release") {
 		t.Errorf("orient error must carry the focused-root escape hint: %q", err.Error())
 	}
 }

@@ -339,23 +339,11 @@ func TestNextWithExplicitIssueScopeOverridesTheDefault(t *testing.T) {
 	}
 }
 
-func TestNextWithFocusOnIssueRootOverridesTheDefault(t *testing.T) {
-	db := SetupTestDB(t)
-	_, issueRoot, issueLeaf := seedMixedRoots(t, db)
+// Focus is per kind (4GMzO), so a focus on an issue root scopes `--issues`
+// and nothing else — the bare-next contract is pinned by
+// TestNext_IgnoresAnIssueFocus in focus_kind_test.go.
 
-	if err := SetFocus(db, issueRoot, TestActor); err != nil {
-		t.Fatalf("SetFocus: %v", err)
-	}
-	got, err := RunNext(db, "", TestActor)
-	if err != nil {
-		t.Fatalf("RunNext with focus on an issue root: %v", err)
-	}
-	if got.ShortID != issueLeaf {
-		t.Errorf("next = %s, want the focused issue tree's leaf %s", got.ShortID, issueLeaf)
-	}
-}
-
-func TestNextIssuesIgnoresATaskFocus(t *testing.T) {
+func TestNextIssuesFallsBackToForestWideWithOnlyATaskFocus(t *testing.T) {
 	db := SetupTestDB(t)
 	plan := MustAdd(t, db, "", "Plan")
 	MustAdd(t, db, plan, "Task leaf")
@@ -363,7 +351,7 @@ func TestNextIssuesIgnoresATaskFocus(t *testing.T) {
 	issueLeaf := MustAdd(t, db, bugs, "Issue leaf")
 	mustSetKind(t, db, bugs, KindIssue)
 
-	if err := SetFocus(db, plan, TestActor); err != nil {
+	if _, err := SetFocus(db, plan, TestActor); err != nil {
 		t.Fatalf("SetFocus: %v", err)
 	}
 	got, err := RunNextFiltered(db, "", TestActor, "", false, true)
@@ -371,7 +359,7 @@ func TestNextIssuesIgnoresATaskFocus(t *testing.T) {
 		t.Fatalf("RunNextFiltered(--issues) with a task focus: %v", err)
 	}
 	if got.ShortID != issueLeaf {
-		t.Errorf("next --issues = %s, want %s (an explicit --issues is forest-wide)", got.ShortID, issueLeaf)
+		t.Errorf("next --issues = %s, want %s (no issue focus means forest-wide)", got.ShortID, issueLeaf)
 	}
 }
 

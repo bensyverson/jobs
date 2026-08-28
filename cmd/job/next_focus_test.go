@@ -64,7 +64,7 @@ func TestNextCLI_FocusedRootExhausted_FailsLoudly(t *testing.T) {
 		t.Fatalf("next with exhausted focused root: want error, got:\n%s", out)
 	}
 	combined := out + stderr + err.Error()
-	if !strings.Contains(combined, rootB) || !strings.Contains(combined, "focus --clear") {
+	if !strings.Contains(combined, rootB) || !strings.Contains(combined, "focus --release") {
 		t.Errorf("loud failure must name the root and escapes: %q", combined)
 	}
 }

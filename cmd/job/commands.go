@@ -293,7 +293,7 @@ CLAIMS
 
 FOCUS
 
-  Claiming any task focuses its root for you (per-actor, last claim wins). While focused, no-arg ` + "`claim --next`" + `, ` + "`next`" + `, ` + "`status`" + `'s Next: hint, and ` + "`orient`" + ` stay inside that root; an exhausted focused root fails loudly instead of handing you a leaf from another tree. Explicit ids always override. Focus releases when the root closes, or manually via ` + "`job focus --clear`" + `. ` + "`job focus`" + ` shows yours.
+  Claiming any task focuses its root for you (per-actor, last claim wins) — one focus per tree kind, so claiming a bug moves your issue focus and leaves your plan's focus alone. While focused, no-arg ` + "`claim --next`" + `, ` + "`next`" + `, ` + "`status`" + `'s Next: hint, and ` + "`orient`" + ` stay inside your focused task-tree, and the same verbs with ` + "`--issues`" + ` stay inside your focused issue-tree; an exhausted focused root fails loudly instead of handing you a leaf from another tree. Explicit ids always override. Focus releases when the root closes, or manually via ` + "`job focus --release`" + ` (add ` + "`--issues`" + ` for that kind alone). ` + "`job focus`" + ` shows both; ` + "`job focus <id>`" + ` sets one.
 
 OUTPUT
 

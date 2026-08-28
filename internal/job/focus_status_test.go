@@ -93,7 +93,7 @@ func TestRenderSummary_FocusedRootExhausted_ShowsEscapeHint(t *testing.T) {
 	var buf bytes.Buffer
 	RenderSummary(&buf, rollup)
 	out := buf.String()
-	if !strings.Contains(out, "claim --next") || !strings.Contains(out, "focus --clear") {
+	if !strings.Contains(out, "claim --next") || !strings.Contains(out, "focus --release") {
 		t.Errorf("exhausted-focus rendering must carry both escapes:\n%s", out)
 	}
 }

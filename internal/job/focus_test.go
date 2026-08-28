@@ -17,7 +17,7 @@ func TestSetFocus_GetFocus_PerActor(t *testing.T) {
 	rootA := MustAdd(t, db, "", "Root A")
 	MustAdd(t, db, rootA, "A leaf")
 
-	if err := SetFocus(db, rootA, "alice"); err != nil {
+	if _, err := SetFocus(db, rootA, "alice"); err != nil {
 		t.Fatalf("SetFocus: %v", err)
 	}
 
@@ -54,10 +54,10 @@ func TestSetFocus_LastSetWins(t *testing.T) {
 	rootA := MustAdd(t, db, "", "Root A")
 	rootB := MustAdd(t, db, "", "Root B")
 
-	if err := SetFocus(db, rootA, TestActor); err != nil {
+	if _, err := SetFocus(db, rootA, TestActor); err != nil {
 		t.Fatalf("SetFocus A: %v", err)
 	}
-	if err := SetFocus(db, rootB, TestActor); err != nil {
+	if _, err := SetFocus(db, rootB, TestActor); err != nil {
 		t.Fatalf("SetFocus B: %v", err)
 	}
 	got, err := GetFocus(db, TestActor)
@@ -74,7 +74,7 @@ func TestReleaseFocus(t *testing.T) {
 	db := SetupTestDB(t)
 	root := MustAdd(t, db, "", "Root")
 
-	if err := SetFocus(db, root, TestActor); err != nil {
+	if _, err := SetFocus(db, root, TestActor); err != nil {
 		t.Fatalf("SetFocus: %v", err)
 	}
 	if err := ReleaseFocus(db, TestActor); err != nil {
@@ -120,7 +120,7 @@ func TestGetFocus_StaleRoots_ReadAsReleased(t *testing.T) {
 	db := SetupTestDB(t)
 
 	doneRoot := MustAdd(t, db, "", "Done root")
-	if err := SetFocus(db, doneRoot, "done-actor"); err != nil {
+	if _, err := SetFocus(db, doneRoot, "done-actor"); err != nil {
 		t.Fatalf("SetFocus: %v", err)
 	}
 	MustDone(t, db, doneRoot)
@@ -129,7 +129,7 @@ func TestGetFocus_StaleRoots_ReadAsReleased(t *testing.T) {
 	}
 
 	canceledRoot := MustAdd(t, db, "", "Canceled root")
-	if err := SetFocus(db, canceledRoot, "cancel-actor"); err != nil {
+	if _, err := SetFocus(db, canceledRoot, "cancel-actor"); err != nil {
 		t.Fatalf("SetFocus: %v", err)
 	}
 	if _, _, _, err := RunCancel(db, []string{canceledRoot}, "abandoned", false, false, true, TestActor); err != nil {
@@ -140,7 +140,7 @@ func TestGetFocus_StaleRoots_ReadAsReleased(t *testing.T) {
 	}
 
 	purgedRoot := MustAdd(t, db, "", "Purged root")
-	if err := SetFocus(db, purgedRoot, "purge-actor"); err != nil {
+	if _, err := SetFocus(db, purgedRoot, "purge-actor"); err != nil {
 		t.Fatalf("SetFocus: %v", err)
 	}
 	if _, _, _, err := RunCancel(db, []string{purgedRoot}, "gone", false, true, true, TestActor); err != nil {

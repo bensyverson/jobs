@@ -197,7 +197,7 @@ func TestOrient_FocusedRootExhausted_ExitsZeroWithGuidance(t *testing.T) {
 	if doc.Orient.Target != nil {
 		t.Errorf("orient.target: want null, got %q", *doc.Orient.Target)
 	}
-	if !strings.Contains(doc.Orient.Message, rootB) || !strings.Contains(doc.Orient.Message, "focus --clear") {
+	if !strings.Contains(doc.Orient.Message, rootB) || !strings.Contains(doc.Orient.Message, "focus --release") {
 		t.Errorf("orient.message must name the focused root and the escape hatches: %q", doc.Orient.Message)
 	}
 	if len(doc.Tasks) == 0 {

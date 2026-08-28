@@ -410,7 +410,7 @@ func RenderSummary(w io.Writer, s *Summary) {
 	} else if s.Focus != nil {
 		// Exhausted focused root: keep the loud-failure contract instead
 		// of silently pointing at another tree.
-		fmt.Fprintf(w, "Next: none available in focused root — 'claim --next <id>' in another tree to shift focus, or 'job focus --clear' to release it\n")
+		fmt.Fprintf(w, "Next: none available in focused root — 'claim --next <id>' in another tree to shift focus, or 'job focus --release' to release it\n")
 	}
 }
 

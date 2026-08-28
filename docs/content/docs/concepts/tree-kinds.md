@@ -49,13 +49,14 @@ job orient --issues                        # orient on it
 job claim --next --issues                  # and take it
 ```
 
-Three things override the default, because in each case you already named the tree you wanted:
+Two things override the default, because in each case you already named the tree you wanted:
 
 - an **explicit id** — `job next abc12`, `job orient abc12`
 - an **explicit scope** — `job next abc12 all`
-- a [**focus**](../../reference/execution/#focus) set on an issue root — claiming inside an issue-tree flips your focus to it, and from then on your no-argument defaults stay there until you claim elsewhere or `job focus --clear`
 
-`--issues` itself is forest-wide: like `next all`, it ignores focus, because it is the explicit "show me everything of this kind" form.
+A [**focus**](../../reference/execution/#focus) is not a third, because focus is held *per kind*: claiming inside an issue-tree sets your **issue focus** and leaves your task focus exactly where it was, so the plan-shaped defaults keep answering "what is next in my plan".
+
+`--issues` then reads that issue focus: with one set, the walk stays inside your focused issue root; with none set it covers every issue-tree. `job focus --release --issues` clears it and returns `--issues` to the whole forest.
 
 ## Moving between lanes
 

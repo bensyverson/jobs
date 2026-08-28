@@ -654,24 +654,24 @@ func RunNext(db *sql.DB, parentShortID, actor string) (*Task, error) {
 
 // RunNextFiltered walks the claimable frontier. With no explicit parent it
 // answers "what is next in my plan": only task-trees are considered. Pass
-// issues=true to ask the opposite question — the frontier across issue-trees,
-// forest-wide, the way `next all` ignores focus for the explicit form.
+// issues=true to ask the opposite question — the frontier across issue-trees.
 func RunNextFiltered(db *sql.DB, parentShortID, actor, labelName string, includeParents, issues bool) (*Task, error) {
 	if err := expireStaleClaims(db, actor); err != nil {
 		return nil, err
 	}
 
-	// With no explicit parent, the actor's focus scopes the walk: the
-	// frontier stays inside the focused root, and an exhausted focused
-	// root fails loudly instead of silently crossing into another tree.
-	// An explicit parent (or no focus) leaves behavior untouched. A focused
-	// root is an explicit scope, so focusing an issue root is itself the
-	// override for the task-tree default.
+	// With no explicit parent, the actor's focus *of the kind being walked*
+	// scopes it: the frontier stays inside the focused root, and an
+	// exhausted focused root fails loudly instead of silently crossing into
+	// another tree. `--issues` reads the issue focus and falls back to
+	// forest-wide when none is set. An explicit parent (or no focus) leaves
+	// behavior untouched.
+	kind := defaultKindScope(issues)
 	scope := parentShortID
 	var focus *Task
-	if parentShortID == "" && !issues {
+	if parentShortID == "" {
 		var err error
-		focus, err = GetFocus(db, actor)
+		focus, err = GetFocusKind(db, actor, kind)
 		if err != nil {
 			return nil, err
 		}
@@ -680,19 +680,19 @@ func RunNextFiltered(db *sql.DB, parentShortID, actor, labelName string, include
 		}
 	}
 
-	tasks, err := queryAvailableTasks(db, scope, 1, labelName, includeParents, defaultKindScope(issues))
+	tasks, err := queryAvailableTasks(db, scope, 1, labelName, includeParents, kind)
 	if err != nil {
 		return nil, err
 	}
 	if len(tasks) == 0 {
-		if issues {
-			return nil, newErrNoAvailableTasks("No available tasks in any issue tree. Run 'list all' to see blocked or claimed work.")
-		}
 		if focus != nil {
 			return nil, newErrNoAvailableTasks(fmt.Sprintf(
-				"No available tasks in focused root %s %q. Claim in another tree ('claim --next <id>' or 'claim <id>') to shift focus, or release it with 'job focus --clear'.",
+				"No available tasks in focused root %s %q. Claim in another tree ('claim --next <id>' or 'claim <id>') to shift focus, or release it with 'job focus --release'.",
 				focus.ShortID, focus.Title,
 			))
+		}
+		if issues {
+			return nil, newErrNoAvailableTasks("No available tasks in any issue tree. Run 'list all' to see blocked or claimed work.")
 		}
 		return nil, newErrNoAvailableTasks("No available tasks. Run 'list all' to see blocked or claimed work.")
 	}

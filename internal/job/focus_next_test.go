@@ -62,8 +62,8 @@ func TestNext_FocusedRootExhausted_FailsLoudly(t *testing.T) {
 	if !strings.Contains(msg, "claim --next") {
 		t.Errorf("error must name the claim-elsewhere escape: %q", msg)
 	}
-	if !strings.Contains(msg, "focus --clear") {
-		t.Errorf("error must name the focus --clear escape: %q", msg)
+	if !strings.Contains(msg, "focus --release") {
+		t.Errorf("error must name the focus --release escape: %q", msg)
 	}
 }
 

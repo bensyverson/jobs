@@ -55,8 +55,8 @@ Criteria:
 
 Focus:
 
-- `focus_set` — the actor's [focus](../../reference/execution/#focus) moved to a root, almost always as a side effect of claiming outside it (`detail.via = "claim"` names the claimed task). Same-root claims emit nothing.
-- `focus_released` — the actor's focus cleared: manually (`job focus --clear`) or automatically when the focused root closed (`detail.via = "root_closed"`, one event per focused actor).
+- `focus_set` — the actor's [focus](../../reference/execution/#focus) moved to a root, almost always as a side effect of claiming outside it (`detail.via = "claim"` names the claimed task). `detail.kind` records the root's tree kind at the time, which is the slot the focus occupies — roots convert, so the event stores what was true. Same-root claims emit nothing.
+- `focus_released` — one of the actor's focus slots cleared: manually (`job focus --release`) or automatically when that focused root closed (`detail.via = "root_closed"`, one event per focused actor). `detail.kind` names the slot released.
 
 Liveness:
 

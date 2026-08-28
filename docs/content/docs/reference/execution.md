@@ -26,7 +26,7 @@ The `--next` modes:
 
 - `claim --next` walks the leaf frontier in plan order and atomically claims the first available one. With a [focus](#focus) set, the no-argument walk stays inside your focused root; an explicit parent argument searches that subtree regardless of focus. The race-safe contract is: if two agents call `claim --next` at the same moment, exactly one wins each leaf — the loser gets the *next* leaf, not an error. This is the canonical spawn pattern for parallel agents.
 - `--include-parents` widens the walk to include any available task, not only leaves. Reach for it only when you genuinely want to claim a task that has open children — usually you don't.
-- `--issues` points the no-argument walk at [issue-trees](../../concepts/tree-kinds/) instead of task-trees. Without it, `claim --next` never hands you a bug — it answers "what is next in my plan". Like `next --issues`, it is forest-wide. An explicit parent argument, or a focus set on an issue root, overrides the default without the flag.
+- `--issues` points the no-argument walk at [issue-trees](../../concepts/tree-kinds/) instead of task-trees. Without it, `claim --next` never hands you a bug — it answers "what is next in my plan". Like `next --issues`, it scopes to your [issue focus](#focus) when you have one and walks every issue-tree when you don't. An explicit parent argument overrides the default without the flag.
 - `-m "<text>"` / `-F <path>` work the same under `--next` as on `claim <id>`: the starting note is recorded on whichever leaf the walk picks, in the same transaction as the claim. A malformed body aborts before anything is claimed.
 
 Idiomatic combination: `job claim --next 1h && do-the-work && job done <id> --claim-next`. See `done --claim-next` below.
@@ -35,19 +35,29 @@ Idiomatic combination: `job claim --next 1h && do-the-work && job done <id> --cl
 
 Your **focus** (active root) is the tree that scopes every no-argument default: bare `claim --next`, `job next`, `status`'s Next: hint, and `orient`'s target all stay inside it. It exists so a blocked or paused tree elsewhere in the forest never silently hands you a leaf from the wrong plan.
 
+**Focus is held per [tree kind](../../concepts/tree-kinds/)** — one task-tree and one issue-tree, independently — so stopping to triage a bug never loses your place in the plan. The plan-shaped defaults read your task focus; the same verbs with `--issues` read your issue focus.
+
 ```sh
-job focus                                  # show your focus + availability rollup
-job focus --clear                          # release it (no-arg defaults go global)
+job focus                                  # show both, one line per kind
+job focus qP4nR                            # set it (the root's kind picks the slot)
+job focus --release                        # release both (no-arg defaults go global)
+job focus --release --issues               # release only the issue focus
+```
+
+```text
+Task:   zwrjL "Documentation site" — 3 of 8 done, 2 available
+Issues: (none)
 ```
 
 The rules, in claim order:
 
-- **Claiming is the setter.** Any successful claim outside your focused root flips your focus to the claimed task's root (`focus_set` in the event log) — last claim wins, no ceremony. There is deliberately no `focus <id>` setter.
+- **Claiming is the usual setter.** Any successful claim outside your focused root of that root's kind flips that focus to the claimed task's root (`focus_set` in the event log, carrying the kind it was set for) — last claim wins, no ceremony. `job focus <id>` is the explicit form; it accepts any task in the tree and focuses its root.
+- **Each kind is its own slot.** Claiming inside an [issue-tree](../../concepts/tree-kinds/) moves your issue focus and leaves your task focus standing, and vice versa.
 - **Focus is per-actor.** Two agents sharing a database each keep their own lane; one agent switching trees never moves another's defaults.
-- **It releases itself.** When the focused root completes (including by cascade) or is canceled, focus releases automatically. `focus --clear` is the manual version — the "pause this tree" case.
-- **Exhaustion fails loudly.** When your focused root has no available leaf, no-arg `next`/`claim --next` return an error naming the root and the escapes — claim in another tree to shift focus, or `focus --clear` — instead of silently crossing into a different plan.
+- **It releases itself.** When a focused root completes (including by cascade) or is canceled, that kind's focus releases automatically and the other kind is untouched. `focus --release` is the manual version — the "pause this tree" case.
+- **Exhaustion fails loudly.** When your focused root has no available leaf, the matching no-arg `next`/`claim --next` return an error naming the root and the escapes — claim in another tree to shift focus, or `focus --release` — instead of silently crossing into a different plan.
 - **Explicit arguments always win.** `claim --next <id>`, `next <id>`, `orient <id>`, and `status <id>` behave exactly as if focus didn't exist.
-- **A focus on an issue root is itself the override.** Claiming inside an [issue-tree](../../concepts/tree-kinds/) flips your focus to it, and your no-argument defaults then stay there — no `--issues` needed — until you claim elsewhere or `focus --clear`.
+- **`--issues` follows your issue focus.** With one set, `next --issues` / `orient --issues` / `claim --next --issues` stay inside it; with none set they walk every issue-tree. A focus on an issue root no longer redirects the plain, plan-shaped defaults — that is what the per-kind split bought.
 
 ## `release` (and its alias `unclaim`)
 
