@@ -2882,3 +2882,50 @@ a.c-graph-node__bug:focus-visible {
      Plan and Log inherit the stacked layout from the cascade and
      remain functional at narrow widths. */
 }
+
+/* ==================================================================
+   Issues UX — task page found-in / surfaced, and the issue variant.
+   Kept as one trailing block so parallel work on this file merges.
+   ================================================================== */
+
+/* ---------- Task page root ---------- */
+
+/* The task page's single root element. Reproduces the .main flex
+   column it used to be a bare list of children of, so wrapping the
+   page changed no spacing. */
+.p-task {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+/* Kind marker for a task whose root is an issue-tree. A word, not a
+   color — DESIGN.md: never encode meaning in color alone. Quiet
+   enough that the id pill and the status pill still lead the row. */
+.p-task__kind {
+  color: var(--color-on-surface-dim);
+}
+
+/* ---------- Surfaced checklist ---------- */
+
+/* Same list reset and row rhythm as .c-criteria, with the status pill
+   pushed to the trailing edge by a .grow spacer in the markup. */
+.c-surfaced {
+  max-width: 38em;
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.c-surfaced__item {
+  min-width: 0;
+}
+
+/* ---------- Log verbs for provenance + kind events ---------- */
+
+/* found_in_set is constructive (a reference gained), so it takes the
+   same dim primary as criteria_added. Clearing and re-classifying are
+   bookkeeping and stay in the dim neutral. */
+.c-log-row__verb--found_in_set { color: var(--color-primary-dim); }
+.c-log-row__verb--found_in_cleared { color: var(--color-on-surface-dim); }
+.c-log-row__verb--kind_changed { color: var(--color-on-surface-dim); }

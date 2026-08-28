@@ -4,11 +4,16 @@
      no "Open full page" CTA — this IS the full page. */ -}}
 {{define "title"}}{{.ShortID}} {{.Title}} · Jobs{{end}}
 {{define "content"}}
+{{- /* p-task is the page root; the p-task--issue variant marks a task
+     whose *root* is an issue-tree (DESIGN.md § Components). It adds a
+     kind marker beside the short id and changes nothing structural. */ -}}
+<article class="p-task{{if .IsIssue}} p-task--issue{{end}}">
 <section class="c-section" aria-labelledby="task-title">
   <header class="c-section__header">
     <div class="stack stack-gap-xs" style="min-width: 0; flex: 1">
       <div class="row row-gap-sm">
         <span class="c-id-pill">{{.ShortID}}</span>
+        {{if .IsIssue}}<span class="p-task__kind t-label-caps">issue</span>{{end}}
         {{template "status-pill" .Status}}
         {{if .ClaimedBy}}
         <span class="t-muted t-body-sm">claimed by
@@ -46,6 +51,34 @@
     <a href="{{.Parent.URL}}" class="c-id-pill">{{.Parent.ShortID}}</a>
     <span class="t-body-sm">{{.Parent.Title}}</span>
   </div>
+</section>
+{{end}}
+
+{{if .FoundIn}}
+<section class="c-section">
+  <h2 class="c-section__label t-label-caps">Found in</h2>
+  <div class="row row-gap-sm">
+    <a href="{{.FoundIn.URL}}" class="c-id-pill">{{.FoundIn.ShortID}}</a>
+    <span class="t-body-sm">{{.FoundIn.Title}}</span>
+    <span class="grow"></span>
+    {{template "status-pill" .FoundIn.Status}}
+  </div>
+</section>
+{{end}}
+
+{{if .Surfaced}}
+<section class="c-section">
+  <h2 class="c-section__label t-label-caps">Surfaced</h2>
+  <ul class="c-surfaced stack stack-gap-xs" role="list">
+    {{range .Surfaced}}
+    <li class="c-surfaced__item row row-gap-sm">
+      <a href="{{.URL}}" class="c-id-pill">{{.ShortID}}</a>
+      <span class="t-body-sm">{{.Title}}</span>
+      <span class="grow"></span>
+      {{template "status-pill" .Status}}
+    </li>
+    {{end}}
+  </ul>
 </section>
 {{end}}
 
@@ -141,6 +174,7 @@
     {{end}}
   </div>
 </section>
+</article>
 {{end}}
 
 {{- /* Inline partial: one criterion row. Renders an inline SVG icon

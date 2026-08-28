@@ -350,6 +350,8 @@ No tertiary, no destructive, no large/small variants unless a view genuinely nee
 
 **ID pill.** A compact monospace chip used wherever a 5-character task ID appears. `surface-raised` background, `data-id` typography, `sm` radius. Auto-links to the task via the peek sheet.
 
+**Task page issue variant (`p-task--issue`).** The task page's root element is `.p-task`. When the task's *root* is an issue-tree, it also carries `.p-task--issue`. The variant is deliberately thin: it adds one `label-caps` kind marker — the word `issue` in `on-surface-dim` — immediately after the short id in the header row, and changes nothing structural. There is one task route (`/tasks/{id}`) for both kinds, so this marker is the whole visual difference; kind is a property of the root, so a child of an issue root carries the variant too. Word, not color — an issue must still be legible in greyscale.
+
 **Label/tag pill.** Same shape as the ID pill but with `body-sm` typography. Deterministically colored per the label-identity rule in §Colors: a 15%-opacity fill and a full-chroma 1px outline in the label's hashed hue. Lower saturation than actor avatars so labels read as supporting metadata, not identity.
 
 **Footer metric strip.** Thin horizontal bar (36px tall), persistent across every view. Left: metric cluster (active actors, WIP, events/min, throughput). Center: the scrubber pill. Right: heartbeat (small pulse dot + "last event Ns ago") + connection status (SSE connected / reconnecting / offline). The metric strip is the single place raw counts live — home-page cards carry signals, not restatements of these numbers.

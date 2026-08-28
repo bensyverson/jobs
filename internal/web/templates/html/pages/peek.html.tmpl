@@ -63,6 +63,21 @@
   </div>
   {{end}}
 
+  {{- /* Found in only. Surfaced is a full-page section by design
+       (spec: Dashboard → Task page): the sheet answers "what is this
+       task", and the list of issues a task produced is a detour. */ -}}
+  {{if .FoundIn}}
+  <div class="c-peek-sheet__section">
+    <div class="c-peek-sheet__section-label">Found in</div>
+    <div class="row row-gap-sm">
+      <a href="{{.FoundIn.URL}}" data-peek class="c-id-pill">{{.FoundIn.ShortID}}</a>
+      <span class="t-body-sm">{{.FoundIn.Title}}</span>
+      <span class="grow"></span>
+      {{template "status-pill" .FoundIn.Status}}
+    </div>
+  </div>
+  {{end}}
+
   {{if .BlockedBy}}
   <div class="c-peek-sheet__section">
     <div class="c-peek-sheet__section-label">Blocked by</div>

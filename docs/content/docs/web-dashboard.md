@@ -20,7 +20,7 @@ The dashboard is for the human watching agents work. The CLI remains the surface
 | Actors     | `/actors`    | Column-per-actor board — one stack of cards per identity, freshest at the bottom. Click through to `/actors/{name}` for a single actor's stream. |
 | Log        | `/log`       | Linear stream of every event in the database, filterable by actor, label, type.               |
 
-Two auxiliary pages — `/tasks/{id}` (single task with peek view at `/tasks/{id}/peek`) and `/search` — round out the click paths but aren't usually entry points.
+Two auxiliary pages — `/tasks/{id}` (single task with peek view at `/tasks/{id}/peek`) and `/search` — round out the click paths but aren't usually entry points. The task page also carries the [found-in](../concepts/found-in/) reference in both directions: `Found in` links the task that surfaced this one, and `Surfaced` lists the issues this task produced; the peek sheet shows `Found in` only.
 
 ## Live updates
 

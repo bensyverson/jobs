@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -36,6 +37,20 @@ type TaskPageData struct {
 	ClaimedBy     string
 	ProgressNotes []TaskProgressNote
 	History       []TaskHistoryEntry
+	// FoundIn is the task that surfaced this one, or nil when no
+	// found-in edge is recorded. Provenance, not sequence: the edge
+	// gates nothing, so it renders as a plain reference row beside
+	// Parent rather than alongside the blocker sections.
+	FoundIn *TaskRef
+	// Surfaced is the other end of that edge — the tasks recorded as
+	// found in this one, open and closed alike. Empty for the common
+	// case. The peek sheet deliberately omits it (spec: Dashboard →
+	// Task page); only the full page renders the list.
+	Surfaced []TaskRef
+	// IsIssue is true when this task's *root* is an issue-tree. Kind
+	// is a property of the root only, so a child reports its root's
+	// kind. Drives the p-task--issue page variant.
+	IsIssue bool
 }
 
 // TaskProgressNote is one row in the "Progress notes" section, ordered
@@ -165,19 +180,40 @@ func loadTaskPageData(deps Deps, w http.ResponseWriter, r *http.Request) (TaskPa
 		InternalError(deps, w, "criteria", err)
 		return TaskPageData{}, false
 	}
+	foundIn, err := job.GetFoundInSource(deps.DB, shortID)
+	if err != nil {
+		InternalError(deps, w, "found-in source", err)
+		return TaskPageData{}, false
+	}
+	surfaced, err := job.GetSurfaced(deps.DB, shortID)
+	if err != nil {
+		InternalError(deps, w, "surfaced", err)
+		return TaskPageData{}, false
+	}
+	rootKind, err := rootKindOf(deps.DB, task)
+	if err != nil {
+		InternalError(deps, w, "root kind", err)
+		return TaskPageData{}, false
+	}
 
 	// One batched lookup so the Blocked-by / Blocks / Parent rows
 	// all get a blocker-aware status without an N+1 per related
 	// task.
-	relIDs := make([]int64, 0, len(blockers)+len(blocking)+1)
+	relIDs := make([]int64, 0, len(blockers)+len(blocking)+len(surfaced)+2)
 	for _, t := range blockers {
 		relIDs = append(relIDs, t.ID)
 	}
 	for _, t := range blocking {
 		relIDs = append(relIDs, t.ID)
 	}
+	for _, t := range surfaced {
+		relIDs = append(relIDs, t.ID)
+	}
 	if parent != nil {
 		relIDs = append(relIDs, parent.ID)
+	}
+	if foundIn != nil {
+		relIDs = append(relIDs, foundIn.ID)
 	}
 	relBlockers, err := job.GetBlockersForTaskIDs(deps.DB, relIDs)
 	if err != nil {
@@ -207,7 +243,27 @@ func loadTaskPageData(deps Deps, w http.ResponseWriter, r *http.Request) (TaskPa
 		ClaimedBy:      derefString(task.ClaimedBy),
 		ProgressNotes:  buildProgressNotes(events),
 		History:        buildHistory(events),
+		FoundIn:        taskRefOrNil(foundIn, relBlockers),
+		Surfaced:       taskRefs(surfaced, relBlockers),
+		IsIssue:        rootKind.IsIssue(),
 	}, true
+}
+
+// rootKindOf returns the tree kind of task's root. Kind attaches to
+// the root only, so a child has to walk up for it; GetAncestors is
+// root-first, making the root the first entry.
+func rootKindOf(db *sql.DB, task *job.Task) (job.TreeKind, error) {
+	if task.ParentID == nil {
+		return task.Kind, nil
+	}
+	ancestors, err := job.GetAncestors(db, task.ShortID)
+	if err != nil {
+		return "", err
+	}
+	if len(ancestors) == 0 {
+		return task.Kind, nil
+	}
+	return ancestors[0].Kind, nil
 }
 
 // buildCancelReason scans events newest-id first for the canceled

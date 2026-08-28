@@ -95,6 +95,10 @@ type LogRowMetadata struct {
 	Text   string
 	PillID string
 	State  string
+	// Prefix is a short lead-in rendered immediately before the id
+	// pill. Only found_in_cleared uses it today ("cleared, was
+	// <id>"), where the id alone would not say what happened to it.
+	Prefix string
 }
 
 // LogPageData is the full payload the log template renders.
@@ -133,6 +137,7 @@ const defaultLogLimit = 200
 var knownEventTypes = []string{
 	"created", "claimed", "done", "blocked", "unblocked",
 	"noted", "criteria_added", "criterion_state",
+	"found_in_set", "found_in_cleared", "kind_changed",
 	"released", "canceled",
 }
 
@@ -398,6 +403,10 @@ func loadLogEvents(db *sql.DB, f LogFilters) (rows []LogEventRow, total int, has
 			row.VerbText = "criteria"
 		case "criterion_state":
 			row.VerbText = "criterion"
+		case "found_in_set", "found_in_cleared":
+			row.VerbText = "found in"
+		case "kind_changed":
+			row.VerbText = "kind"
 		}
 		row.Metadata = buildLogRowMetadata(e.EventType, e.Detail)
 		rows[i] = row
@@ -476,6 +485,30 @@ func buildLogRowMetadata(eventType, detailJSON string) LogRowMetadata {
 		if v, ok := detail["blocker_id"].(string); ok && v != "" {
 			return LogRowMetadata{PillID: v}
 		}
+	case "found_in_set":
+		// The source id is the whole payload; a replacement also
+		// records the displaced source, which the CLI renders as
+		// "(was X)". The pill is the link, so the row shows the
+		// current source and the prefix says it replaced one.
+		v, _ := detail["source_id"].(string)
+		if v == "" {
+			return LogRowMetadata{}
+		}
+		if prev, ok := detail["previous_source_id"].(string); ok && prev != "" {
+			return LogRowMetadata{PillID: v, Prefix: "replacing " + prev + ", now"}
+		}
+		return LogRowMetadata{PillID: v}
+	case "found_in_cleared":
+		if v, ok := detail["source_id"].(string); ok && v != "" {
+			return LogRowMetadata{PillID: v, Prefix: "cleared, was"}
+		}
+	case "kind_changed":
+		// Mirrors `job log`: "kind task-tree → issue-tree".
+		from, _ := detail["from"].(string)
+		to, _ := detail["to"].(string)
+		if from != "" && to != "" {
+			return LogRowMetadata{Text: from + "-tree → " + to + "-tree"}
+		}
 	}
 	return LogRowMetadata{}
 }
@@ -524,6 +557,12 @@ func typeChipLabel(t string) string {
 		return "criterion"
 	case "claim_expired":
 		return "expired"
+	case "found_in_set":
+		return "found in"
+	case "found_in_cleared":
+		return "found-in cleared"
+	case "kind_changed":
+		return "kind"
 	}
 	return t
 }
