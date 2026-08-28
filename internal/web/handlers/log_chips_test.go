@@ -374,6 +374,91 @@ func TestLog_ChipHrefsPreserveTheRange(t *testing.T) {
 	mustContain(t, body, `/log?range=30d&amp;type=claimed`)
 }
 
+// TestLog_ChipHrefsPreserveTheScrubberCursor pins the bug in 6CVG0:
+// actor/label/type/any/all chip hrefs (and the "+N more" chip) must
+// carry ?at forward exactly as the range tabs already do, so clicking
+// a chip while scrubbing stays parked in history instead of jumping
+// back to live.
+func TestLog_ChipHrefsPreserveTheScrubberCursor(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "alice", "A task", nil, []string{"web"})
+
+	var at int64
+	if err := db.QueryRow(`SELECT MAX(id) FROM events`).Scan(&at); err != nil {
+		t.Fatalf("max event id: %v", err)
+	}
+
+	deps := newLogDeps(t, db)
+	atParam := "at=" + strconv.FormatInt(at, 10)
+
+	body := fetchLog(t, deps, atParam)
+	actorGroup := extractChipGroup(t, body, "Actor")
+	labelGroup := extractChipGroup(t, body, "Label")
+	typeGroup := extractChipGroup(t, body, "Event type")
+
+	for _, a := range chipAnchors(actorGroup) {
+		if !strings.Contains(a, "at="+strconv.FormatInt(at, 10)) {
+			t.Errorf("actor chip href should carry ?at=%d, got %q", at, a)
+		}
+	}
+	for _, a := range chipAnchors(labelGroup) {
+		if !strings.Contains(a, "at="+strconv.FormatInt(at, 10)) {
+			t.Errorf("label chip href should carry ?at=%d, got %q", at, a)
+		}
+	}
+	for _, a := range chipAnchors(typeGroup) {
+		if !strings.Contains(a, "at="+strconv.FormatInt(at, 10)) {
+			t.Errorf("type chip href should carry ?at=%d, got %q", at, a)
+		}
+	}
+}
+
+// TestLog_ChipHrefsOmitAtWhenNotScrubbing is the control: with no
+// ?at= in force, chip hrefs are unchanged — no stray at= appears.
+func TestLog_ChipHrefsOmitAtWhenNotScrubbing(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "alice", "A task", nil, []string{"web"})
+
+	deps := newLogDeps(t, db)
+	body := fetchLog(t, deps, "")
+
+	for _, group := range []string{
+		extractChipGroup(t, body, "Actor"),
+		extractChipGroup(t, body, "Label"),
+		extractChipGroup(t, body, "Event type"),
+	} {
+		for _, a := range chipAnchors(group) {
+			if strings.Contains(a, "at=") {
+				t.Errorf("chip href should not carry at= when not scrubbing, got %q", a)
+			}
+		}
+	}
+}
+
+// TestLog_MoreChipPreservesTheScrubberCursor pins the "+N more"
+// overflow chip specifically, since it is built via the same
+// logChipCtx.url() path but is easy to special-case by accident.
+func TestLog_MoreChipPreservesTheScrubberCursor(t *testing.T) {
+	db := setupLogTestDB(t)
+	seedActors(t, db, 30)
+
+	var at int64
+	if err := db.QueryRow(`SELECT MAX(id) FROM events`).Scan(&at); err != nil {
+		t.Fatalf("max event id: %v", err)
+	}
+
+	deps := newLogDeps(t, db)
+	group := extractChipGroup(t, fetchLog(t, deps, "at="+strconv.FormatInt(at, 10)), "Actor")
+
+	mustContain(t, group, `data-chip-more`)
+	mustContain(t, group, "at="+strconv.FormatInt(at, 10))
+	for _, a := range chipAnchors(group) {
+		if strings.Contains(a, "data-chip-more") && !strings.Contains(a, "at="+strconv.FormatInt(at, 10)) {
+			t.Errorf("the +N more chip should carry ?at=%d, got %q", at, a)
+		}
+	}
+}
+
 func TestLog_InvalidRangeFallsBackToSevenDays(t *testing.T) {
 	db := setupLogTestDB(t)
 	mustAdd(t, db, "fresh", "fresh-task", nil, nil)
@@ -411,4 +496,27 @@ func TestLog_RangeIsMeasuredFromTheScrubberCursor(t *testing.T) {
 	// The cursor sits on the 20-day-old event; a 7-day window measured
 	// back from *there* contains it.
 	mustContain(t, body, "old-task")
+}
+
+// The "load older" link is built beside the chips and must keep the
+// scrubber cursor for the same reason: paging back while scrubbing
+// must not drop the page to live.
+func TestLog_LoadOlderPreservesTheScrubberCursor(t *testing.T) {
+	db := setupLogTestDB(t)
+	seedActors(t, db, 30)
+
+	var at int64
+	if err := db.QueryRow(`SELECT MAX(id) FROM events`).Scan(&at); err != nil {
+		t.Fatalf("max event id: %v", err)
+	}
+
+	deps := newLogDeps(t, db)
+	body := fetchLog(t, deps, "at="+strconv.FormatInt(at, 10)+"&limit=5")
+	mustContain(t, body, `c-log-row--more`)
+	i := strings.Index(body, `c-log-row--more`)
+	href := body[i:]
+	href = href[:strings.Index(href, `role="listitem"`)]
+	if !strings.Contains(href, "at="+strconv.FormatInt(at, 10)) {
+		t.Fatalf("load older should carry ?at=%d, got %q", at, href)
+	}
 }

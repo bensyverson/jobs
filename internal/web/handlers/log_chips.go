@@ -59,6 +59,13 @@ func (c logChipCtx) url(setKey, setValue string) string {
 	if c.chipsAll {
 		q.Set("chips", chipsAllValue)
 	}
+	// The scrubber cursor rides along on every chip href, the same way
+	// buildRangeTabs preserves it: a chip toggles one filter axis, it
+	// doesn't exit history. Absent (0) means live, so the parameter is
+	// omitted rather than written as "at=0".
+	if c.f.At > 0 {
+		q.Set("at", strconv.FormatInt(c.f.At, 10))
+	}
 	if setValue == "" {
 		q.Del(setKey)
 	} else {
@@ -326,6 +333,9 @@ func moreURL(c logChipCtx, oldestID int64) string {
 	}
 	if c.chipsAll {
 		q.Set("chips", chipsAllValue)
+	}
+	if c.f.At > 0 {
+		q.Set("at", strconv.FormatInt(c.f.At, 10))
 	}
 	q.Set("before", strconv.FormatInt(oldestID, 10))
 	return "/log?" + q.Encode()

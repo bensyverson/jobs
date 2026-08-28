@@ -2,14 +2,16 @@
   Log-view scrubber driver.
 
   /log is an event-window view: the server already honors ?at=N
-  (R0Ro4) and emits the right HTML at any cursor — filter chip URLs,
-  the "showing N of M events" counter, and the rendered rows are all
-  scoped to the at-window. So unlike Plan and Actors, we don't need a
-  JS port of the rollup; we just need to refetch when the cursor moves
-  and swap the three regions the cursor affects:
+  (R0Ro4) and emits the right HTML at any cursor — the chip
+  vocabulary, the "showing N of M events" counter, and the rendered
+  rows are all scoped to the at-window, and every chip href (like the
+  range tabs) carries ?at forward so a click stays parked in history
+  instead of jumping back to live. So unlike Plan and Actors, we
+  don't need a JS port of the rollup; we just need to refetch when
+  the cursor moves and swap the three regions the cursor affects:
 
     main .c-view-header        (range tab hrefs carry ?at)
-    main section.c-filter-bar  (the strips are scoped to the cursor)
+    main section.c-filter-bar  (chip hrefs carry ?at; strips are scoped to the cursor)
     main .c-log-live           (TotalEvents counter)
     main .c-log                (the event list itself)
 
