@@ -55,6 +55,40 @@ Field notes:
 
 This is the same shape `job tail --format=json` emits; a consumer can read either source with one parser.
 
+## The dashboard's initial frame
+
+Every dashboard page embeds a head-frame snapshot as a JSON island so the
+time-travel scrubber has a state to fold events onto without replaying the
+whole log:
+
+```html
+<script type="application/json" id="initial-frame">{"headEventId":42,"tasks":[…],"blocks":[…],"claims":[…]}</script>
+```
+
+`headEventId` is the event id the snapshot is current as of — the same id
+space as `/events`, so a client hydrates from the island and resumes with
+`?since=<headEventId>`. Each entry in `tasks` carries `shortId`, `title`,
+`description`, `status`, `parentShortId`, `sortOrder`, `labels`, `criteria`,
+and two fields that describe the [issue](../../concepts/tree-kinds/) surface:
+
+- **`kind`** — the tree kind, `"task"` or `"issue"`. Carried on **roots
+  only** and absent on children, so a consumer can tell a root from a child
+  of one without walking up the tree. (This differs from `job ls
+  --format=json`, which omits the default `"task"` everywhere; the frame is
+  read by one client that needs the root/child distinction.)
+- **`foundIn`** — the short id of the task that [surfaced](../../concepts/found-in/)
+  this one, absent when there is no edge. One source per task.
+
+Both names match `job show --format=json`, so one parser reads either source.
+
+The corresponding events fold into that frame:
+
+| `event_type` | `detail` keys | Effect on the frame |
+|--------------|---------------|---------------------|
+| `kind_changed` | `from`, `to` | Sets the root's `kind` to `to`; reversing restores `from`. |
+| `found_in_set` | `task_id`, `source_id`, `previous_source_id` (only when a different source was displaced) | Sets `foundIn` to `source_id`; reversing restores `previous_source_id`, or clears the edge when there was none. |
+| `found_in_cleared` | `task_id`, `source_id` (the source that was cleared) | Clears `foundIn`; reversing restores `source_id`. |
+
 ## JSON replay
 
 Default mode. Useful for cold-loading recent history or polling.

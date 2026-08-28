@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -215,4 +216,94 @@ func int64FromJSON(v any) int64 {
 		return int64(n)
 	}
 	return 0
+}
+
+// The client's reverse fold needs the before/after kind and both ends
+// of a found-in edge. `detail` is an opaque JSON string on the wire,
+// so the guarantee this test pins is that the domain's breadcrumbs
+// reach the client verbatim — no re-shaping in the handler.
+func TestEvents_JSON_KindChangedCarriesBeforeAndAfter(t *testing.T) {
+	db := setupLogTestDB(t)
+	root := mustAdd(t, db, "alice", "a root", nil, nil)
+	if _, err := job.RunSetKind(db, root, job.KindIssue, "alice"); err != nil {
+		t.Fatalf("RunSetKind: %v", err)
+	}
+
+	detail := detailForEventType(t, db, "kind_changed")
+	if detail["from"] != "task" {
+		t.Errorf("detail.from = %v, want %q", detail["from"], "task")
+	}
+	if detail["to"] != "issue" {
+		t.Errorf("detail.to = %v, want %q", detail["to"], "issue")
+	}
+}
+
+func TestEvents_JSON_FoundInSetCarriesBothEnds(t *testing.T) {
+	db := setupLogTestDB(t)
+	source := mustAdd(t, db, "alice", "the source", nil, nil)
+	surfaced := mustAdd(t, db, "alice", "the defect", nil, nil)
+	if err := job.RunSetFoundIn(db, surfaced, source, "alice"); err != nil {
+		t.Fatalf("RunSetFoundIn: %v", err)
+	}
+
+	detail := detailForEventType(t, db, "found_in_set")
+	if detail["task_id"] != surfaced {
+		t.Errorf("detail.task_id = %v, want %q", detail["task_id"], surfaced)
+	}
+	if detail["source_id"] != source {
+		t.Errorf("detail.source_id = %v, want %q", detail["source_id"], source)
+	}
+}
+
+func TestEvents_JSON_FoundInClearedCarriesThePriorSource(t *testing.T) {
+	db := setupLogTestDB(t)
+	source := mustAdd(t, db, "alice", "the source", nil, nil)
+	surfaced := mustAdd(t, db, "alice", "the defect", nil, nil)
+	if err := job.RunSetFoundIn(db, surfaced, source, "alice"); err != nil {
+		t.Fatalf("RunSetFoundIn: %v", err)
+	}
+	if err := job.RunClearFoundIn(db, surfaced, "alice"); err != nil {
+		t.Fatalf("RunClearFoundIn: %v", err)
+	}
+
+	detail := detailForEventType(t, db, "found_in_cleared")
+	if detail["task_id"] != surfaced {
+		t.Errorf("detail.task_id = %v, want %q", detail["task_id"], surfaced)
+	}
+	if detail["source_id"] != source {
+		t.Errorf("detail.source_id = %v, want %q", detail["source_id"], source)
+	}
+}
+
+// detailForEventType fetches /events and returns the parsed `detail`
+// of the sole event of the named type, failing when there isn't
+// exactly one.
+func detailForEventType(t *testing.T, db *sql.DB, eventType string) map[string]any {
+	t.Helper()
+	deps := newLogDeps(t, db)
+	req := httptest.NewRequest("GET", "/events?type="+eventType, nil)
+	w := httptest.NewRecorder()
+	handlers.Events(deps).ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status %d, want 200", w.Code)
+	}
+
+	var decoded []struct {
+		EventType string `json:"event_type"`
+		Detail    string `json:"detail"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &decoded); err != nil {
+		t.Fatalf("body not JSON: %v\n%s", err, w.Body.String())
+	}
+	if len(decoded) != 1 {
+		t.Fatalf("got %d %s events, want 1: %s", len(decoded), eventType, w.Body.String())
+	}
+	if decoded[0].EventType != eventType {
+		t.Fatalf("event_type = %q, want %q", decoded[0].EventType, eventType)
+	}
+	var detail map[string]any
+	if err := json.Unmarshal([]byte(decoded[0].Detail), &detail); err != nil {
+		t.Fatalf("detail not JSON: %v\n%s", err, decoded[0].Detail)
+	}
+	return detail
 }

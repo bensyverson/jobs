@@ -37,6 +37,12 @@ type Frame struct {
 // criteria mirrors the task_criteria rows in sort order so the JS
 // reducer can render the checklist and apply criterion_state events
 // without re-querying.
+//
+// kind is carried on roots only ("task" or "issue") and omitted on
+// children, so a client can tell a task-tree root from a child of one
+// without walking to the parent. foundIn is the short id of the task
+// that surfaced this one, omitted when there is no edge. Both field
+// names match `job show --format=json` so one parser reads either.
 type TaskState struct {
 	ShortID       string           `json:"shortId"`
 	Title         string           `json:"title"`
@@ -46,6 +52,8 @@ type TaskState struct {
 	SortOrder     int64            `json:"sortOrder"`
 	Labels        []string         `json:"labels"`
 	Criteria      []CriterionState `json:"criteria"`
+	Kind          string           `json:"kind,omitempty"`
+	FoundIn       string           `json:"foundIn,omitempty"`
 }
 
 // CriterionState is one acceptance-criterion row in the JSON island,
@@ -137,7 +145,7 @@ func loadTasks(ctx context.Context, db *sql.DB) ([]TaskState, error) {
 	// short id resolved in the same query via self-join.
 	rows, err := db.QueryContext(ctx, `
 		SELECT t.short_id, t.title, t.description, t.status,
-		       p.short_id, t.sort_order
+		       p.short_id, t.sort_order, t.kind
 		FROM tasks t
 		LEFT JOIN tasks p ON p.id = t.parent_id
 		WHERE t.deleted_at IS NULL
@@ -153,12 +161,17 @@ func loadTasks(ctx context.Context, db *sql.DB) ([]TaskState, error) {
 	for rows.Next() {
 		var ts TaskState
 		var parent sql.NullString
-		if err := rows.Scan(&ts.ShortID, &ts.Title, &ts.Description, &ts.Status, &parent, &ts.SortOrder); err != nil {
+		var kind sql.NullString
+		if err := rows.Scan(&ts.ShortID, &ts.Title, &ts.Description, &ts.Status, &parent, &ts.SortOrder, &kind); err != nil {
 			return nil, err
 		}
 		if parent.Valid {
 			s := parent.String
 			ts.ParentShortID = &s
+		} else if kind.Valid {
+			// Roots only. A child's kind column is meaningless — the
+			// tree's kind lives on its root — so it stays off the wire.
+			ts.Kind = kind.String
 		}
 		ts.Labels = []string{}
 		ts.Criteria = []CriterionState{}
@@ -233,6 +246,40 @@ func loadTasks(ctx context.Context, db *sql.DB) ([]TaskState, error) {
 		})
 	}
 	if err := crows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Found-in: the provenance edge lives in its own table, one source
+	// per task. Both ends are resolved to short ids here so the client
+	// never needs an internal id. The source is joined unconditionally
+	// — the edge outlives the source's close and soft delete by design
+	// — but a task the frame excludes cannot carry one, so the
+	// surfaced end is filtered to match the task query above.
+	frows, err := db.QueryContext(ctx, `
+		SELECT t.short_id, s.short_id
+		FROM found_in f
+		JOIN tasks t ON t.id = f.task_id
+		JOIN tasks s ON s.id = f.source_id
+		WHERE t.deleted_at IS NULL
+		ORDER BY t.short_id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("found_in query: %w", err)
+	}
+	defer frows.Close()
+
+	for frows.Next() {
+		var shortID, sourceID string
+		if err := frows.Scan(&shortID, &sourceID); err != nil {
+			return nil, err
+		}
+		idx, ok := idsByShort[shortID]
+		if !ok {
+			continue
+		}
+		tasks[idx].FoundIn = sourceID
+	}
+	if err := frows.Err(); err != nil {
 		return nil, err
 	}
 	return tasks, nil

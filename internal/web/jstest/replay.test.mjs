@@ -1139,6 +1139,70 @@ const roundTripCases = [
       detail: { label: "beta", state: "passed", prior: "pending" },
     },
   },
+  {
+    name: "kind_changed",
+    seed: () => initialFrame({
+      headEventId: 0,
+      tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortOrder: 0, kind: "task" }],
+      blocks: [],
+      claims: [],
+    }),
+    event: {
+      id: 17,
+      task_id: "ROOT1",
+      actor: "alice",
+      event_type: "kind_changed",
+      detail: { from: "task", to: "issue" },
+    },
+  },
+  {
+    name: "found_in_set (first edge)",
+    seed: () => initialFrame({
+      headEventId: 0,
+      tasks: [{ shortId: "ABC12", title: "T", status: "available", sortOrder: 0 }],
+      blocks: [],
+      claims: [],
+    }),
+    event: {
+      id: 18,
+      task_id: "ABC12",
+      actor: "alice",
+      event_type: "found_in_set",
+      detail: { task_id: "ABC12", source_id: "SRC99" },
+    },
+  },
+  {
+    name: "found_in_set (replacing an edge)",
+    seed: () => initialFrame({
+      headEventId: 0,
+      tasks: [{ shortId: "ABC12", title: "T", status: "available", sortOrder: 0, foundIn: "OLD11" }],
+      blocks: [],
+      claims: [],
+    }),
+    event: {
+      id: 19,
+      task_id: "ABC12",
+      actor: "alice",
+      event_type: "found_in_set",
+      detail: { task_id: "ABC12", source_id: "SRC99", previous_source_id: "OLD11" },
+    },
+  },
+  {
+    name: "found_in_cleared",
+    seed: () => initialFrame({
+      headEventId: 0,
+      tasks: [{ shortId: "ABC12", title: "T", status: "available", sortOrder: 0, foundIn: "SRC99" }],
+      blocks: [],
+      claims: [],
+    }),
+    event: {
+      id: 20,
+      task_id: "ABC12",
+      actor: "alice",
+      event_type: "found_in_cleared",
+      detail: { task_id: "ABC12", source_id: "SRC99" },
+    },
+  },
 ];
 
 for (const tc of roundTripCases) {
@@ -1528,4 +1592,242 @@ test("ReplayBuffer: backward replay through `noted` falls back to forward replay
   assert.equal(got2.eventId, 2);
   assert.equal(got2.tasks.get("ABC12").notes.length, 1);
   assert.equal(got2.tasks.get("ABC12").notes[0].text, "first");
+});
+
+// --- tree kind and found-in ---
+
+test("initialFrame: hydrates kind on a root and leaves children without one", () => {
+  const f = initialFrame({
+    headEventId: 5,
+    tasks: [
+      { shortId: "ROOT1", title: "Issue root", status: "available", sortOrder: 0, kind: "issue" },
+      { shortId: "ROOT2", title: "Task root", status: "available", sortOrder: 0, kind: "task" },
+      { shortId: "KID12", title: "Child", status: "available", sortOrder: 0, parentShortId: "ROOT1" },
+    ],
+    blocks: [],
+    claims: [],
+  });
+  assert.equal(f.tasks.get("ROOT1").kind, "issue");
+  assert.equal(f.tasks.get("ROOT2").kind, "task");
+  assert.equal(f.tasks.get("KID12").kind, null);
+});
+
+test("initialFrame: hydrates foundIn from the JSON island", () => {
+  const f = initialFrame({
+    headEventId: 5,
+    tasks: [
+      { shortId: "ABC12", title: "Defect", status: "available", sortOrder: 0, foundIn: "SRC99" },
+      { shortId: "SRC99", title: "Source", status: "available", sortOrder: 0 },
+    ],
+    blocks: [],
+    claims: [],
+  });
+  assert.equal(f.tasks.get("ABC12").foundIn, "SRC99");
+  assert.equal(f.tasks.get("SRC99").foundIn, null);
+});
+
+test("applyEvent kind_changed: sets the root's kind to detail.to", () => {
+  const before = initialFrame({
+    headEventId: 0,
+    tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortOrder: 0, kind: "task" }],
+    blocks: [],
+    claims: [],
+  });
+  const after = applyEvent(before, {
+    id: 40,
+    task_id: "ROOT1",
+    actor: "alice",
+    event_type: "kind_changed",
+    detail: { from: "task", to: "issue" },
+  });
+  assert.equal(after.tasks.get("ROOT1").kind, "issue");
+});
+
+test("applyEvent kind_changed: does not mutate the prior frame", () => {
+  const before = initialFrame({
+    headEventId: 0,
+    tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortOrder: 0, kind: "task" }],
+    blocks: [],
+    claims: [],
+  });
+  const after = applyEvent(before, {
+    id: 40,
+    task_id: "ROOT1",
+    actor: "alice",
+    event_type: "kind_changed",
+    detail: { from: "task", to: "issue" },
+  });
+  assert.equal(after.tasks.get("ROOT1").kind, "issue");
+  assert.equal(before.tasks.get("ROOT1").kind, "task");
+});
+
+test("reverseEvent kind_changed: restores detail.from", () => {
+  const frame = initialFrame({
+    headEventId: 40,
+    tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortOrder: 0, kind: "issue" }],
+    blocks: [],
+    claims: [],
+  });
+  const back = reverseEvent(frame, {
+    id: 40,
+    task_id: "ROOT1",
+    actor: "alice",
+    event_type: "kind_changed",
+    detail: { from: "task", to: "issue" },
+  });
+  assert.notEqual(back, null);
+  assert.equal(back.tasks.get("ROOT1").kind, "task");
+  assert.equal(frame.tasks.get("ROOT1").kind, "issue", "prior frame must be untouched");
+});
+
+test("reverseEvent kind_changed without detail.from: returns null", () => {
+  // Guards the breadcrumb check specifically, not the absence of a
+  // handler: the same event *with* `from` must reverse cleanly.
+  const frame = initialFrame({
+    headEventId: 40,
+    tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortOrder: 0, kind: "issue" }],
+    blocks: [],
+    claims: [],
+  });
+  const event = {
+    id: 40,
+    task_id: "ROOT1",
+    actor: "alice",
+    event_type: "kind_changed",
+    detail: { to: "issue" },
+  };
+  assert.equal(reverseEvent(frame, event), null);
+  assert.notEqual(
+    reverseEvent(frame, { ...event, detail: { from: "task", to: "issue" } }),
+    null,
+    "the breadcrumb-bearing form must still reverse",
+  );
+});
+
+test("applyEvent found_in_set: sets task.foundIn to the source id", () => {
+  const before = initialFrame({
+    headEventId: 0,
+    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortOrder: 0 }],
+    blocks: [],
+    claims: [],
+  });
+  const after = applyEvent(before, {
+    id: 41,
+    task_id: "ABC12",
+    actor: "alice",
+    event_type: "found_in_set",
+    detail: { task_id: "ABC12", source_id: "SRC99" },
+  });
+  assert.equal(after.tasks.get("ABC12").foundIn, "SRC99");
+  assert.equal(before.tasks.get("ABC12").foundIn, null, "prior frame must be untouched");
+});
+
+test("applyEvent found_in_set: replacing an edge keeps the new source", () => {
+  const before = initialFrame({
+    headEventId: 0,
+    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortOrder: 0, foundIn: "OLD11" }],
+    blocks: [],
+    claims: [],
+  });
+  const after = applyEvent(before, {
+    id: 42,
+    task_id: "ABC12",
+    actor: "alice",
+    event_type: "found_in_set",
+    detail: { task_id: "ABC12", source_id: "SRC99", previous_source_id: "OLD11" },
+  });
+  assert.equal(after.tasks.get("ABC12").foundIn, "SRC99");
+});
+
+test("reverseEvent found_in_set: clears an edge that had no predecessor", () => {
+  const frame = initialFrame({
+    headEventId: 41,
+    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortOrder: 0, foundIn: "SRC99" }],
+    blocks: [],
+    claims: [],
+  });
+  const back = reverseEvent(frame, {
+    id: 41,
+    task_id: "ABC12",
+    actor: "alice",
+    event_type: "found_in_set",
+    detail: { task_id: "ABC12", source_id: "SRC99" },
+  });
+  assert.notEqual(back, null);
+  assert.equal(back.tasks.get("ABC12").foundIn, null);
+  assert.equal(frame.tasks.get("ABC12").foundIn, "SRC99", "prior frame must be untouched");
+});
+
+test("reverseEvent found_in_set: restores the displaced source", () => {
+  const frame = initialFrame({
+    headEventId: 42,
+    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortOrder: 0, foundIn: "SRC99" }],
+    blocks: [],
+    claims: [],
+  });
+  const back = reverseEvent(frame, {
+    id: 42,
+    task_id: "ABC12",
+    actor: "alice",
+    event_type: "found_in_set",
+    detail: { task_id: "ABC12", source_id: "SRC99", previous_source_id: "OLD11" },
+  });
+  assert.notEqual(back, null);
+  assert.equal(back.tasks.get("ABC12").foundIn, "OLD11");
+});
+
+test("applyEvent found_in_cleared: clears task.foundIn", () => {
+  const before = initialFrame({
+    headEventId: 0,
+    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortOrder: 0, foundIn: "SRC99" }],
+    blocks: [],
+    claims: [],
+  });
+  const after = applyEvent(before, {
+    id: 43,
+    task_id: "ABC12",
+    actor: "alice",
+    event_type: "found_in_cleared",
+    detail: { task_id: "ABC12", source_id: "SRC99" },
+  });
+  assert.equal(after.tasks.get("ABC12").foundIn, null);
+  assert.equal(before.tasks.get("ABC12").foundIn, "SRC99", "prior frame must be untouched");
+});
+
+test("reverseEvent found_in_cleared: restores the source it cleared", () => {
+  const frame = initialFrame({
+    headEventId: 43,
+    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortOrder: 0 }],
+    blocks: [],
+    claims: [],
+  });
+  const back = reverseEvent(frame, {
+    id: 43,
+    task_id: "ABC12",
+    actor: "alice",
+    event_type: "found_in_cleared",
+    detail: { task_id: "ABC12", source_id: "SRC99" },
+  });
+  assert.notEqual(back, null);
+  assert.equal(back.tasks.get("ABC12").foundIn, "SRC99");
+});
+
+test("applyEvent kind_changed / found_in_set: unknown task is a no-op, not a throw", () => {
+  const before = emptyFrame(0);
+  const afterKind = applyEvent(before, {
+    id: 44,
+    task_id: "GONE1",
+    actor: "alice",
+    event_type: "kind_changed",
+    detail: { from: "task", to: "issue" },
+  });
+  assert.equal(afterKind.tasks.size, 0);
+  const afterEdge = applyEvent(before, {
+    id: 45,
+    task_id: "GONE1",
+    actor: "alice",
+    event_type: "found_in_set",
+    detail: { task_id: "GONE1", source_id: "SRC99" },
+  });
+  assert.equal(afterEdge.tasks.size, 0);
 });

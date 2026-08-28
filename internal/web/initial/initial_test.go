@@ -308,3 +308,131 @@ func TestLoadJSON_HeadEventIDAdvancesWithEvents(t *testing.T) {
 		t.Errorf("HeadEventID should advance: %d -> %d", first.HeadEventID, second.HeadEventID)
 	}
 }
+
+func TestLoad_KindOnRootsOnly(t *testing.T) {
+	db := job.SetupTestDB(t)
+	taskRoot := job.MustAdd(t, db, "", "task root")
+	issueRoot := job.MustAdd(t, db, "", "issue root")
+	child := job.MustAdd(t, db, issueRoot, "child of an issue root")
+	if _, err := job.RunSetKind(db, issueRoot, job.KindIssue, job.TestActor); err != nil {
+		t.Fatalf("RunSetKind: %v", err)
+	}
+
+	f, err := initial.Load(context.Background(), db)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := make(map[string]initial.TaskState, len(f.Tasks))
+	for _, ts := range f.Tasks {
+		got[ts.ShortID] = ts
+	}
+
+	if got[taskRoot].Kind != "task" {
+		t.Errorf("task root Kind = %q, want %q", got[taskRoot].Kind, "task")
+	}
+	if got[issueRoot].Kind != "issue" {
+		t.Errorf("issue root Kind = %q, want %q", got[issueRoot].Kind, "issue")
+	}
+	// Kind is a property of the root only; children carry none so the
+	// client can tell "child" from "task-tree root" without a lookup.
+	if got[child].Kind != "" {
+		t.Errorf("child Kind = %q, want empty", got[child].Kind)
+	}
+}
+
+func TestLoad_FoundInEdgeOnSurfacedTask(t *testing.T) {
+	db := job.SetupTestDB(t)
+	source := job.MustAdd(t, db, "", "the leaf that surfaced it")
+	surfaced := job.MustAdd(t, db, "", "the defect")
+	unrelated := job.MustAdd(t, db, "", "no provenance")
+	if err := job.RunSetFoundIn(db, surfaced, source, job.TestActor); err != nil {
+		t.Fatalf("RunSetFoundIn: %v", err)
+	}
+
+	f, err := initial.Load(context.Background(), db)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := make(map[string]initial.TaskState, len(f.Tasks))
+	for _, ts := range f.Tasks {
+		got[ts.ShortID] = ts
+	}
+
+	if got[surfaced].FoundIn != source {
+		t.Errorf("surfaced.FoundIn = %q, want %q", got[surfaced].FoundIn, source)
+	}
+	if got[unrelated].FoundIn != "" {
+		t.Errorf("unrelated.FoundIn = %q, want empty", got[unrelated].FoundIn)
+	}
+	if got[source].FoundIn != "" {
+		t.Errorf("source.FoundIn = %q, want empty", got[source].FoundIn)
+	}
+}
+
+func TestLoadJSON_CarriesKindAndFoundIn(t *testing.T) {
+	db := job.SetupTestDB(t)
+	issueRoot := job.MustAdd(t, db, "", "issue root")
+	if _, err := job.RunSetKind(db, issueRoot, job.KindIssue, job.TestActor); err != nil {
+		t.Fatalf("RunSetKind: %v", err)
+	}
+	source := job.MustAdd(t, db, "", "source leaf")
+	if err := job.RunSetFoundIn(db, issueRoot, source, job.TestActor); err != nil {
+		t.Fatalf("RunSetFoundIn: %v", err)
+	}
+
+	raw, err := initial.LoadJSON(context.Background(), db)
+	if err != nil {
+		t.Fatalf("LoadJSON: %v", err)
+	}
+	var parsed struct {
+		Tasks []map[string]any `json:"tasks"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	for _, ts := range parsed.Tasks {
+		if ts["shortId"] != issueRoot {
+			continue
+		}
+		if ts["kind"] != "issue" {
+			t.Errorf("island kind = %v, want %q", ts["kind"], "issue")
+		}
+		if ts["foundIn"] != source {
+			t.Errorf("island foundIn = %v, want %q", ts["foundIn"], source)
+		}
+		return
+	}
+	t.Fatalf("task %s missing from JSON island", issueRoot)
+}
+
+func TestLoadJSON_OmitsFoundInWhenAbsent(t *testing.T) {
+	db := job.SetupTestDB(t)
+	// A plain child: no kind (roots only) and no provenance edge.
+	// Both fields stay off the wire rather than encoding as "".
+	root := job.MustAdd(t, db, "", "root")
+	child := job.MustAdd(t, db, root, "child")
+
+	raw, err := initial.LoadJSON(context.Background(), db)
+	if err != nil {
+		t.Fatalf("LoadJSON: %v", err)
+	}
+	var parsed struct {
+		Tasks []map[string]any `json:"tasks"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	for _, ts := range parsed.Tasks {
+		if ts["shortId"] != child {
+			continue
+		}
+		if _, ok := ts["kind"]; ok {
+			t.Errorf("child carries kind = %v, want the key absent", ts["kind"])
+		}
+		if _, ok := ts["foundIn"]; ok {
+			t.Errorf("child carries foundIn = %v, want the key absent", ts["foundIn"])
+		}
+		return
+	}
+	t.Fatalf("task %s missing from JSON island", child)
+}

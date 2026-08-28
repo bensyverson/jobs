@@ -46,6 +46,13 @@
 //     claims: Map<shortId, { claimedBy, expiresAt }>,
 //   }
 //
+// TaskState carries `kind` ("task" | "issue", roots only; null on
+// children) and `foundIn` (the short id of the task that surfaced
+// this one, or null). Both arrive hydrated from the JSON island and
+// are folded by the kind_changed / found_in_set / found_in_cleared
+// events. `foundIn` follows the frame's camelCase convention; the event
+// detail keys (`source_id`, `previous_source_id`) are the domain's.
+//
 // TaskState.notes is an Array<{ actor, ts, text }> in chronological
 // order. The head frame from the JSON island ships with notes empty —
 // SSR renders notes server-side from the event log via loadPlanNotes,
@@ -64,6 +71,13 @@ function defaultTask(shortId) {
     labels: new Set(),
     notes: [],
     criteria: [],
+    // kind is the tree kind ("task" | "issue") and is carried on
+    // roots only — null on every child, which is how a consumer tells
+    // a root apart from a child without walking up. foundIn is the
+    // short id of the task that surfaced this one, null when there is
+    // no provenance edge. Both mirror the server's frame field names.
+    kind: null,
+    foundIn: null,
   };
 }
 
@@ -272,6 +286,26 @@ const FORWARD = {
     t.criteria = t.criteria.slice();
     t.criteria[idx] = { ...t.criteria[idx], state: detail.state };
   },
+
+  kind_changed(frame, event) {
+    const detail = event.detail ?? {};
+    const t = frame.tasks.get(event.task_id);
+    if (!t || detail.to === undefined) return;
+    t.kind = detail.to;
+  },
+
+  found_in_set(frame, event) {
+    const detail = event.detail ?? {};
+    const t = frame.tasks.get(event.task_id);
+    if (!t || !detail.source_id) return;
+    t.foundIn = detail.source_id;
+  },
+
+  found_in_cleared(frame, event) {
+    const t = frame.tasks.get(event.task_id);
+    if (!t) return;
+    t.foundIn = null;
+  },
 };
 
 // findCriterionIndex resolves a criterion_state event's target back to its
@@ -465,6 +499,40 @@ const REVERSE = {
     if (idx < 0) return true;
     t.criteria = t.criteria.slice();
     t.criteria[idx] = { ...t.criteria[idx], state: detail.prior };
+    return true;
+  },
+
+  kind_changed(frame, event) {
+    const detail = event.detail ?? {};
+    if (detail.from === undefined) return false;
+    const t = frame.tasks.get(event.task_id);
+    if (t) t.kind = detail.from;
+    return true;
+  },
+
+  found_in_set(frame, event) {
+    const detail = event.detail ?? {};
+    const t = frame.tasks.get(event.task_id);
+    if (!t) return true;
+    // previous_source_id is recorded only when the set displaced a
+    // *different* source, so its absence means there was no edge —
+    // except when the same source was set twice, which the payload
+    // cannot distinguish from a first set. That case reverses to null
+    // where the edge in fact stood; it is the forward fold's no-op, so
+    // the artifact is confined to scrub positions between the two
+    // redundant events and is not detectable from the payload. Fixing
+    // it means recording previous_source_id unconditionally in
+    // internal/job/foundin.go, which also changes how `job log`
+    // renders an identical re-set.
+    t.foundIn = detail.previous_source_id ?? null;
+    return true;
+  },
+
+  found_in_cleared(frame, event) {
+    const detail = event.detail ?? {};
+    if (!detail.source_id) return false;
+    const t = frame.tasks.get(event.task_id);
+    if (t) t.foundIn = detail.source_id;
     return true;
   },
 };
