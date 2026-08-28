@@ -42,7 +42,7 @@ func TestRunDone_StrictErrorPrefixIsGreppable(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected strict-default refusal")
 	}
-	first := strings.SplitN(err.Error(), "\n", 2)[0]
+	first, _, _ := strings.Cut(err.Error(), "\n")
 	if !strings.HasPrefix(first, "cannot close: 3 pending criteria") {
 		t.Errorf("first line should start with 'cannot close: 3 pending criteria'; got: %q", first)
 	}
@@ -98,7 +98,7 @@ func TestRunDone_StrictPendingCountAgreesWithListedLabels(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected strict-default refusal")
 	}
-	first := strings.SplitN(err.Error(), "\n", 2)[0]
+	first, _, _ := strings.Cut(err.Error(), "\n")
 	if !strings.HasPrefix(first, "cannot close: 2 pending criteria") {
 		t.Errorf("count must be 2; got line: %q", first)
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 
 	job "github.com/bensyverson/jobs/internal/job"
@@ -53,6 +54,18 @@ func newOrientCmd() *cobra.Command {
 
 			view, err := job.RunOrientOpts(db, target, scope, actor, full)
 			if err != nil {
+				// Orienting is a read; an empty tree (or an exhausted
+				// focused root) is a valid answer, not a broken tool. next
+				// and claim --next keep failing loudly for this same
+				// condition — there the caller asked for a task and did
+				// not get one.
+				if errors.Is(err, job.ErrNoAvailableTasks) {
+					noTasks, nerr := job.RunOrientNoTasks(db, actor, err.Error(), full)
+					if nerr != nil {
+						return nerr
+					}
+					return job.RenderOrientNoTasksYAML(cmd.OutOrStdout(), noTasks)
+				}
 				return err
 			}
 			return job.RenderOrientYAML(cmd.OutOrStdout(), view)

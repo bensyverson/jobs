@@ -82,8 +82,7 @@ func IsDBLocked(err error) bool {
 	if err == nil {
 		return false
 	}
-	var se *sqlite.Error
-	if errors.As(err, &se) {
+	if se, ok := errors.AsType[*sqlite.Error](err); ok {
 		c := se.Code()
 		if c == sqlite3.SQLITE_BUSY || c == sqlite3.SQLITE_LOCKED {
 			return true

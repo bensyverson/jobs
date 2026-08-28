@@ -136,6 +136,50 @@ func RunOrientOpts(db *sql.DB, targetShortID, scopeShortID, actor string, full b
 	return &OrientView{Header: *header, Tree: tree}, nil
 }
 
+// OrientNoTasksView is what orient renders in place of an OrientView when
+// there is no available leaf to target: no synthesized header, just the same
+// guidance RunNext would have failed with, plus whatever tasks already exist
+// in scope — the focused root's tree when a focus scoped the failed lookup,
+// or every root in the forest otherwise.
+type OrientNoTasksView struct {
+	Message string
+	Trees   []*OrientNode
+}
+
+// RunOrientNoTasks assembles the guidance view for orient's no-target case.
+// message is the caller-facing text from the failed next-task lookup (the
+// ErrNoAvailableTasks error orient caught); it is already the right wording
+// for either the focused-root or the whole-repo case.
+func RunOrientNoTasks(db *sql.DB, actor, message string, full bool) (*OrientNoTasksView, error) {
+	focus, err := GetFocus(db, actor)
+	if err != nil {
+		return nil, err
+	}
+
+	var roots []*Task
+	if focus != nil {
+		roots = []*Task{focus}
+	} else {
+		roots, err = getRootTasks(db)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var trees []*OrientNode
+	for _, root := range roots {
+		// targetID 0 never matches a real task id, so no node in these
+		// trees is flagged as the (nonexistent) target.
+		tree, err := buildOrientNode(db, root, 0, full)
+		if err != nil {
+			return nil, err
+		}
+		trees = append(trees, tree)
+	}
+
+	return &OrientNoTasksView{Message: message, Trees: trees}, nil
+}
+
 // resolveOrientTarget returns the positional target when an id is given, else
 // the next available leaf (RunNext).
 func resolveOrientTarget(db *sql.DB, targetShortID, actor string) (*Task, error) {

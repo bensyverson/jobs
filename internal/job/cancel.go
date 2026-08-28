@@ -3,6 +3,7 @@ package job
 import (
 	"database/sql"
 	"fmt"
+	"slices"
 )
 
 type CanceledResult struct {
@@ -375,8 +376,8 @@ func executePurge(
 		}
 		// Children first to satisfy foreign-key chain (descendants are listed
 		// in pre-order; reverse to delete leaves first).
-		for i := len(tg.descendants) - 1; i >= 0; i-- {
-			if _, err := tx.Exec("DELETE FROM tasks WHERE id = ?", tg.descendants[i].ID); err != nil {
+		for _, v := range slices.Backward(tg.descendants) {
+			if _, err := tx.Exec("DELETE FROM tasks WHERE id = ?", v.ID); err != nil {
 				return nil, err
 			}
 		}

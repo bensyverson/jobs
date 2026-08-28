@@ -143,6 +143,44 @@ func toNodeDoc(n *OrientNode) *orientNodeDoc {
 	return d
 }
 
+// orientNoTasksDoc is the YAML projection of OrientNoTasksView: the same
+// top-level `orient:` + `tasks:` shape as orientDoc, but with a null target
+// and a message in place of the synthesized header.
+type orientNoTasksDoc struct {
+	Orient orientNoTasksHeaderDoc `yaml:"orient"`
+	Tasks  []*orientNodeDoc       `yaml:"tasks"`
+}
+
+type orientNoTasksHeaderDoc struct {
+	Target  *string `yaml:"target"`
+	Message string  `yaml:"message"`
+}
+
+// RenderOrientNoTasksYAML writes an OrientNoTasksView as YAML, mirroring
+// RenderOrientYAML's shape: `target: null` and a `message:` string stand in
+// for the usual synthesized header, and `tasks:` renders whatever trees the
+// view carries (possibly none, on a genuinely empty repo).
+func RenderOrientNoTasksYAML(w io.Writer, view *OrientNoTasksView) error {
+	doc := orientNoTasksDoc{
+		Orient: orientNoTasksHeaderDoc{Target: nil, Message: view.Message},
+		Tasks:  []*orientNodeDoc{},
+	}
+	for _, tree := range view.Trees {
+		doc.Tasks = append(doc.Tasks, toNodeDoc(tree))
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc); err != nil {
+		return err
+	}
+	if err := enc.Close(); err != nil {
+		return err
+	}
+	_, err := w.Write(buf.Bytes())
+	return err
+}
+
 // emptyIfNil normalizes a nil slice to an empty one so header list fields
 // render as `[]` rather than being silently equivalent to absent.
 func emptyIfNil(s []string) []string {

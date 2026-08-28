@@ -669,12 +669,12 @@ func RunNextFiltered(db *sql.DB, parentShortID, actor, labelName string, include
 	}
 	if len(tasks) == 0 {
 		if focus != nil {
-			return nil, fmt.Errorf(
+			return nil, newErrNoAvailableTasks(fmt.Sprintf(
 				"No available tasks in focused root %s %q. Claim in another tree ('claim --next <id>' or 'claim <id>') to shift focus, or release it with 'job focus --clear'.",
 				focus.ShortID, focus.Title,
-			)
+			))
 		}
-		return nil, fmt.Errorf("No available tasks. Run 'list all' to see blocked or claimed work.")
+		return nil, newErrNoAvailableTasks("No available tasks. Run 'list all' to see blocked or claimed work.")
 	}
 	return tasks[0], nil
 }

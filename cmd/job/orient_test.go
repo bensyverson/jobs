@@ -130,3 +130,100 @@ func TestOrient_RegisteredInHelp(t *testing.T) {
 		t.Errorf("`orient` not listed in --help:\n%s", stdout)
 	}
 }
+
+// Ps6Ss — `orient` is every session's first command; a first command that
+// fails reads as a broken tool. An empty tree is a valid answer, not an
+// error, so orient prints the same guidance `next` would and exits 0.
+
+// e5g — an empty repo prints the plain no-tasks guidance and exits 0.
+func TestOrient_EmptyRepo_ExitsZeroWithGuidance(t *testing.T) {
+	dbFile := setupCLI(t)
+
+	stdout, _, err := runCLI(t, dbFile, "orient")
+	if err != nil {
+		t.Fatalf("orient on empty repo: want exit 0, got error: %v\n%s", err, stdout)
+	}
+	var doc struct {
+		Orient struct {
+			Target  *string `yaml:"target"`
+			Message string  `yaml:"message"`
+		} `yaml:"orient"`
+		Tasks []yaml.Node `yaml:"tasks"`
+	}
+	if err := yaml.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("output is not valid YAML: %v\n%s", err, stdout)
+	}
+	if doc.Orient.Target != nil {
+		t.Errorf("orient.target: want null, got %q", *doc.Orient.Target)
+	}
+	wantMsg := "No available tasks. Run 'list all' to see blocked or claimed work."
+	if doc.Orient.Message != wantMsg {
+		t.Errorf("orient.message: got %q, want %q", doc.Orient.Message, wantMsg)
+	}
+	if len(doc.Tasks) != 0 {
+		t.Errorf("expected no tasks in a genuinely empty repo:\n%s", stdout)
+	}
+}
+
+// 1TF — a focused root with no available leaf prints the focused-root
+// guidance (naming the root and the escape hatches) and exits 0.
+func TestOrient_FocusedRootExhausted_ExitsZeroWithGuidance(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	rootA := job.MustAdd(t, db, "", "Root A")
+	job.MustAdd(t, db, rootA, "A leaf")
+	rootB := job.MustAdd(t, db, "", "Root B")
+	leafB := job.MustAdd(t, db, rootB, "Only B leaf")
+	db.Close()
+
+	if _, _, err := runCLI(t, dbFile, "--as", "alice", "claim", leafB); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	stdout, _, err := runCLI(t, dbFile, "--as", "alice", "orient")
+	if err != nil {
+		t.Fatalf("orient with exhausted focused root: want exit 0, got error: %v\n%s", err, stdout)
+	}
+	var doc struct {
+		Orient struct {
+			Target  *string `yaml:"target"`
+			Message string  `yaml:"message"`
+		} `yaml:"orient"`
+		Tasks []yaml.Node `yaml:"tasks"`
+	}
+	if err := yaml.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("output is not valid YAML: %v\n%s", err, stdout)
+	}
+	if doc.Orient.Target != nil {
+		t.Errorf("orient.target: want null, got %q", *doc.Orient.Target)
+	}
+	if !strings.Contains(doc.Orient.Message, rootB) || !strings.Contains(doc.Orient.Message, "focus --clear") {
+		t.Errorf("orient.message must name the focused root and the escape hatches: %q", doc.Orient.Message)
+	}
+	if len(doc.Tasks) == 0 {
+		t.Errorf("expected the focused root's tree to still render:\n%s", stdout)
+	}
+}
+
+// OLZ — `next` and `claim --next` are unchanged: an empty repo is still a
+// non-zero exit for them, because the caller explicitly asked for a task.
+func TestNextAndClaimNext_EmptyRepo_StillExitNonZero(t *testing.T) {
+	dbFile := setupCLI(t)
+
+	_, _, err := runCLI(t, dbFile, "next")
+	if err == nil {
+		t.Fatal("next on empty repo: expected non-zero exit, got nil error")
+	}
+	wantMsg := "No available tasks. Run 'list all' to see blocked or claimed work."
+	if err.Error() != wantMsg {
+		t.Errorf("next error: got %q, want %q", err.Error(), wantMsg)
+	}
+
+	_, _, err = runCLI(t, dbFile, "--as", "bob", "claim", "--next")
+	if err == nil {
+		t.Fatal("claim --next on empty repo: expected non-zero exit, got nil error")
+	}
+	if err.Error() != wantMsg {
+		t.Errorf("claim --next error: got %q, want %q", err.Error(), wantMsg)
+	}
+}
