@@ -129,7 +129,8 @@ All writes additionally require `--as <name>` (see [Identity](#identity)).
 | Command | Description |
 |---------|-------------|
 | `job add [parent] <title>` | Add a new task. Optionally under a parent. |
-| | `-d, --desc <text>` Set a description. |
+| | `-d, --desc <text>` Set a description. Always literal — no `@path` expansion, so a description starting with `@` is stored as typed. |
+| | `-F, --file <path>` Read the description from a file; `-F -` reads stdin. Mutually exclusive with `-d`. |
 | | `-b, --before <id>` Insert before this sibling. |
 
 ### Viewing tasks
@@ -161,6 +162,7 @@ List output is GitHub-Flavored Markdown with checkbox items, so pasting `job ls 
 | `job done <id> [<id>...]` | Mark one or more tasks done, atomically. Idempotent: already-done IDs are reported, not re-recorded. If the task carries unmarked acceptance criteria, the close refuses with a `cannot close: N pending criteria` error and lists the unmarked rows — see the Acceptance criteria section below for marking and override flags. |
 | | `--cascade` Also close all open descendants. Bypasses the strict-criteria gate (children own the criteria). |
 | | `-m "<note>"` Record a completion note. Also accepts `-m @path` (read from file) or `-m -` (read from stdin) for multi-line payloads. The ack echoes the stored body beneath the `Done:` line: `  note: <N> chars · "<preview>"`. |
+| | `-F, --file <path>` The file form of `-m`, spelled as `git commit -F` spells it: `-F <path>` equals `-m @<path>` and `-F -` equals `-m -`. Mutually exclusive with `-m`. On a multi-id close the one body is recorded on every id, exactly as `-m` does. |
 | | `--result '<json>'` Record structured JSON on the `done` event. |
 | | `--claim-next` After closing, atomically claim the next available leaf. Collapses the close-then-advance flow into one call. On race (leaf grabbed by another agent between close and claim), done still succeeds and a status line names the taken leaf — claim is opportunistic, close is irreversible. |
 | | `--criterion "<ref>=<state>"` Mark one criterion before close. `<ref>` may be the criterion's short_id (3-char base62) or its verbatim label; `<state>` is one of `passed`, `skipped`, `failed`. Repeatable. For multi-id closes, prefix the ref with `<task-id>:`. |
@@ -205,8 +207,8 @@ without criteria see no new friction.
 
 | Command | Description |
 |---------|-------------|
-| `job edit <id> [-t <title>] [-d <desc>]` | Replace title and/or description. `-d ""` clears the description. |
-| `job note <id> -m "<text>"` | Record a timestamped note on a task. Notes are stored as `noted` events on the event log with actor + body + timestamp; the task's `description` is never modified. Notes appear in the `Notes:` section of `job show` (chronological, with actor and relative timestamp) and remain searchable via `job search` (surface as `MatchSource="note"`). `-m` also accepts `-m @path/to/file.txt` to read from a file (handy for multi-line evidence payloads where shell quoting is painful) and `-m -` to read from stdin. The positional `job note <id> -` form for stdin is still supported. `--result '<json>'` attaches structured JSON to the event. On success the ack echoes the stored body: `Noted: <id> · <N chars> · "<preview>"` (preview snaps to a word boundary; long bodies elide with `…`). |
+| `job edit <id> [-t <title>] [-d <desc>]` | Replace title and/or description. `-d ""` clears the description. `-F, --file <path>` is the file form of `-d` (`-F -` reads stdin); it is mutually exclusive with `-d`, and `-F` alone satisfies the "at least one of `--title`, `--desc`, `-F`, `--criterion`, `--set-criterion`" requirement. As on `add`, `-d` itself stays strictly literal. |
+| `job note <id> -m "<text>"` | Record a timestamped note on a task. Notes are stored as `noted` events on the event log with actor + body + timestamp; the task's `description` is never modified. Notes appear in the `Notes:` section of `job show` (chronological, with actor and relative timestamp) and remain searchable via `job search` (surface as `MatchSource="note"`). `-m` also accepts `-m @path/to/file.txt` to read from a file (handy for multi-line evidence payloads where shell quoting is painful) and `-m -` to read from stdin. `-F, --file <path>` is the same file form under git's spelling (`-F <path>` = `-m @<path>`, `-F -` = `-m -`), and is mutually exclusive with both `-m` and the positional body. The positional `job note <id> -` form for stdin is still supported. `--result '<json>'` attaches structured JSON to the event. On success the ack echoes the stored body: `Noted: <id> · <N chars> · "<preview>"` (preview snaps to a word boundary; long bodies elide with `…`). |
 | `job move <id> before\|after <sibling>` | Reorder a task among its siblings. |
 
 ### Cancellation
@@ -217,6 +219,7 @@ without criteria see no new friction.
 | Command | Description |
 |---------|-------------|
 | `job --as <name> cancel <id> [<id>...] -m "<reason>"` | Cancel one or more open tasks atomically. `-m, --reason` is mandatory (`-m` matches `note -m` and `done -m` as the cross-command "free-text body" short flag — `-r` is intentionally avoided to dodge "recursive" muscle memory). The ack echoes the reason in the same preview format as `note`/`done`: `  reason: <N> chars · "<preview>"`. |
+| | `-F, --file <path>` Read the reason from a file; `-F -` reads stdin. Mutually exclusive with `-m`. Since `-m` now routes through the same resolver as the other body verbs, `-m @path` and `-m -` work here too. |
 | | `--cascade` Also cancel every still-open descendant. |
 | | `--purge` Erase the task row and its events instead of transitioning state (audit trail kept on the parent task). Requires `-m`. |
 | | `--purge --cascade -y` Erase an entire subtree. `-y, --yes` is required and there is no interactive prompt. |
@@ -228,8 +231,8 @@ without criteria see no new friction.
 
 | Command | Description |
 |---------|-------------|
-| `job claim <id> [duration]` | Claim a task. Duration defaults to `30m`. Units: `s`, `m`, `h`, `d`. Ack echoes the title for confirmation: `Claimed: <id> "<title>" (expires in <dur>)`. The full `show <id>` briefing follows the ack, so `claim` is also the briefing — no follow-up `show` needed. The first line stays the load-bearing scriptable signal (scripts grepping for `Claimed:` keep working); same flow for `claim-next` and `done --claim-next`. |
-| `job release <id>` | Release a claim. |
+| `job claim <id> [duration]` | Claim a task. Duration defaults to `30m`. Units: `s`, `m`, `h`, `d`. Ack echoes the title for confirmation: `Claimed: <id> "<title>" (expires in <dur>)`. The full `show <id>` briefing follows the ack, so `claim` is also the briefing — no follow-up `show` needed. The first line stays the load-bearing scriptable signal (scripts grepping for `Claimed:` keep working); same flow for `claim-next` and `done --claim-next`. `-m "<text>"` records a starting note in the same transaction; `-F <path>` reads it from a file (`-F -` from stdin). |
+| `job release <id>` | Release a claim. `-m "<text>"` records a parting note; `-F <path>` reads it from a file (`-F -` from stdin). |
 | `job claim-next [parent] [duration]` | Find and claim the next available leaf in one step. Pass `--include-parents` to claim any available task. |
 | `job heartbeat <id> [<id>...]` | Extend your live claim(s) by 30 minutes. Rarely needed — any write to a task you hold (`note`, `edit`, `label add`, `label remove`) auto-extends the claim. Reach for `heartbeat` only for the "I'm thinking, not writing" case. |
 

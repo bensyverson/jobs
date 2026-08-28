@@ -8,6 +8,7 @@ import (
 
 func newCancelCmd() *cobra.Command {
 	var reason string
+	var reasonFile string
 	var cascade bool
 	var purge bool
 	var yes bool
@@ -15,7 +16,7 @@ func newCancelCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cancel <id> [<id>...]",
 		Short: "Non-destructively stop work on one or more tasks",
-		Long:  "Mark one or more tasks as canceled, atomically. --reason is required. --cascade also cancels open descendants. --purge erases the task and its events instead of transitioning state; --purge --cascade requires --yes.",
+		Long:  "Mark one or more tasks as canceled, atomically. --reason is required; -F <path> reads it from a file. --cascade also cancels open descendants. --purge erases the task and its events instead of transitioning state; --purge --cascade requires --yes.",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openDBFromCmd()
@@ -28,6 +29,17 @@ func newCancelCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			resolvedReason, _, rerr := resolveBodyFlag(cmd, bodyFlagSpec{
+				Verb:       "cancel",
+				InlineName: "reason",
+				Inline:     reason,
+				File:       reasonFile,
+			})
+			if rerr != nil {
+				return rerr
+			}
+			reason = resolvedReason
 
 			canceled, alreadyCanceled, purged, err := job.RunCancel(db, args, reason, cascade, purge, yes, actor)
 			if err != nil {
@@ -52,7 +64,8 @@ func newCancelCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&reason, "reason", "m", "", "human-readable reason (required)")
+	cmd.Flags().StringVarP(&reason, "reason", "m", "", "human-readable reason, required (supports @path and `-` for stdin)")
+	registerFileFlag(cmd, &reasonFile, "reason", "reason")
 	cmd.Flags().BoolVar(&cascade, "cascade", false, "also cancel/purge open descendants")
 	cmd.Flags().BoolVar(&purge, "purge", false, "erase the task row and its events instead of transitioning state")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "confirm irrecoverable purge of a subtree (required with --purge --cascade)")

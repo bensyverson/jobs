@@ -12,11 +12,12 @@ import (
 
 func newNoteCmd() *cobra.Command {
 	var message string
+	var messageFile string
 	var resultStr string
 	cmd := &cobra.Command{
 		Use:   "note <id> [text]",
 		Short: "Record a timestamped note on a task",
-		Long:  "Record a timestamped note on a task. Notes are stored as `noted` events with actor + body, surfaced in the Notes: section of `job show`, and remain searchable. The task's description is not modified. Pass the body positionally, via -m, or read from stdin with `-`. Use --result to attach a structured JSON blob to the event.",
+		Long:  "Record a timestamped note on a task. Notes are stored as `noted` events with actor + body, surfaced in the Notes: section of `job show`, and remain searchable. The task's description is not modified. Pass the body positionally, via -m, via -F <path> to read a file, or read from stdin with `-`. Use --result to attach a structured JSON blob to the event.",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openDBFromCmd()
@@ -34,39 +35,36 @@ func newNoteCmd() *cobra.Command {
 			stdinForm := len(args) == 2 && args[1] == "-"
 			positionalForm := len(args) == 2 && !stdinForm
 
-			hasMessage := cmd.Flags().Changed("message")
-			provided := 0
-			if hasMessage {
-				provided++
+			// The shared helper resolves -m/-F and rejects -F against either
+			// the inline flag or a positional body; the -m-against-positional
+			// case is note's alone, since only note takes a positional body.
+			text, provided, rerr := resolveBodyFlag(cmd, bodyFlagSpec{
+				Verb:          "note",
+				InlineName:    "message",
+				Inline:        message,
+				File:          messageFile,
+				HasPositional: len(args) == 2,
+			})
+			if rerr != nil {
+				return rerr
 			}
-			if stdinForm {
-				provided++
-			}
-			if positionalForm {
-				provided++
-			}
-			if provided == 0 {
-				return fmt.Errorf("note requires text — pass it positionally, via -m \"<text>\", or via stdin (-)")
-			}
-			if provided > 1 {
-				return fmt.Errorf("note: positional text, -m, and stdin form are mutually exclusive")
+			if cmd.Flags().Changed("message") && len(args) == 2 {
+				return fmt.Errorf("note: positional text, -m, -F, and the stdin form are mutually exclusive")
 			}
 
-			text := message
-			if stdinForm {
-				b, rerr := io.ReadAll(cmd.InOrStdin())
-				if rerr != nil {
-					return rerr
+			if !provided {
+				switch {
+				case stdinForm:
+					b, err := io.ReadAll(cmd.InOrStdin())
+					if err != nil {
+						return err
+					}
+					text = strings.TrimRight(string(b), "\n\r")
+				case positionalForm:
+					text = args[1]
+				default:
+					return fmt.Errorf("note requires text — pass it positionally, via -m \"<text>\", via -F <path>, or via stdin (-)")
 				}
-				text = strings.TrimRight(string(b), "\n\r")
-			} else if positionalForm {
-				text = args[1]
-			} else if hasMessage {
-				resolved, rerr := resolveMessage(message, cmd.InOrStdin())
-				if rerr != nil {
-					return rerr
-				}
-				text = resolved
 			}
 			if text == "" {
 				return fmt.Errorf("note text is empty")
@@ -96,7 +94,8 @@ func newNoteCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&message, "message", "m", "", "note text to append")
+	cmd.Flags().StringVarP(&message, "message", "m", "", "note text to append (supports @path and `-` for stdin)")
+	registerFileFlag(cmd, &messageFile, "note text", "message")
 	cmd.Flags().StringVar(&resultStr, "result", "", "structured JSON result recorded on the noted event")
 	return cmd
 }

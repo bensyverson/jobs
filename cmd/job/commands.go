@@ -41,10 +41,37 @@ func looksLikeShortID(s string) bool {
 // Rationale: shell-quoting multi-line evidence payloads into -m "..." is
 // painful (backticks, nested quotes); file and stdin forms sidestep it.
 func resolveMessage(raw string, stdin io.Reader) (string, error) {
+	return resolveMessageAs(raw, stdin, dashMSource)
+}
+
+// bodySource names how the operator spelled a body argument, so a read error
+// quotes the flag they actually typed rather than the internal form.
+type bodySource struct {
+	// Flag is the flag name to blame: "-m" or "-F".
+	Flag string
+	// Sigil prefixes the path in error messages — "@" for -m, whose file
+	// form is `-m @path`, and empty for -F, whose argument is a bare path.
+	Sigil string
+}
+
+var (
+	dashMSource = bodySource{Flag: "-m", Sigil: "@"}
+	dashFSource = bodySource{Flag: "-F", Sigil: ""}
+)
+
+// resolveMessageAs is resolveMessage with the spelling that error messages
+// should blame. The same body can arrive as `-m @path` or as `-F path`, and an
+// error naming the flag the operator did not type sends them looking in the
+// wrong place.
+//
+// Both readers trim trailing newlines, as git's commit-message cleanup does:
+// a heredoc, a pipe or an editor-saved file almost always ends in a newline
+// the author did not mean, and a stored body should not carry it.
+func resolveMessageAs(raw string, stdin io.Reader, src bodySource) (string, error) {
 	if raw == "-" {
 		b, err := io.ReadAll(stdin)
 		if err != nil {
-			return "", fmt.Errorf("-m -: read stdin: %w", err)
+			return "", fmt.Errorf("%s -: read stdin: %w", src.Flag, err)
 		}
 		return strings.TrimRight(string(b), "\n\r"), nil
 	}
@@ -52,11 +79,88 @@ func resolveMessage(raw string, stdin io.Reader) (string, error) {
 		path := raw[1:]
 		b, err := os.ReadFile(path)
 		if err != nil {
-			return "", fmt.Errorf("-m @%s: read note file: %w", path, err)
+			return "", fmt.Errorf("%s %s%s: read note file: %w", src.Flag, src.Sigil, path, err)
 		}
-		return string(b), nil
+		return strings.TrimRight(string(b), "\n\r"), nil
 	}
 	return raw, nil
+}
+
+// registerFileFlag registers the shared -F/--file flag, the file form of a
+// verb's inline body flag. noun names what is being read ("note", "reason",
+// "description") and inline is the long name of the flag it mirrors.
+//
+// One registration point keeps the spelling, the shorthand and the help text
+// identical across all seven body-taking verbs.
+func registerFileFlag(cmd *cobra.Command, target *string, noun, inline string) {
+	cmd.Flags().StringVarP(target, "file", "F", "",
+		fmt.Sprintf("read the %s from <path> (file form of --%s); `-F -` reads stdin", noun, inline))
+}
+
+// bodyFlagSpec describes one verb's free-text body inputs for resolveBodyFlag.
+type bodyFlagSpec struct {
+	// Verb names the command in error messages ("note", "cancel", …).
+	Verb string
+	// InlineName is the long name of the inline body flag whose file form
+	// -F provides: "message" on note/done/claim/release, "reason" on
+	// cancel, "desc" on add/edit.
+	InlineName string
+	// Inline is that flag's value as parsed.
+	Inline string
+	// File is the -F/--file value as parsed.
+	File string
+	// InlineLiteral suppresses @path / `-` expansion of the inline value.
+	// add and edit set it: --desc has always been literal there, and a
+	// description that legitimately begins with "@" must survive.
+	InlineLiteral bool
+	// HasPositional reports that the verb also received its body as a
+	// positional argument, which -F conflicts with too.
+	HasPositional bool
+}
+
+// resolveBodyFlag folds -F/--file into a verb's inline body flag and resolves
+// the result, so every body-taking verb shares one set of conflict checks and
+// one reader instead of seven copies.
+//
+// -F <path> is exactly `--<inline> @<path>`; `-F -` is `--<inline> -`. Passing
+// -F alongside the inline flag, or alongside a positional body, is an error —
+// git rejects `commit -m … -F …` the same way, and silently preferring one
+// input over the other loses whichever the operator meant.
+//
+// provided reports whether either spelling supplied a body at all, so callers
+// keep their own "no body given" and "clear the field" handling.
+func resolveBodyFlag(cmd *cobra.Command, spec bodyFlagSpec) (text string, provided bool, err error) {
+	hasFile := cmd.Flags().Changed("file")
+	hasInline := cmd.Flags().Changed(spec.InlineName)
+
+	switch {
+	case hasFile && hasInline:
+		return "", false, fmt.Errorf("%s: -F/--file and --%s are mutually exclusive — pass the body one way",
+			spec.Verb, spec.InlineName)
+	case hasFile && spec.HasPositional:
+		return "", false, fmt.Errorf("%s: -F/--file and a positional body are mutually exclusive — pass the body one way",
+			spec.Verb)
+	case hasFile:
+		raw := spec.File
+		if raw != "-" {
+			raw = "@" + raw
+		}
+		resolved, rerr := resolveMessageAs(raw, cmd.InOrStdin(), dashFSource)
+		if rerr != nil {
+			return "", false, rerr
+		}
+		return resolved, true, nil
+	case hasInline:
+		if spec.InlineLiteral {
+			return spec.Inline, true, nil
+		}
+		resolved, rerr := resolveMessageAs(spec.Inline, cmd.InOrStdin(), dashMSource)
+		if rerr != nil {
+			return "", false, rerr
+		}
+		return resolved, true, nil
+	}
+	return "", false, nil
 }
 
 func newRootCmd() *cobra.Command {
@@ -165,6 +269,7 @@ VERBS (grouped by role)
 
   Short flags:
     -m  free-text body (note -m, done -m, cancel -m)
+    -F  --file: the same body read from a path, as git spells it (-F - reads stdin)
     -d  --desc
     -t  --title (edit) / --timeout (tail)
     -l  --label

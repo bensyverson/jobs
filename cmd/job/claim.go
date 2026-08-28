@@ -15,6 +15,7 @@ func newClaimCmd() *cobra.Command {
 	var includeParents bool
 	var format string
 	var note string
+	var noteFile string
 	cmd := &cobra.Command{
 		Use:   "claim <id> [duration]",
 		Short: "Claim a task (duration optional, default 30m)",
@@ -52,13 +53,14 @@ Tip: use 'job claim --next [parent] [duration]' to find and claim the next avail
 				duration = args[1]
 			}
 
-			resolved := ""
-			if cmd.Flags().Changed("message") {
-				r, rerr := resolveMessage(note, cmd.InOrStdin())
-				if rerr != nil {
-					return rerr
-				}
-				resolved = r
+			resolved, _, rerr := resolveBodyFlag(cmd, bodyFlagSpec{
+				Verb:       "claim",
+				InlineName: "message",
+				Inline:     note,
+				File:       noteFile,
+			})
+			if rerr != nil {
+				return rerr
 			}
 
 			pre, _ := job.GetTaskByShortID(db, shortID)
@@ -105,6 +107,7 @@ Tip: use 'job claim --next [parent] [duration]' to find and claim the next avail
 	cmd.Flags().BoolVar(&includeParents, "include-parents", false, "with --next: permit claiming tasks with open children")
 	cmd.Flags().StringVar(&format, "format", "md", "with --next: output format (md|json)")
 	cmd.Flags().StringVarP(&note, "message", "m", "", "record a starting note before claiming (supports @path and `-` for stdin)")
+	registerFileFlag(cmd, &noteFile, "starting note", "message")
 	return cmd
 }
 

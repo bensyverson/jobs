@@ -11,6 +11,7 @@ import (
 func newDoneCmd() *cobra.Command {
 	var cascade bool
 	var note string
+	var noteFile string
 	var resultStr string
 	var format string
 	var claimNext bool
@@ -24,7 +25,7 @@ func newDoneCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "done <id> [<id>...]",
 		Short: "Mark one or more tasks as done",
-		Long: `Mark one or more tasks as done, atomically. Use --cascade to close a task and all open descendants in one call. Use -m to record a completion note, and --result for structured JSON output. Idempotent: already-done tasks are reported, not re-recorded.
+		Long: `Mark one or more tasks as done, atomically. Use --cascade to close a task and all open descendants in one call. Use -m to record a completion note (or -F <path> to read it from a file), and --result for structured JSON output. Idempotent: already-done tasks are reported, not re-recorded.
 
 Tip: pass --claim-next to atomically close this task and claim the next available leaf, collapsing the close-then-advance flow into one call. The ack ends with the same briefing that 'job claim' / 'job show' produces, so you don't need a follow-up 'show' on the new claim.`,
 		Args: cobra.MinimumNArgs(1),
@@ -49,13 +50,16 @@ Tip: pass --claim-next to atomically close this task and claim the next availabl
 				}
 			}
 
-			if cmd.Flags().Changed("message") {
-				resolved, rerr := resolveMessage(note, cmd.InOrStdin())
-				if rerr != nil {
-					return rerr
-				}
-				note = resolved
+			resolvedNote, _, rerr := resolveBodyFlag(cmd, bodyFlagSpec{
+				Verb:       "done",
+				InlineName: "message",
+				Inline:     note,
+				File:       noteFile,
+			})
+			if rerr != nil {
+				return rerr
 			}
+			note = resolvedNote
 
 			var resultRaw json.RawMessage
 			if resultStr != "" {
@@ -263,7 +267,8 @@ Tip: pass --claim-next to atomically close this task and claim the next availabl
 		},
 	}
 	cmd.Flags().BoolVar(&cascade, "cascade", false, "close the target and all open descendants")
-	cmd.Flags().StringVarP(&note, "message", "m", "", "record a completion note")
+	cmd.Flags().StringVarP(&note, "message", "m", "", "record a completion note (supports @path and `-` for stdin)")
+	registerFileFlag(cmd, &noteFile, "completion note", "message")
 	cmd.Flags().StringVar(&resultStr, "result", "", "structured JSON result recorded on the done event")
 	cmd.Flags().StringVar(&format, "format", "md", "output format (md|json)")
 	cmd.Flags().BoolVar(&claimNext, "claim-next", false, "after closing, atomically claim the next available leaf in the closed task's root subtree")

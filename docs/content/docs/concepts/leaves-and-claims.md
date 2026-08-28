@@ -33,7 +33,7 @@ job claim <id> -m "what I'm trying"  # record a starting note in the same tx
 
 Claims are advisory but enforced for terminal state changes: only the holder can `done` or `release` without `--force`. The first line of a `claim` ack is the scriptable signal — agents grep for `Claimed:`. The full briefing follows, identical to `job show <id>`.
 
-`-m "<text>"` records a `noted` event *before* the `claimed` event in the same transaction, so an agent's starting context anchors the work at the head of its timeline rather than trailing it. Mirrors `release -m` and `done -m`; supports `@path` and `-` for stdin.
+`-m "<text>"` records a `noted` event *before* the `claimed` event in the same transaction, so an agent's starting context anchors the work at the head of its timeline rather than trailing it. Mirrors `release -m` and `done -m`; supports `@path` and `-` for stdin, and `-F <path>` (`-F -`) as the file form.
 
 Claiming a parent that has open children **is refused**. The lock has no referent — its real work lives in its descendants. Claim a leaf instead.
 

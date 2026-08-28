@@ -22,6 +22,7 @@ ID=$(job add abc12 "Then claim it" --id-only)        # capture just the new id
 
 The non-obvious moves:
 
+- `-F <path>` reads the description from a file (`-F -` reads stdin) — the painless way to attach a multi-line description without fighting shell quoting. It is an error alongside `-d`/`--desc`. Unlike the `-m` verbs, `--desc` itself stays strictly literal, so a description that begins with `@` is stored as typed.
 - `--criterion` is repeatable and seeds [acceptance criteria](../../concepts/criteria/) on the new task. Add as many as you want; each lands as `pending` and is referenced by a short id later.
 - `--before <sib>` (or `-b`) is the only way to position a new task without a follow-up `move`. Without it, new children land at the end of the parent's child list.
 - `--parent` and the positional parent argument are interchangeable — useful for scripts that pass the parent as a flag.
@@ -52,12 +53,14 @@ What to remember:
 
 ## `edit`
 
-Replaces a task's title, description, or criteria. At least one of `--title`, `--desc`, `--criterion`, or `--set-criterion` is required.
+Replaces a task's title, description, or criteria. At least one of `--title`, `--desc`, `-F`, `--criterion`, or `--set-criterion` is required.
 
 ```sh
 job edit abc12 -t "New title"
 job edit abc12 -d "Replace the entire description body."
 job edit abc12 -d ""                                # clear the description
+job edit abc12 -F newdesc.md                        # new description from a file
+cat newdesc.md | job edit abc12 -F -                # or from stdin
 job edit abc12 --criterion "new criterion to add"
 job edit abc12 --set-criterion "8jt=passed"         # mark an existing one passed
 job edit abc12 --set-criterion "8jt=skipped"        # or skipped, or failed
@@ -65,7 +68,7 @@ job edit abc12 --set-criterion "8jt=skipped"        # or skipped, or failed
 
 Notes:
 
-- `-d ""` is the only way to *clear* the description. Omitting `-d` leaves the existing one in place.
+- `-d ""` is the only way to *clear* the description. Omitting `-d` leaves the existing one in place. `-F <path>` is the file form of `-d` (`-F -` reads stdin); passing both is an error, and `-F` on its own satisfies the "at least one flag" requirement.
 - `--criterion` adds new criteria; `--set-criterion <label>=<state>` updates an existing one by its short id (visible in `job show`). States are `passed`, `skipped`, `failed`, `pending`.
 - `edit` does not change a task's status, parent, or labels. Reach for `move`, `label`, `done`, or `reopen` for those.
 

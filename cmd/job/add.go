@@ -8,6 +8,7 @@ import (
 
 func newAddCmd() *cobra.Command {
 	var desc string
+	var descFile string
 	var before string
 	var labels []string
 	var criteria []string
@@ -16,7 +17,7 @@ func newAddCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add [parent] <title>",
 		Short: "Add a new task",
-		Long:  "Add a new task. If parent is provided, the task is added as a child. Use --desc for a description, --before to insert before a specific sibling, and --criterion (repeatable) to attach acceptance criteria.",
+		Long:  "Add a new task. If parent is provided, the task is added as a child. Use --desc for a description (or -F <path> to read it from a file), --before to insert before a specific sibling, and --criterion (repeatable) to attach acceptance criteria.",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openDBFromCmd()
@@ -29,6 +30,20 @@ func newAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			// --desc stays literal on add/edit; -F is the only file form, so a
+			// description that legitimately begins with "@" survives.
+			resolvedDesc, _, derr := resolveBodyFlag(cmd, bodyFlagSpec{
+				Verb:          "add",
+				InlineName:    "desc",
+				Inline:        desc,
+				File:          descFile,
+				InlineLiteral: true,
+			})
+			if derr != nil {
+				return derr
+			}
+			desc = resolvedDesc
 
 			var parentShortID, title string
 			if len(args) == 2 {
@@ -116,6 +131,7 @@ func newAddCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&desc, "desc", "d", "", "task description")
+	registerFileFlag(cmd, &descFile, "description", "desc")
 	cmd.Flags().StringVarP(&before, "before", "b", "", "insert before this sibling task ID")
 	cmd.Flags().StringArrayVarP(&labels, "label", "l", nil, "label to attach (repeatable)")
 	cmd.Flags().StringArrayVar(&criteria, "criterion", nil, "acceptance criterion to attach, defaults to pending state (repeatable)")

@@ -21,10 +21,11 @@ func newUnclaimCmd() *cobra.Command {
 
 func buildReleaseCmd(use string) *cobra.Command {
 	var note string
+	var noteFile string
 	cmd := &cobra.Command{
 		Use:   use + " <id>",
 		Short: "Release a claimed task",
-		Long:  "Release a claim, returning the task to available status. Pass -m \"<text>\" to record a note before releasing.",
+		Long:  "Release a claim, returning the task to available status. Pass -m \"<text>\" to record a note before releasing, or -F <path> to read it from a file.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openDBFromCmd()
@@ -38,13 +39,14 @@ func buildReleaseCmd(use string) *cobra.Command {
 				return err
 			}
 
-			resolved := ""
-			if cmd.Flags().Changed("message") {
-				r, rerr := resolveMessage(note, cmd.InOrStdin())
-				if rerr != nil {
-					return rerr
-				}
-				resolved = r
+			resolved, _, rerr := resolveBodyFlag(cmd, bodyFlagSpec{
+				Verb:       use,
+				InlineName: "message",
+				Inline:     note,
+				File:       noteFile,
+			})
+			if rerr != nil {
+				return rerr
 			}
 
 			if err := job.RunRelease(db, args[0], resolved, actor); err != nil {
@@ -54,6 +56,7 @@ func buildReleaseCmd(use string) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&note, "message", "m", "", "record a note before releasing")
+	cmd.Flags().StringVarP(&note, "message", "m", "", "record a note before releasing (supports @path and `-` for stdin)")
+	registerFileFlag(cmd, &noteFile, "note", "message")
 	return cmd
 }

@@ -51,6 +51,7 @@ Drops your claim, returning the task to `available`. Optionally records a partin
 ```sh
 job release abc12
 job release abc12 -m "Handing off — context in latest note."
+job release abc12 -F handoff.md                      # parting note from a file
 ```
 
 Only the holder can release without `--force`. If you want to take a task away from another agent, that's `claim --force`, not `release --force`.
@@ -62,11 +63,15 @@ Append a timestamped note to a task. Notes are events (actor + body), not edits 
 ```sh
 job note abc12 "Quick observation — the schema mismatch is in column 3."
 job note abc12 -m "Same as above, with the flag form."
-job note abc12 -m @/path/to/long-message.md         # read body from a file
+job note abc12 -F /path/to/long-message.md           # read body from a file
+job note abc12 -m @/path/to/long-message.md          # the older spelling of the same thing
 echo "from a pipe" | job note abc12 -                # positional - reads stdin
 echo "or this way" | job note abc12 -m -             # -m - reads stdin
+echo "or this way" | job note abc12 -F -             # -F - reads stdin
 job note abc12 -m "ack" --result '{"errors":0}'      # attach structured JSON
 ```
+
+`-F <path>` is the file form, spelled as `git commit -F` spells it. Combining it with `-m` or with the positional body is an error — pass the body one way.
 
 The `--result` payload rides on the `noted` event and is preserved in JSON output of `log` and `tail` — that's how an agent passes a structured handoff to whatever's watching.
 
@@ -79,7 +84,8 @@ Closes one or more tasks atomically. The killer flag is `--claim-next`, which co
 ```sh
 job done abc12
 job done abc12 -m "Closing notes here."
-job done abc12 -m @/path/to/release-notes.md         # body from file
+job done abc12 -F /path/to/release-notes.md            # body from a file (or -m @path)
+job done abc12 abc34 -F notes.md                      # one body applied to every id
 job done abc12 abc34 abc56 -m "Closing the batch."   # multi-id, atomic
 job done abc12 --cascade                              # close abc12 + all open descendants
 job done abc12 --claim-next                           # close, then claim the next leaf in this root
@@ -121,6 +127,7 @@ Non-destructive close that records *why*. `--reason` is required.
 job cancel abc12 -m "Out of scope — moved to next quarter."
 job cancel abc12 abc34 -m "Both blocked on a vendor we dropped."
 job cancel abc12 --cascade -m "Whole subtree no longer needed."
+job cancel abc12 -F reason.md                       # reason from a file (or -m @path, or -F -)
 job cancel abc12 --purge                            # erase the row and events
 job cancel abc12 --purge --cascade --yes            # erase a whole subtree
 ```

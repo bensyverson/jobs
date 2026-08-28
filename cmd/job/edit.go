@@ -11,14 +11,15 @@ import (
 func newEditCmd() *cobra.Command {
 	var title string
 	var desc string
+	var descFile string
 	var criteria []string
 	var setCriterion []string
 	cmd := &cobra.Command{
 		Use:   "edit <id>",
 		Short: "Change a task's title, description, or criteria",
 		Long: "Replace a task's title and/or description, or update its acceptance criteria. " +
-			"At least one of --title, --desc, --criterion, or --set-criterion must be provided. " +
-			"Use --desc \"\" to clear the description.",
+			"At least one of --title, --desc, -F, --criterion, or --set-criterion must be provided. " +
+			"Use --desc \"\" to clear the description, or -F <path> to read the new description from a file.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openDBFromCmd()
@@ -37,12 +38,24 @@ func newEditCmd() *cobra.Command {
 				t := title
 				titlePtr = &t
 			}
-			if cmd.Flags().Changed("desc") {
-				d := desc
-				descPtr = &d
+			// --desc stays literal here; -F is the only file form. `provided`
+			// (not a non-empty value) drives the pointer, so `--desc ""` still
+			// clears the description.
+			resolvedDesc, descProvided, derr := resolveBodyFlag(cmd, bodyFlagSpec{
+				Verb:          "edit",
+				InlineName:    "desc",
+				Inline:        desc,
+				File:          descFile,
+				InlineLiteral: true,
+			})
+			if derr != nil {
+				return derr
+			}
+			if descProvided {
+				descPtr = &resolvedDesc
 			}
 			if titlePtr == nil && descPtr == nil && len(criteria) == 0 && len(setCriterion) == 0 {
-				return fmt.Errorf("edit requires --title, --desc, --criterion, or --set-criterion")
+				return fmt.Errorf("edit requires --title, --desc, -F, --criterion, or --set-criterion")
 			}
 
 			if titlePtr != nil || descPtr != nil {
@@ -74,6 +87,7 @@ func newEditCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&title, "title", "t", "", "new title (replaces current)")
 	cmd.Flags().StringVarP(&desc, "desc", "d", "", "new description (replaces current; pass \"\" to clear)")
+	registerFileFlag(cmd, &descFile, "description", "desc")
 	cmd.Flags().StringArrayVar(&criteria, "criterion", nil, "acceptance criterion to add, defaults to pending state (repeatable)")
 	cmd.Flags().StringArrayVar(&setCriterion, "set-criterion", nil, "update an existing criterion's state, format \"label=passed\" (repeatable)")
 	return cmd
