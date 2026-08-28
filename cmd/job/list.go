@@ -20,6 +20,7 @@ func newListCmd() *cobra.Command {
 	var openFlag bool
 	var sinceFlag string
 	var noTruncate bool
+	var issuesFlag bool
 	cmd := &cobra.Command{
 		Use:     "ls [parent]",
 		Aliases: []string{"list", "tree"},
@@ -34,7 +35,9 @@ Use --mine to show only tasks claimed by the caller (via --as or default identit
 Use --claimed-by <name> to show tasks claimed by a specific agent.
 Use --grep <pattern> for case-insensitive title search.
 Composes: 'ls --mine --label p0', 'ls --claimed-by alice --all'.
-Use --format=json for machine-readable output (full closed history, no cap).`,
+Use --format=json for machine-readable output (full closed history, no cap).
+
+Issue-tree roots are omitted from the default forest and summarized in one trailer line, 'Issues: N open · job ls --issues'. Pass --issues to see only the issue-trees instead (same filters apply within them). An explicit parent id names its own tree either way, so --issues has no effect once you've already scoped to one. --format=json always includes every root (with its 'kind'); --issues narrows that array to issue roots too.`,
 		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openDBFromCmd()
@@ -110,6 +113,25 @@ Use --format=json for machine-readable output (full closed history, no cap).`,
 			}
 			renderTail := showAll
 
+			// Kind-scoping only means something over the unscoped forest —
+			// an explicit parent already names its own tree (decision: `ls
+			// <issue-root-id>` is unchanged). JSON's default array never
+			// drops roots (a consumer can split them itself via `kind`);
+			// --issues opts a JSON caller into the same split text gets.
+			issuesScope := parentShortID == ""
+			scopeByKind := issuesScope && (format != "json" || issuesFlag)
+
+			if issuesFlag && issuesScope && format != "json" {
+				hasIssueRoots, _, ierr := job.IssueOpenCount(db)
+				if ierr != nil {
+					return ierr
+				}
+				if !hasIssueRoots {
+					fmt.Fprintln(cmd.OutOrStdout(), "No issue-tree roots. Run `job add <title> --kind issue` (or `job kind <id> issue`) to create one.")
+					return nil
+				}
+			}
+
 			filter := job.ListFilter{
 				ParentID:            parentShortID,
 				ShowAll:             showAll,
@@ -120,14 +142,45 @@ Use --format=json for machine-readable output (full closed history, no cap).`,
 				ClosedTailCap:       closedCap,
 				ClosedTailSinceUnix: sinceUnix,
 			}
+			// The closed-tail cap applies per kind once we're about to split
+			// the forest: fetch it uncapped here and re-cap after scoping
+			// (below) so the "N of M" footer counts the half being shown,
+			// not both kinds combined.
+			requestedCap := filter.ClosedTailCap
+			if scopeByKind && renderTail && filter.ClosedTailCap != -1 {
+				filter.ClosedTailCap = -1
+			}
 			result, err := job.RunListWithTail(db, filter)
 			if err != nil {
 				return err
 			}
-			nodes := result.Open
 			if !renderTail {
 				result.ClosedTail = nil
 				result.ClosedTotal = 0
+			}
+			if scopeByKind {
+				if err := job.ScopeListResult(db, result, issuesFlag, requestedCap); err != nil {
+					return err
+				}
+			}
+			nodes := result.Open
+
+			// printIssuesTrailer appends the `Issues: N open · job ls
+			// --issues` pointer after every other line of output, in every
+			// default-mode markdown code path below (including the "empty"
+			// branches) — it is a no-op whenever it doesn't apply.
+			printIssuesTrailer := func() error {
+				if !issuesScope || issuesFlag || format == "json" {
+					return nil
+				}
+				hasIssueRoots, openCount, ierr := job.IssueOpenCount(db)
+				if ierr != nil {
+					return ierr
+				}
+				if hasIssueRoots {
+					fmt.Fprintf(cmd.OutOrStdout(), "Issues: %d open · job ls --issues\n", openCount)
+				}
+				return nil
 			}
 
 			if format == "json" {
@@ -155,18 +208,18 @@ Use --format=json for machine-readable output (full closed history, no cap).`,
 			if len(nodes) == 0 && len(result.ClosedTail) == 0 {
 				if grepPattern != "" {
 					fmt.Fprintf(cmd.OutOrStdout(), "No tasks match `%s`. Try --all to include blocked / done / canceled.\n", grepPattern)
-					return nil
+					return printIssuesTrailer()
 				}
 				if claimedByFilter != "" {
 					fmt.Fprintf(cmd.OutOrStdout(), "No tasks claimed by %s.\n", claimedByFilter)
-					return nil
+					return printIssuesTrailer()
 				}
 				total, done, cerr := countTasks(db, parentShortID)
 				if cerr != nil {
 					return cerr
 				}
 				job.RenderListEmpty(cmd.OutOrStdout(), total, done)
-				return nil
+				return printIssuesTrailer()
 			}
 			if len(nodes) > 0 {
 				blockers, err := job.CollectBlockers(db, nodes)
@@ -177,7 +230,11 @@ Use --format=json for machine-readable output (full closed history, no cap).`,
 				if err != nil {
 					return err
 				}
-				job.RenderMarkdownList(cmd.OutOrStdout(), nodes, blockers, labels, 0)
+				if issuesFlag && issuesScope {
+					job.RenderIssueRootList(cmd.OutOrStdout(), nodes, blockers, labels)
+				} else {
+					job.RenderMarkdownList(cmd.OutOrStdout(), nodes, blockers, labels, 0)
+				}
 			}
 			if renderTail && len(result.ClosedTail) > 0 {
 				var parents map[int64]job.ParentInfo
@@ -196,13 +253,13 @@ Use --format=json for machine-readable output (full closed history, no cap).`,
 				}
 			}
 
-			unscopedUnfiltered := parentShortID == "" && !showAll &&
+			unscopedUnfiltered := parentShortID == "" && !showAll && !issuesFlag &&
 				labelFilter == "" && claimedByFilter == "" && grepPattern == "" &&
 				effectiveStatus == ""
 			if unscopedUnfiltered && len(nodes) < 5 {
 				fmt.Fprintln(cmd.OutOrStdout(), "Showing actionable tasks only. Use --all to include blocked / done / canceled tasks.")
 			}
-			return nil
+			return printIssuesTrailer()
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "md", "output format (md|json)")
@@ -215,6 +272,7 @@ Use --format=json for machine-readable output (full closed history, no cap).`,
 	cmd.Flags().BoolVar(&openFlag, "open", false, "shortcut for --status=open (anything not done or canceled)")
 	cmd.Flags().StringVar(&sinceFlag, "since", "", "limit Recently closed footer to a duration (5m, 2h, 7d) or a count (50)")
 	cmd.Flags().BoolVar(&noTruncate, "no-truncate", false, "disable the Recently closed footer cap (full closed history)")
+	cmd.Flags().BoolVar(&issuesFlag, "issues", false, "show only issue-tree roots (omitted from the default forest; see the Issues: trailer)")
 	return cmd
 }
 

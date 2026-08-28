@@ -141,22 +141,26 @@ func TestAddKindIssueUnderParentIsError(t *testing.T) {
 	}
 }
 
-func TestListMarksIssueRootsCLI(t *testing.T) {
+// TestListMarksIssueRootsCLI used to assert that default `job ls` tagged an
+// issue root inline as `(issue-tree)`. That tag is superseded by the
+// task/issue split added in the ls-issues leaf: default `ls` now omits
+// issue roots entirely (pointing at `job ls --issues` via a trailer
+// instead), and `ls --issues` itself drops the tag as redundant — every row
+// it renders is already an issue root. See cmd/job/list_issues_test.go for
+// the new coverage.
+func TestListOmitsIssueRootsByDefaultCLI(t *testing.T) {
 	dbFile, _, issueRoot, _ := seedKindCLI(t)
 
 	out, _, err := runCLI(t, dbFile, "ls")
 	if err != nil {
 		t.Fatalf("job ls: %v", err)
 	}
-	for line := range strings.SplitSeq(out, "\n") {
-		if strings.Contains(line, issueRoot) {
-			if !strings.Contains(line, "issue-tree") {
-				t.Errorf("issue root line %q is unmarked", line)
-			}
-			return
-		}
+	if strings.Contains(out, issueRoot) {
+		t.Errorf("default `job ls` should omit the issue root %s, got:\n%s", issueRoot, out)
 	}
-	t.Fatalf("issue root %s missing from `job ls`:\n%s", issueRoot, out)
+	if !strings.Contains(out, "Issues: 2 open · job ls --issues") {
+		t.Errorf("default `job ls` should end with the Issues trailer, got:\n%s", out)
+	}
 }
 
 func TestNextCLIExcludesIssueTrees(t *testing.T) {

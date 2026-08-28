@@ -129,6 +129,18 @@ func taskNodeToJSON(node *TaskNode) taskNodeJSON {
 }
 
 func RenderMarkdownList(w io.Writer, nodes []*TaskNode, blockers map[string][]string, labels map[int64][]string, depth int) {
+	renderMarkdownListTagged(w, nodes, blockers, labels, depth, true)
+}
+
+// RenderIssueRootList renders `ls --issues`: every top-level node is already
+// an issue root, so the per-row "issue-tree" tag would be pure noise on
+// every line — it stays available in JSON's `kind` field, where a consumer
+// that mixes roots still needs it.
+func RenderIssueRootList(w io.Writer, nodes []*TaskNode, blockers map[string][]string, labels map[int64][]string) {
+	renderMarkdownListTagged(w, nodes, blockers, labels, 0, false)
+}
+
+func renderMarkdownListTagged(w io.Writer, nodes []*TaskNode, blockers map[string][]string, labels map[int64][]string, depth int, showKindTag bool) {
 	indent := strings.Repeat("  ", depth)
 	for _, node := range nodes {
 		checkbox := "[ ]"
@@ -136,20 +148,26 @@ func RenderMarkdownList(w io.Writer, nodes []*TaskNode, blockers map[string][]st
 			checkbox = "[x]"
 		}
 		fmt.Fprintf(w, "%s- %s `%s` %s", indent, checkbox, node.Task.ShortID, node.Task.Title)
-		parens := listStateParens(node, blockers, labels)
+		parens := listStateParensOpts(node, blockers, labels, showKindTag)
 		if parens != "" {
 			fmt.Fprintf(w, " %s", parens)
 		}
 		fmt.Fprintln(w)
-		RenderMarkdownList(w, node.Children, blockers, labels, depth+1)
+		renderMarkdownListTagged(w, node.Children, blockers, labels, depth+1, showKindTag)
 	}
 }
 
 func listStateParens(node *TaskNode, blockers map[string][]string, labels map[int64][]string) string {
+	return listStateParensOpts(node, blockers, labels, true)
+}
+
+func listStateParensOpts(node *TaskNode, blockers map[string][]string, labels map[int64][]string, showKindTag bool) string {
 	var parts []string
 	// Tree kind is root-only, so this marks exactly the issue roots — the
-	// trees `next`, `orient` and `claim --next` skip by default.
-	if node.Task.ParentID == nil && node.Task.Kind.IsIssue() {
+	// trees `next`, `orient` and `claim --next` skip by default. Suppressed
+	// under `ls --issues`, where every rendered row is already an issue
+	// root and the tag would be pure repetition.
+	if showKindTag && node.Task.ParentID == nil && node.Task.Kind.IsIssue() {
 		parts = append(parts, "issue-tree")
 	}
 	switch node.Task.Status {

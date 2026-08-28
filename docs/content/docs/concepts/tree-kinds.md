@@ -69,7 +69,7 @@ job move abc12 under def34
 
 ## Where the marking shows up
 
-- `job ls` tags issue roots: `- [ ] `abc12` Bugs (issue-tree)`, alongside claims, blockers and labels.
+- `job ls` no longer tags issue roots inline — it omits them from the default forest and, when any exist, ends with `Issues: N open · job ls --issues`. `ls --issues` renders just the issue-trees (same row shape, no tag — every row shown is already one). `--format=json` keeps every root either way, each carrying its `kind`. See [Observation → `ls`](../../reference/observation/#ls).
 - `job show` on an issue root prints a `Kind: issue` line. Task roots print nothing — `task` is the default and saying so everywhere would be noise.
 - `job log` renders the conversion as `kind task-tree → issue-tree`.
 

@@ -20,13 +20,16 @@ job ls --mine                              # tasks claimed by --as / default ide
 job ls --claimed-by alice                  # tasks claimed by a specific agent
 job ls --grep "auth"                       # case-insensitive substring on title
 job ls --mine --label p0                   # filters compose
+job ls --issues                            # only the issue-trees, none of the plan
 ```
 
 What's worth knowing:
 
 - The default ("actionable") view is the work *you can pick up right now*: available, unblocked, unclaimed. Use `--all` when you want the whole picture, `--open` when you want everything still in flight.
-- **Recently closed footer.** Closed tasks render inline under their open parent when the local context is small; otherwise they collect into a flat "Recently closed (N of M)" footer below the tree, capped at 10. Widen with `--since 2h`, `--since 50` (count), or `--no-truncate` for the full closed history. `--since` and `--no-truncate` are mutually exclusive.
-- **Issue roots are tagged.** A root marked as an [issue-tree](../../concepts/tree-kinds/) renders as `- [ ] `abc12` Bugs (issue-tree)`, in the same parenthesised group as claims, blockers and labels. `ls` still lists them — it is the "show me everything" view; it is `next`, `orient` and `claim --next` that skip them.
+- **Recently closed footer.** Closed tasks render inline under their open parent when the local context is small; otherwise they collect into a flat "Recently closed (N of M)" footer below the tree, capped at 10. Widen with `--since 2h`, `--since 50` (count), or `--no-truncate` for the full closed history. `--since` and `--no-truncate` are mutually exclusive. `--all` scopes the footer to whichever kind is being shown, so `ls --all` and `ls --issues --all` never mix each other's closures.
+- **Issue roots are demoted, not tagged.** A root marked as an [issue-tree](../../concepts/tree-kinds/) no longer renders inline in the default forest. When at least one exists, `ls` ends with one trailer line instead: `Issues: 3 open · job ls --issues`, where the count is the unfiltered open total across every issue tree — it doesn't shift with `--label` or `--mine` on the call that printed it. With no issue roots, there's no trailer.
+- **`ls --issues` is the complementary view.** It renders only issue-tree roots, in the same row shape as the default forest, and every other filter (`--label`, `--mine`, `--claimed-by`, `--grep`, `--status`, `--all`) composes within it exactly as it does for task-trees. It prints no trailer, and it drops the `issue-tree` tag on each row — every row shown is already one, so the tag would be pure repetition. An explicit `job ls <issue-root-id>` is unaffected by `--issues` either way: naming an id already picks the tree you want.
+- **`--format=json` never demotes anything.** The array always includes every root, task-tree and issue-tree alike, each carrying its `kind` — a script can split them itself. `--issues` still narrows the JSON array to issue roots, for scripts that want the same split text gets.
 - **`tree` and `list` are aliases for `ls`.** Type whichever your fingers prefer.
 - **`--format=json` returns the full closed history with no cap.** When you're driving `ls` from a script, JSON is usually what you want.
 
