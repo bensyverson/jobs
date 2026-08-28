@@ -22,3 +22,6 @@ Local/
 scripts/screenshot/node_modules/
 scripts/screenshot/package-lock.json
 scripts/screenshots/
+
+# Local-only project files
+.timetattle-project.json 
