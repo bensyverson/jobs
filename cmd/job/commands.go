@@ -216,8 +216,9 @@ QUICKSTART
   1. Initialize:  job init
      Records your $USER as the default identity; subsequent writes need no --as.
 
-  2. Open with status:  job status
-     Run at the start of every session — it's both the identity check and the landscape briefing.
+  2. Open with orient:  job orient
+     Run at the start of every session — it picks the next available leaf and renders its tree.
+     job status is the orchestrator's wider view: identity, counts, one row per root.
 
   3. Plan (for multi-task work):
 
