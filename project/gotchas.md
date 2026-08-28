@@ -25,3 +25,11 @@ Format: one dated H2 per entry, a bold headline, then what happened and what to 
 ## 2026-08-16 — rule: the web rules assume a public site
 
 **`web.md`'s "Public pages carry rich `<head>` metadata including schema.org data" has no meaning for this dashboard**, which is localhost-only, read-only, and not crawled. The head notes the exception, but every internal-tool repo that adopts `web` will need the same note — the module could scope the bullet to public-facing pages itself.
+
+## 2026-08-28 — agent briefs: the sandbox blocks Go and git; `events.go` is the reader
+
+Three of four parallel agents lost time to the same two things. **The default sandbox blocks `~/.gitconfig`, the Go module cache and the build cache**, so every `go`/`git` command in a worktree needs the sandbox override (or `GIT_CONFIG_GLOBAL=/dev/null`); say so in the brief. And **`internal/job/events.go` reads events (`log`/`tail`); the recording helper is `recordEvent` in `internal/job/database.go`** — a brief that points at `events.go` "for the pattern" sends the agent to the wrong file.
+
+**`git add -A` on the main checkout stages `.claude/worktrees/*` as embedded repos** and the pre-commit hook refuses the commit. The directory is now gitignored; if you see "adding embedded git repository", `git reset -- .claude/worktrees`.
+
+**`go fix ./...` rewrites unrelated files** (`slices.Backward`, `strings.Cut`, `errors.AsType` as of Go 1.24) and every parallel agent's diff carries the same three hunks. Harmless — they apply identically — but expect the first patch to bring them and the rest to conflict trivially on them.
