@@ -62,7 +62,7 @@ func newOrientCmd() *cobra.Command {
 				// condition — there the caller asked for a task and did
 				// not get one.
 				if errors.Is(err, job.ErrNoAvailableTasks) {
-					noTasks, nerr := job.RunOrientNoTasks(db, actor, err.Error(), full)
+					noTasks, nerr := job.RunOrientNoTasks(db, actor, err.Error(), full, issues)
 					if nerr != nil {
 						return nerr
 					}

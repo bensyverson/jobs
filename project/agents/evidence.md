@@ -1,4 +1,4 @@
-<!-- agents:begin evidence@c7efc8 -->
+<!-- agents:begin evidence@f7acd9 -->
 # Working with evidence
 
 Principles, not procedures. Each was paid for at least once. Read this before measuring anything, verifying a claim, or writing down a cause.
@@ -9,12 +9,16 @@ Principles, not procedures. Each was paid for at least once. Read this before me
 - **Before quoting a zero, ask whether the thing counted could ever have been non-zero.** A definitional zero reads as "it costs nothing".
 - **Calibrate a new measurement against a known answer before trusting anything else it says**, and freeze that target — one the codebase can repair out from under you is a countdown, not a calibration.
 - **When two tools measure the same thing, reconcile them numerically and say so.** Two figures that differ for an understood reason are fine; two nobody has subtracted are not.
+- **Assert lower time bounds tightly and upper bounds loosely.** Contention inflates wall-clock several-fold once the whole suite runs, so a tight upper bound fails only there; to prove *when* something settled, use an event the system itself produces as the clock rather than elapsed time.
 - **Move one variable at a time**, or the result is uninterpretable and gets misread in whichever direction someone already believed.
 
 ## What counts as verified
 
 - **Verify the inference, not just the facts.** True cited facts are not a true conclusion. Ask what else could be true — above all whether the function you cite is the *only* source of the fact. The tell is a plural noun doing quiet work ("the handlers", "the gates"): ask *which one*.
 - **Reading the source is not running it.** A claim verified only by reading code is a hypothesis.
+- **A check that ran over zero cases is not green.** Tests that skip themselves when an environment variable is unset, a linter whose config excludes the directory it was run in — read what the run says it covered, never just its exit status.
+- **A running process serves the build it started with.** Assets and templates compiled in (`go:embed` and friends) do not re-read from disk, so evidence gathered after an edit describes the previous build; restart, then confirm the new bytes are actually being served.
+- **A test that matches example text passes with no real data.** Placeholders, help text and sample values satisfy the naive assertion — assert on something only real data can produce.
 - **One plausible cause is not one cause.** Necessary is not sufficient; re-measure after the fix rather than declaring victory on the mechanism.
 - **When a user says nothing happened, the cheapest hypothesis is that nothing happened.** "It works, it's just hard to find" is itself a claim about behavior and needs the same evidence.
 - **Real data can validate a wrong rule.** A rule can pass against the entire live stream purely because no case happened to exercise it. Constructed cases must sit beside real-data checks; neither substitutes for the other.

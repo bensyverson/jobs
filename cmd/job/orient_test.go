@@ -240,3 +240,57 @@ func TestOrient_Issues_EmptyForest_ExitsZeroWithGuidance(t *testing.T) {
 		t.Errorf("stdout:\n%s", stdout)
 	}
 }
+
+// fwk0j — `orient --issues` on an exhausted issue forest must render the
+// issue tree(s), never the task-focused tree it fell back to before this
+// fix: a task root with an available leaf sat alongside an exhausted issue
+// root, and RunOrientNoTasks never learned about --issues, so it rendered
+// the task tree instead.
+func TestOrient_Issues_ExhaustedForest_RendersIssueTreeNotTaskTree(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	taskRoot := job.MustAdd(t, db, "", "Plan")
+	job.MustAdd(t, db, taskRoot, "Available task leaf")
+	bugs := job.MustAdd(t, db, "", "Bugs")
+	issueLeaf := job.MustAdd(t, db, bugs, "Only issue leaf")
+	db.Close()
+
+	if _, _, err := runCLI(t, dbFile, "--as", "alice", "kind", bugs, "issue"); err != nil {
+		t.Fatalf("kind %s issue: %v", bugs, err)
+	}
+	if _, _, err := runCLI(t, dbFile, "--as", "alice", "claim", issueLeaf); err != nil {
+		t.Fatalf("claim %s: %v", issueLeaf, err)
+	}
+
+	stdout, _, err := runCLI(t, dbFile, "--as", "alice", "orient", "--issues")
+	if err != nil {
+		t.Fatalf("orient --issues with exhausted focused issue root: want exit 0, got error: %v\n%s", err, stdout)
+	}
+	var doc struct {
+		Orient struct {
+			Target  *string `yaml:"target"`
+			Message string  `yaml:"message"`
+		} `yaml:"orient"`
+		Tasks []struct {
+			ID string `yaml:"id"`
+		} `yaml:"tasks"`
+	}
+	if err := yaml.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("output is not valid YAML: %v\n%s", err, stdout)
+	}
+	if doc.Orient.Target != nil {
+		t.Errorf("orient.target: want null, got %q", *doc.Orient.Target)
+	}
+	if !strings.Contains(doc.Orient.Message, bugs) || !strings.Contains(doc.Orient.Message, "focus --release") {
+		t.Errorf("orient.message must name the focused issue root and the escape hatches: %q", doc.Orient.Message)
+	}
+	if len(doc.Tasks) != 1 {
+		t.Fatalf("tasks: got %d trees, want exactly 1 (the issue root)\n%s", len(doc.Tasks), stdout)
+	}
+	if doc.Tasks[0].ID != bugs {
+		t.Errorf("rendered tree root: got %q, want the issue root %q\n%s", doc.Tasks[0].ID, bugs, stdout)
+	}
+	if strings.Contains(stdout, taskRoot) {
+		t.Errorf("task root %s must not appear in the --issues no-tasks view:\n%s", taskRoot, stdout)
+	}
+}

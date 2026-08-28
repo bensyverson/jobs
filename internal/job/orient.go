@@ -151,17 +151,38 @@ type OrientNoTasksView struct {
 // RunOrientNoTasks assembles the guidance view for orient's no-target case.
 // message is the caller-facing text from the failed next-task lookup (the
 // ErrNoAvailableTasks error orient caught); it is already the right wording
-// for either the focused-root or the whole-repo case.
-func RunOrientNoTasks(db *sql.DB, actor, message string, full bool) (*OrientNoTasksView, error) {
-	focus, err := GetFocus(db, actor)
+// for either the focused-root or the whole-repo case, and — since the caller
+// resolves that lookup through the same issues flag — already the right
+// wording for the issue-tree case too.
+//
+// issues picks which side of the forest guidance renders from, mirroring
+// resolveOrientTarget: the issue focus (and, absent one, every issue root)
+// when true, the task focus (and, absent one, every root) when false.
+func RunOrientNoTasks(db *sql.DB, actor, message string, full, issues bool) (*OrientNoTasksView, error) {
+	kind := KindTask
+	if issues {
+		kind = KindIssue
+	}
+	focus, err := GetFocusKind(db, actor, kind)
 	if err != nil {
 		return nil, err
 	}
 
 	var roots []*Task
-	if focus != nil {
+	switch {
+	case focus != nil:
 		roots = []*Task{focus}
-	} else {
+	case issues:
+		all, err := getRootTasks(db)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range all {
+			if r.Kind.IsIssue() {
+				roots = append(roots, r)
+			}
+		}
+	default:
 		roots, err = getRootTasks(db)
 		if err != nil {
 			return nil, err
