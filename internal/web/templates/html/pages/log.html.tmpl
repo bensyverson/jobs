@@ -1,8 +1,18 @@
 {{- /* Log view. Markup ports prototype/log.html with data bindings.
-     No live tail yet — this is the SSR initial render only (task dARuR). */ -}}
+     The view header carries the 7D / 14D / 30D / All range selector —
+     a plain link group (c-tabs), so it works with JS off — and the
+     range bounds the event list and both chip strips alike. Chips
+     past the strip's cap render hidden behind a "+N more" link to
+     ?chips=all; log-chips.mjs upgrades that link into an in-place
+     expander. */ -}}
 {{define "title"}}Log · Jobs{{end}}
 {{define "live-region-src"}}{{.EventsURL}}{{end}}
 {{define "content"}}
+<div class="row row-gap-md c-view-header">
+  <nav class="c-tabs" aria-label="Range">
+    {{range .RangeTabs}}<a href="{{.URL}}" class="c-tab{{if .Active}} c-tab--active{{end}}"{{if .Active}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}
+  </nav>
+</div>
 <section class="c-filter-bar" aria-label="Log filters">
   <div class="c-filter-bar__group" role="group" aria-label="Event type">
     <span class="c-filter-bar__label">Events</span>
@@ -10,23 +20,25 @@
     <a href="{{.HRef}}" class="c-filter-chip{{if .Active}} c-filter-chip--active{{end}}">{{.Label}}</a>
     {{end}}
   </div>
-  <div class="c-filter-bar__group" role="group" aria-label="Actor">
+  <div class="c-filter-bar__group" role="group" aria-label="Actor" data-chip-group="actor">
     <span class="c-filter-bar__label">Actor</span>
-    {{range .Actors}}
-    <a href="{{.HRef}}" class="c-filter-chip{{if .Active}} c-filter-chip--active{{end}}">
+    {{range .Actors.Chips}}
+    <a href="{{.HRef}}" class="c-filter-chip{{if .Active}} c-filter-chip--active{{end}}"{{if .Actor}} data-actor-chip="{{.Actor}}"{{end}}{{if .Overflow}} data-chip-overflow hidden{{end}}>
       {{if .Actor}}<span class="c-avatar c-avatar-dot" data-actor="{{.Actor}}"></span>{{end}}{{.Label}}
     </a>
     {{end}}
+    {{if .Actors.MoreCount}}<a href="{{.Actors.MoreHRef}}" class="c-filter-chip c-filter-chip--more" data-chip-more="{{.Actors.MoreCount}}">+{{.Actors.MoreCount}} more</a>{{end}}
   </div>
-  <div class="c-filter-bar__group" role="group" aria-label="Label">
+  <div class="c-filter-bar__group" role="group" aria-label="Label" data-chip-group="label">
     <span class="c-filter-bar__label">Label</span>
-    {{range .Labels}}
+    {{range .Labels.Chips}}
     {{- if .LabelK -}}
-    <a href="{{.HRef}}" class="c-label-pill{{if .Active}} c-label-pill--active{{end}}" data-label="{{.LabelK}}">{{.Label}}</a>
+    <a href="{{.HRef}}" class="c-label-pill{{if .Active}} c-label-pill--active{{end}}" data-label="{{.LabelK}}"{{if .Overflow}} data-chip-overflow hidden{{end}}>{{.Label}}</a>
     {{- else -}}
     <a href="{{.HRef}}" class="c-filter-chip{{if .Active}} c-filter-chip--active{{end}}">{{.Label}}</a>
     {{- end -}}
     {{end}}
+    {{if .Labels.MoreCount}}<a href="{{.Labels.MoreHRef}}" class="c-filter-chip c-filter-chip--more" data-chip-more="{{.Labels.MoreCount}}">+{{.Labels.MoreCount}} more</a>{{end}}
   </div>
 </section>
 
@@ -43,7 +55,7 @@
   {{template "log-row" .}}
   {{else}}
   <div class="c-log-row c-log-row--empty" role="listitem">
-    <span class="t-muted">No events match the current filters.</span>
+    <span class="t-muted">{{.EmptyText}}</span>
   </div>
   {{end}}
   {{if .HasMore}}<a class="c-log-row c-log-row--more" href="{{.MoreURL}}" role="listitem">load older →</a>{{end}}

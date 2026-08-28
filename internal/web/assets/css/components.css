@@ -2966,7 +2966,7 @@ a.c-graph-node__bug:focus-visible {
   color: var(--color-on-surface-muted);
 }
 
-/* ============================================================
+/* =====================================================
    Single-actor page — shared log row and the timeline window
    control. Kept as one trailing block so parallel patches to this
    file merge cleanly.
@@ -3009,3 +3009,22 @@ a.c-graph-node__bug:focus-visible {
 .c-actor-timeline__axis-labels span {
   left: var(--x, 0%);
 }
+/* ===== BEGIN log chip overflow (7QB2y) ===== */
+
+/* Overflow chip ("+6 more") closing a capped filter strip. Not a
+   filter — it does not select anything — so it borrows the chip
+   shape but drops the border: a quiet count that reads as the end of
+   the row rather than one more thing to click. With JS it expands
+   the strip in place; without, it is a link to ?chips=all. */
+.c-filter-chip--more {
+  border-color: transparent;
+  color: var(--color-on-surface-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.c-filter-chip--more:hover {
+  border-color: var(--color-outline);
+  color: var(--color-on-surface-muted);
+}
+
+/* ===== END log chip overflow (7QB2y) ===== */

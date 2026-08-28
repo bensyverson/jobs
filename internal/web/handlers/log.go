@@ -46,6 +46,9 @@ type LogChip struct {
 	Active bool
 	Actor  string // non-empty for actor chips — paints the avatar dot
 	LabelK string // non-empty for label chips — paints the pill tint
+	// Overflow marks a chip past the strip's cap: rendered, but
+	// hidden until the "+N more" chip expands the strip.
+	Overflow bool
 }
 
 // LogEventRow is one already-rendered row in the log view. Building
@@ -107,10 +110,15 @@ type LogPageData struct {
 	Filters     LogFilters
 	Events      []LogEventRow
 	EventTypes  []LogChip
-	Actors      []LogChip
-	Labels      []LogChip
+	Actors      LogChipStrip
+	Labels      LogChipStrip
 	TotalShown  int
 	TotalEvents int
+	// RangeTabs is the 7D / 14D / 30D / All link group in the view
+	// header; EmptyText is the empty state worded for the current
+	// window ("No events in the last 7 days").
+	RangeTabs []RangeTab
+	EmptyText string
 	// EventsURL is the SSE subscription URL — /events plus the same
 	// filter query params as the page itself, so the live tail only
 	// delivers events that match the current filter state.
@@ -153,25 +161,37 @@ func Log(deps Deps) http.Handler {
 			return
 		}
 
-		events, totalEvents, hasMore, err := loadLogEvents(deps.DB, filters)
+		now := time.Now()
+		anchor, err := rangeAnchor(r.Context(), deps.DB, filters.At, now)
+		if err != nil {
+			InternalError(deps, w, "log range anchor", err)
+			return
+		}
+		rg := parseRange(r.URL.Query(), anchor)
+		chips := logChipCtx{
+			f:        filters,
+			rangeKey: rg.Key,
+			chipsAll: r.URL.Query().Get("chips") == chipsAllValue,
+		}
+
+		events, totalEvents, hasMore, err := loadLogEvents(deps.DB, filters, rg)
 		if err != nil {
 			InternalError(deps, w, "log query", err)
 			return
 		}
 
-		actors, err := job.DistinctActors(deps.DB)
+		actors, err := actorsInRange(r.Context(), deps.DB, filters.At, rg)
 		if err != nil {
 			InternalError(deps, w, "actors query", err)
 			return
 		}
-		labelFreqs, err := job.AllTaskLabelFreqs(deps.DB)
+		labels, err := labelsInRange(r.Context(), deps.DB, filters.At, rg)
 		if err != nil {
-			InternalError(deps, w, "label freqs query", err)
+			InternalError(deps, w, "labels query", err)
 			return
 		}
-		labels := topLabelsByFreq(labelFreqs, filters.Label, 10)
 
-		chrome, err := newChrome(r.Context(), deps, "log", time.Now())
+		chrome, err := newChrome(r.Context(), deps, "log", now)
 		if err != nil {
 			InternalError(deps, w, "log initial frame", err)
 			return
@@ -180,45 +200,21 @@ func Log(deps Deps) http.Handler {
 			Chrome:      chrome,
 			Filters:     filters,
 			Events:      events,
-			EventTypes:  buildTypeChips(filters),
-			Actors:      buildActorChips(filters, actors),
-			Labels:      buildLabelChips(filters, labels),
+			EventTypes:  buildTypeChips(chips),
+			Actors:      buildActorChips(chips, actors),
+			Labels:      buildLabelChips(chips, labels),
 			TotalShown:  len(events),
 			TotalEvents: totalEvents,
 			EventsURL:   eventsURL(filters),
 			HasMore:     hasMore,
+			RangeTabs:   buildRangeTabs("/log", r.URL.Query(), rg.Key),
+			EmptyText:   logEmptyText(filters, rg),
 		}
 		if hasMore && len(events) > 0 {
-			data.MoreURL = moreURL(filters, events[len(events)-1].EventID)
+			data.MoreURL = moreURL(chips, events[len(events)-1].EventID)
 		}
 		renderPage(deps, w, "log", data)
 	})
-}
-
-// moreURL returns /log?…&before=<oldestID>, preserving every other
-// filter so paging through to older events keeps the same view.
-func moreURL(f LogFilters, oldestID int64) string {
-	q := url.Values{}
-	if f.Actor != "" {
-		q.Set("actor", f.Actor)
-	}
-	if f.Task != "" {
-		q.Set("task", f.Task)
-	}
-	if f.Label != "" {
-		q.Set("label", f.Label)
-	}
-	if f.Type != "" {
-		q.Set("type", f.Type)
-	}
-	if !f.Since.IsZero() {
-		q.Set("since", f.Since.UTC().Format(time.RFC3339))
-	}
-	if f.Limit > 0 {
-		q.Set("limit", strconv.Itoa(f.Limit))
-	}
-	q.Set("before", strconv.FormatInt(oldestID, 10))
-	return "/log?" + q.Encode()
 }
 
 // ParseLogFilters reads a /log query string into a LogFilters value.
@@ -276,27 +272,39 @@ func parseAtParam(q url.Values) (at int64, invalid bool) {
 }
 
 // loadLogEvents fetches events scoped to the task filter (or globally
-// if unset), then applies actor/type/label/since filters in memory,
-// then sorts newest-first and pages by Before/Limit. v1 accepts the
-// simplicity tax of loading all events from SQL; a real cursor
-// push-down comes when the event table grows beyond "fits in RAM."
+// if unset), then applies the range window and the
+// actor/type/label/since filters in memory, then sorts newest-first
+// and pages by Before/Limit. v1 accepts the simplicity tax of loading
+// all events from SQL; a real cursor push-down comes when the event
+// table grows beyond "fits in RAM."
 // hasMore reports whether there are older events beyond what we
 // returned, so the template can render the "Load older" affordance.
-func loadLogEvents(db *sql.DB, f LogFilters) (rows []LogEventRow, total int, hasMore bool, err error) {
+func loadLogEvents(db *sql.DB, f LogFilters, rg Range) (rows []LogEventRow, total int, hasMore bool, err error) {
 	raw, err := job.GetEventsForTaskTree(db, f.Task)
 	if err != nil {
 		return nil, 0, false, err
 	}
-	// In ?at mode, the total counter is also scoped to the at-window —
-	// "showing N of M events" should reflect the moment we're pinned to,
-	// not the live universe. Done before the per-event filter loop so
-	// the total reflects only the upper-bound clamp, not actor/type/etc.
-	if f.At > 0 {
+	// The window clamp runs first: "showing N of M events" should
+	// reflect the slice of history in view — the ?at upper bound and
+	// the ?range lower bound both — not the live universe. Done before
+	// the per-event filter loop so the total reflects only the window,
+	// not actor/type/etc.
+	//
+	// The lower bound is applied here rather than in SQL because the
+	// task-tree scope is resolved in internal/job; one in-memory pass
+	// over the same rows keeps the whole window in one place. Paging
+	// (Before/Limit, below) then runs inside the window, so "load
+	// older" walks back to the cutoff and stops.
+	if f.At > 0 || rg.Bounded() {
 		clamped := raw[:0]
 		for _, e := range raw {
-			if e.ID <= f.At {
-				clamped = append(clamped, e)
+			if f.At > 0 && e.ID > f.At {
+				continue
 			}
+			if !rg.Includes(e.CreatedAt) {
+				continue
+			}
+			clamped = append(clamped, e)
 		}
 		raw = clamped
 	}
@@ -559,104 +567,6 @@ func taskIDsWithLabel(db *sql.DB, label string) ([]int64, error) {
 	return ids, rows.Err()
 }
 
-func buildTypeChips(f LogFilters) []LogChip {
-	chips := []LogChip{
-		{Label: "all", HRef: logURL(f, "type", ""), Active: f.Type == ""},
-	}
-	for _, t := range knownEventTypes {
-		chips = append(chips, LogChip{
-			Label:  typeChipLabel(t),
-			HRef:   logURL(f, "type", t),
-			Active: f.Type == t,
-		})
-	}
-	return chips
-}
-
-// typeChipLabel renders a friendlier label for the event-type filter
-// chips. Snake-cased event types collapse to their short verb form so
-// the chip strip reads as the same vocabulary as the row verb column
-// (CRITERIA / CRITERION rather than the raw enum). The HRef still
-// carries the canonical type so the URL contract stays stable.
-func typeChipLabel(t string) string {
-	switch t {
-	case "criteria_added":
-		return "criteria"
-	case "criterion_state":
-		return "criterion"
-	case "claim_expired":
-		return "expired"
-	case "found_in_set":
-		return "found in"
-	case "found_in_cleared":
-		return "found-in cleared"
-	case "kind_changed":
-		return "kind"
-	}
-	return t
-}
-
-func buildActorChips(f LogFilters, actors []string) []LogChip {
-	chips := []LogChip{
-		{Label: "any", HRef: logURL(f, "actor", ""), Active: f.Actor == ""},
-	}
-	for _, a := range actors {
-		chips = append(chips, LogChip{
-			Label:  a,
-			HRef:   logURL(f, "actor", a),
-			Active: f.Actor == a,
-			Actor:  a,
-		})
-	}
-	return chips
-}
-
-// topLabelsByFreq returns the top-n labels by frequency (desc, name
-// asc tiebreak), with the active label always included even if it
-// would otherwise fall below the cap so the active selection is
-// never orphaned. Names only — caller decides chip presentation.
-func topLabelsByFreq(freqs map[string]int, active string, n int) []string {
-	type entry struct {
-		name  string
-		count int
-	}
-	all := make([]entry, 0, len(freqs))
-	for name, c := range freqs {
-		all = append(all, entry{name, c})
-	}
-	sort.Slice(all, func(i, j int) bool {
-		if all[i].count != all[j].count {
-			return all[i].count > all[j].count
-		}
-		return all[i].name < all[j].name
-	})
-	out := make([]string, 0, n+1)
-	inOut := make(map[string]bool)
-	for i := 0; i < len(all) && len(out) < n; i++ {
-		out = append(out, all[i].name)
-		inOut[all[i].name] = true
-	}
-	if active != "" && !inOut[active] {
-		out = append(out, active)
-	}
-	return out
-}
-
-func buildLabelChips(f LogFilters, labels []string) []LogChip {
-	chips := []LogChip{
-		{Label: "any", HRef: logURL(f, "label", ""), Active: f.Label == ""},
-	}
-	for _, l := range labels {
-		chips = append(chips, LogChip{
-			Label:  l,
-			HRef:   logURL(f, "label", l),
-			Active: f.Label == l,
-			LabelK: l,
-		})
-	}
-	return chips
-}
-
 // eventsURL builds /events?… reflecting the same filter state as the
 // page, so the SSE live-tail only emits events that match.
 func eventsURL(f LogFilters) string {
@@ -680,32 +590,4 @@ func eventsURL(f LogFilters) string {
 		return "/events"
 	}
 	return "/events?" + q.Encode()
-}
-
-// logURL rebuilds /log?… with one key set (or cleared if value=="")
-// while preserving the rest of the filter state. Lets chips toggle
-// their own axis without forgetting the others.
-func logURL(f LogFilters, setKey, setValue string) string {
-	q := url.Values{}
-	set := func(k, v string) {
-		if v != "" {
-			q.Set(k, v)
-		}
-	}
-	set("actor", f.Actor)
-	set("task", f.Task)
-	set("label", f.Label)
-	set("type", f.Type)
-	if !f.Since.IsZero() {
-		q.Set("since", f.Since.UTC().Format(time.RFC3339))
-	}
-	if setValue == "" {
-		q.Del(setKey)
-	} else {
-		q.Set(setKey, setValue)
-	}
-	if len(q) == 0 {
-		return "/log"
-	}
-	return "/log?" + q.Encode()
 }

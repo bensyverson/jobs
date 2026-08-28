@@ -101,11 +101,20 @@ func TestLog_TypeFilter_HidesOtherTypes(t *testing.T) {
 	}
 }
 
+// TestLog_EmptyDatabase_RendersPlaceholder also pins the wording,
+// which the range selector made conditional: with the default 7-day
+// window in force, "nothing matches your filters" would be a claim
+// the page cannot make when no filter is set. ?range=all is where the
+// absolute wording is honest, and a filter puts the blame back on the
+// filters.
 func TestLog_EmptyDatabase_RendersPlaceholder(t *testing.T) {
 	db := setupLogTestDB(t)
 	deps := newLogDeps(t, db)
-	body := fetchLog(t, deps, "")
-	mustContain(t, body, `No events match`)
+
+	mustContain(t, fetchLog(t, deps, ""), `No events in the last 7 days.`)
+	mustContain(t, fetchLog(t, deps, "range=30d"), `No events in the last 30 days.`)
+	mustContain(t, fetchLog(t, deps, "range=all"), `No events recorded in this store yet.`)
+	mustContain(t, fetchLog(t, deps, "actor=nobody"), `No events match the current filters.`)
 }
 
 func TestLog_LiveRegionSrc_ReflectsFilters(t *testing.T) {
@@ -133,53 +142,38 @@ func TestLog_ChipsPreserveOtherFilters(t *testing.T) {
 	mustContain(t, body, `/log?actor=alice&amp;type=claimed`)
 }
 
-func TestLog_LabelStripCapsToTopTenByOpenTaskFrequency(t *testing.T) {
+// The label strip used to keep the ten most-used labels by task
+// frequency. It is now the 24 most recently active labels inside the
+// window (7QB2y): the Log is a historical stream, so "what has moved
+// lately" is the question the strip answers, and frequency ordering
+// buried a label that had just seen a burst of events. The cap and
+// the always-show-the-selection rule live in log_chips_test.go; what
+// remains here is the ordering claim the old test made.
+func TestLog_LabelStripIsOrderedByMostRecentActivity(t *testing.T) {
 	db := setupLogTestDB(t)
-	// 12 labels with descending counts: a×12 down to l×1. Strip should
-	// keep top 10 (a–j) and drop k, l. The "any" chip is always present.
-	for i, name := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"} {
-		count := 12 - i
-		for n := range count {
-			if _, err := job.RunAdd(db, "", name+"-"+strconv.Itoa(n), "", "", []string{name}, "alice"); err != nil {
-				t.Fatalf("RunAdd: %v", err)
-			}
-		}
+	// "bulk" is on far more tasks; "recent" moved last. Recency wins.
+	for n := range 5 {
+		mustAdd(t, db, "alice", "bulk-"+strconv.Itoa(n), nil, []string{"bulk"})
 	}
+	id := mustAdd(t, db, "alice", "recent-task", nil, []string{"recent"})
+	mustClaim(t, db, id, "alice")
 
-	deps := newLogDeps(t, db)
-	body := fetchLog(t, deps, "")
-
-	bar := extractFilterBar(t, body)
-	for _, want := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"} {
-		if !strings.Contains(bar, `data-label="`+want+`"`) && !strings.Contains(bar, `>`+want+`<`) {
-			t.Errorf("strip should include top-10 label %q", want)
-		}
+	bar := extractFilterBar(t, fetchLog(t, deps(t, db), ""))
+	recent := strings.Index(bar, `data-label="recent"`)
+	bulk := strings.Index(bar, `data-label="bulk"`)
+	if recent < 0 || bulk < 0 {
+		t.Fatalf("both labels should have chips, got recent=%d bulk=%d\n---\n%s", recent, bulk, bar)
 	}
-	for _, drop := range []string{"k", "l"} {
-		if strings.Contains(bar, `data-label="`+drop+`"`) {
-			t.Errorf("strip should not include below-cap label %q", drop)
-		}
+	if recent > bulk {
+		t.Errorf("the label with the most recent event should come first, got recent=%d bulk=%d", recent, bulk)
 	}
 }
 
-func TestLog_LabelStripIncludesActiveLabelEvenIfBelowCap(t *testing.T) {
-	db := setupLogTestDB(t)
-	for i, name := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"} {
-		count := 12 - i
-		for n := range count {
-			if _, err := job.RunAdd(db, "", name+"-"+strconv.Itoa(n), "", "", []string{name}, "alice"); err != nil {
-				t.Fatalf("RunAdd: %v", err)
-			}
-		}
-	}
-
-	deps := newLogDeps(t, db)
-	body := fetchLog(t, deps, "label=k") // k is the 11th label, normally cut
-
-	bar := extractFilterBar(t, body)
-	if !strings.Contains(bar, `data-label="k"`) {
-		t.Errorf("strip should include the active label %q even when below the cap", "k")
-	}
+// deps is a shorthand for newLogDeps in the tests above that only
+// need it inline.
+func deps(t *testing.T, db *sql.DB) handlers.Deps {
+	t.Helper()
+	return newLogDeps(t, db)
 }
 
 func TestLog_PaginationCapsInitialRender(t *testing.T) {

@@ -19,7 +19,7 @@ The dashboard is for the human watching agents work. The CLI remains the surface
 | Plan       | `/plan`      | The task tree, scoped (`/plan/{id}`) or filtered by label (`?label=<name>`; `/labels/{name}` redirects there). Issue trees are not here. |
 | Issues     | `/issues`    | The same tree view over your [issue trees](../concepts/tree-kinds/), scoped at `/issues/{root-id}`. |
 | Actors     | `/actors`    | Column-per-actor board — one stack of cards per identity, freshest at the bottom, bounded by a range selector. Click through to `/actors/{name}` for a single actor's stream. |
-| Log        | `/log`       | Linear stream of every event in the database, filterable by actor, label, type.               |
+| Log        | `/log`       | Linear stream of events, bounded by the same range selector and filterable by actor, label, type. |
 
 Plan and Issues are one view split by tree kind: a plan and a bug pile are different shapes, so they get different tabs. The Issues tab carries the number of open issues after its label — nothing when that number is zero — and the page itself opens with `N open · M closed in 7d` beside the Active/Archived/All tabs.
 
@@ -31,14 +31,23 @@ Two auxiliary pages — `/tasks/{id}` (single task with peek view at `/tasks/{id
 
 ### The range selector
 
-The Actors board opens on the **last 7 days**. A `7D · 14D · 30D · All` control sits at the top of the view; picking one sets `?range=7d|14d|30d|all` and the page reloads — they are ordinary links, so the control works with JavaScript off and each range is a bookmarkable URL. An unrecognized value falls back to `7d` rather than erroring, and `7D` itself is the bare `/actors`.
+The Actors board and the Log both open on the **last 7 days**. A `7D · 14D · 30D · All` control sits at the top of the view; picking one sets `?range=7d|14d|30d|all` and the page reloads — they are ordinary links, so the control works with JavaScript off and each range is a bookmarkable URL. An unrecognized value falls back to `7d` rather than erroring, and `7D` itself is the bare `/actors` or `/log`.
 
-The range decides two things at once: an actor only gets a column when they have an event inside the window, and a column only carries the cards its in-window events produced. On a long-lived store that is the difference between a readable board and several hundred columns of agents who last ran in March. Widen to `All` when you want the whole history back.
+On **Actors** the range decides two things at once: an actor only gets a column when they have an event inside the window, and a column only carries the cards its in-window events produced. On a long-lived store that is the difference between a readable board and several hundred columns of agents who last ran in March.
+
+On the **Log** it bounds the event list — "load older" pages back to the cutoff and stops — and it bounds the filter strips with it. The Actor and Label strips list only the actors and labels with an event inside the window, **most recently active first**, so the filters on offer are the ones this window can actually produce rows for. Widen to `All` when you want the whole history back.
 
 Two details worth knowing:
 
-- **A new actor still appears live.** An event from someone with no column adds one, whatever the range — the event just arrived, so it is inside every window.
+- **A new actor still appears live.** An event from someone with no column or no chip adds one, whatever the range — the event just arrived, so it is inside every window.
 - **The scrubber moves the window with it.** Parked in history (`?at=`), the range is measured back from the moment you are parked at, not from now — so a 7-day view scrubbed to last month shows the week before *then*.
+
+### Capped chip strips
+
+Each Log filter strip shows at most **24** chips and closes with a `+N more` chip. That chip is a link to the same page with `?chips=all`, which renders every chip in the window; with JavaScript it expands the strip in place instead, without a reload. Two rules keep the strip honest:
+
+- The leading `any` chip is always first — clearing a filter is never behind the expander.
+- **A filter you have selected always has a chip**, even when it falls outside the cap or outside the range. A filter in force with no chip is one you can neither see nor clear.
 
 ## Live updates
 

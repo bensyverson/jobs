@@ -8,7 +8,8 @@
   JS port of the rollup; we just need to refetch when the cursor moves
   and swap the three regions the cursor affects:
 
-    main section.c-filter-bar  (chip hrefs carry ?at)
+    main .c-view-header        (range tab hrefs carry ?at)
+    main section.c-filter-bar  (the strips are scoped to the cursor)
     main .c-log-live           (TotalEvents counter)
     main .c-log                (the event list itself)
 
@@ -24,6 +25,7 @@
 import { composeURLWithoutAt } from "./scrubber-cursor.mjs";
 
 const SWAP_SELECTORS = [
+  "main .c-view-header",
   "main section.c-filter-bar",
   "main .c-log-live",
   "main .c-log",

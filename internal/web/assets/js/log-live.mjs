@@ -5,6 +5,10 @@
   match the page's filter state (see LogPageData.EventsURL), so this
   module doesn't need to re-check filters — it just renders.
 
+  The chip strips are static SSR — nothing re-fetches them between
+  navigations — so an event from an actor with no chip has to grow the
+  strip here; log-chips.mjs owns that.
+
   The row markup itself comes from log-row.mjs, the shared mirror of
   the server's "log-row" template block, so a live row is identical to
   the row the next page load renders for the same event. The only
@@ -20,6 +24,7 @@
 */
 
 import { renderLogRow } from "./log-row.mjs";
+import { ensureActorChip } from "./log-chips.mjs";
 
 // MAX_ROWS caps the live strip; 500 matches the server-side JSON
 // backfill limit, so a long-running tab can't grow without bound.
@@ -60,6 +65,14 @@ function init() {
 
     if (window.JobsColors && typeof window.JobsColors.paint === "function") {
       window.JobsColors.paint(row);
+    }
+
+    // The actor may be outside the rendered window (a first event
+    // from a new agent, or one whose last run predates the range) —
+    // the event just arrived, so it belongs in every window.
+    const chip = ensureActorChip(document, data.actor, window.location.search);
+    if (chip && window.JobsColors && typeof window.JobsColors.paint === "function") {
+      window.JobsColors.paint(chip);
     }
 
     // Trim the live strip once it has grown past the cap, keeping the
