@@ -372,3 +372,75 @@ var (
 	recordEventRe  = regexp.MustCompile(`\brecordEvent\([^,()]+,[^,()]+,\s*("[a-z_]+"|[A-Za-z][A-Za-z0-9]*)\s*,`)
 	recordOrphanRe = regexp.MustCompile(`\brecordOrphanEvent\([^,()]+,\s*("[a-z_]+"|[A-Za-z][A-Za-z0-9]*)\s*,`)
 )
+
+// TestLogRowParity_ActorPageMatchesClient extends the parity check to
+// /actors/{name}. Rendering through the actor_single page — not the
+// log page — proves the block really is shared: if it were still
+// page-local to log.html.tmpl, this would not resolve. The rows are
+// expected to be identical to the Log's, because the actor page varies
+// only its *list*, never the row. The fixture set is the Log's, so a
+// found_in_set row is covered here too.
+func TestLogRowParity_ActorPageMatchesClient(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not on PATH; skipping cross-language log-row parity")
+	}
+
+	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	engine := parityEngine(t)
+
+	type clientEvent struct {
+		ID        int64  `json:"id"`
+		TaskID    string `json:"task_id"`
+		TaskTitle string `json:"task_title"`
+		EventType string `json:"event_type"`
+		Actor     string `json:"actor"`
+		Detail    string `json:"detail"`
+		CreatedAt string `json:"created_at"`
+	}
+
+	events := make([]clientEvent, 0, len(parityFixtures))
+	serverRows := make([]string, 0, len(parityFixtures))
+	for i, f := range parityFixtures {
+		e := job.EventEntry{
+			ID:        int64(i + 1),
+			TaskID:    7,
+			ShortID:   "AbC12",
+			EventType: f.eventType,
+			Actor:     f.actor,
+			Detail:    f.detail,
+			CreatedAt: now.Add(-2 * time.Minute).Unix(),
+		}
+		row := buildLogEventRow(e, parityTitle, now)
+		var sb strings.Builder
+		if err := engine.RenderFragment(&sb, "actor_single", "log-row", row); err != nil {
+			t.Fatalf("render log-row fragment through actor_single for %s: %v", f.eventType, err)
+		}
+		serverRows = append(serverRows, normalizeRowHTML(sb.String()))
+		events = append(events, clientEvent{
+			ID:        e.ID,
+			TaskID:    e.ShortID,
+			TaskTitle: parityTitle,
+			EventType: e.EventType,
+			Actor:     e.Actor,
+			Detail:    e.Detail,
+			CreatedAt: time.Unix(e.CreatedAt, 0).UTC().Format(time.RFC3339),
+		})
+	}
+
+	clientRows := renderRowsWithNode(t, node, events, now)
+	if len(clientRows) != len(serverRows) {
+		t.Fatalf("node returned %d rows, want %d", len(clientRows), len(serverRows))
+	}
+	for i, f := range parityFixtures {
+		want := serverRows[i]
+		got := normalizeRowHTML(clientRows[i])
+		if strings.Contains(want, "single-actor") {
+			t.Fatalf("%s: the actor page must not vary the row itself: %s", f.eventType, want)
+		}
+		if got != want {
+			t.Errorf("%s (%s): live actor-page row does not match SSR row\n server: %s\n client: %s",
+				f.eventType, f.detail, want, got)
+		}
+	}
+}

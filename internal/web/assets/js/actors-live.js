@@ -1,26 +1,17 @@
 /*
-  Actors view live updates. Two pages share this module:
+  Actors board live updates (/actors, data-actors-board). One column
+  per actor; one card per (actor, task) pair. The latest
+  state-changing event sets the card's verb tint; `noted` events fold
+  into a "N notes" badge.
 
-    - /actors          board view (data-actors-board). One column per
-                       actor; one card per (actor, task) pair. The
-                       latest state-changing event sets the card's
-                       verb tint; `noted` events fold into a "N notes"
-                       badge.
+  Self-guarded: without the board marker the module is a no-op, so it
+  can be loaded from the shared layout without per-page wiring.
 
-    - /actors/<name>   single-actor view (data-actor-events="<name>").
-                       The event list at the bottom prepends new
-                       rows; the live-region src is already scoped to
-                       this actor by the SSR template.
+  The single-actor page (/actors/<name>) is NOT here — it lives in
+  actor-single-live.mjs, which renders its event rows through the
+  shared log-row.mjs rather than a second private renderer.
 
-  Self-guarded: if neither marker is on the page, the module is a
-  no-op so it can be loaded from the shared layout without per-page
-  wiring.
-
-  What this module does NOT own:
-
-    - Hero stat tiles, the timeline strip — both stay SSR-frozen for
-      now. A page reload (or a follow-up phase) refreshes those.
-    - DOM updates outside its two markers.
+  What this module does NOT own: any DOM outside the board marker.
 */
 
 (function () {
@@ -40,18 +31,14 @@
     if (!live) return;
 
     const board = document.querySelector("[data-actors-board]");
-    const eventList = document.querySelector("[data-actor-events]");
-    if (!board && !eventList) return;
+    if (!board) return;
 
     live.addEventListener("event", (ev) => {
       const data = ev.detail;
       if (!data || data.id == null) return;
-      if (board) applyBoardEvent(board, data);
-      if (eventList) applyEventListFrame(eventList, data);
+      applyBoardEvent(board, data);
     });
   }
-
-  // --- Board (-/actors) -----------------------------------------------
 
   function applyBoardEvent(board, e) {
     if (!e.actor) return;
@@ -244,109 +231,7 @@
     return claims.length ? claims[claims.length - 1] : null;
   }
 
-  // --- Single-actor event list (/actors/<name>) -----------------------
-
-  function applyEventListFrame(list, e) {
-    if (e.id == null) return;
-    const idStr = String(e.id);
-    if (list.querySelector('[data-event-id="' + cssEscape(idStr) + '"]')) return;
-
-    const empty = list.querySelector(".c-log-row--empty");
-    if (empty && empty.parentElement) empty.remove();
-
-    const row = renderLogRow(e);
-    if (!row) return;
-    list.prepend(row);
-    paintIfAvailable(row);
-  }
-
-  function renderLogRow(e) {
-    const row = document.createElement("div");
-    const isSystem = e.event_type === "claim_expired";
-    const verbText = isSystem ? "expired" : (e.event_type || "");
-    const actorName = isSystem ? "Jobs" : (e.actor || "");
-
-    row.className = "c-log-row c-log-row--" + safeClass(e.event_type) + " c-log-row--new";
-    row.setAttribute("role", "listitem");
-    if (e.id != null) row.setAttribute("data-event-id", String(e.id));
-
-    const time = document.createElement("time");
-    time.className = "c-log-row__time";
-    time.dateTime = e.created_at || "";
-    time.textContent = "just now";
-    row.appendChild(time);
-
-    if (isSystem) {
-      const wrap = document.createElement("span");
-      wrap.className = "c-log-row__actor c-log-row__actor--system";
-      const inner = document.createElement("span");
-      inner.textContent = actorName;
-      wrap.appendChild(inner);
-      row.appendChild(wrap);
-    } else {
-      const actorLink = document.createElement("a");
-      actorLink.className = "c-log-row__actor";
-      actorLink.href = "/actors/" + encodeURIComponent(actorName);
-      actorLink.setAttribute("data-actor", actorName);
-      const avatar = document.createElement("span");
-      avatar.className = "c-avatar c-avatar-sm";
-      avatar.setAttribute("data-actor", actorName);
-      actorLink.appendChild(avatar);
-      const nm = document.createElement("span");
-      nm.textContent = actorName;
-      actorLink.appendChild(nm);
-      row.appendChild(actorLink);
-    }
-
-    const verb = document.createElement("span");
-    verb.className = "c-log-row__verb c-log-row__verb--" + safeClass(e.event_type);
-    verb.textContent = verbText;
-    row.appendChild(verb);
-
-    const id = document.createElement("span");
-    id.className = "c-id-pill";
-    id.textContent = e.task_id || "";
-    row.appendChild(id);
-
-    const detail = document.createElement("span");
-    detail.className = "c-log-row__detail";
-    if (e.task_title) {
-      const title = document.createElement("span");
-      title.className = "c-log-row__title";
-      title.textContent = e.task_title;
-      detail.appendChild(title);
-    }
-    const note = extractNote(e);
-    if (note) {
-      const noteEl = document.createElement("span");
-      noteEl.className = "c-log-row__note";
-      noteEl.textContent = note;
-      detail.appendChild(noteEl);
-    }
-    row.appendChild(detail);
-
-    const link = document.createElement("a");
-    link.className = "c-row-link";
-    link.href = "/tasks/" + encodeURIComponent(e.task_id || "");
-    link.setAttribute("aria-label", "Open task " + (e.task_id || ""));
-    row.appendChild(link);
-    return row;
-  }
-
-  function extractNote(e) {
-    if (!e.detail) return "";
-    let parsed;
-    try { parsed = JSON.parse(e.detail); } catch (_) { return ""; }
-    if (!parsed || typeof parsed !== "object") return "";
-    const key = (e.event_type === "noted") ? "text" : (e.event_type === "done" || e.event_type === "canceled") ? "note" : null;
-    if (!key) return "";
-    const v = parsed[key];
-    if (typeof v !== "string") return "";
-    const trimmed = v.trim();
-    return trimmed.length > 160 ? trimmed.slice(0, 160) + "…" : trimmed;
-  }
-
-  // --- shared helpers -------------------------------------------------
+  // --- helpers --------------------------------------------------------
 
   function paintIfAvailable(node) {
     if (window.JobsColors && typeof window.JobsColors.paint === "function") {

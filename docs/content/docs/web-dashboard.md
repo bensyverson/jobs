@@ -23,6 +23,8 @@ The dashboard is for the human watching agents work. The CLI remains the surface
 
 Plan and Issues are one view split by tree kind: a plan and a bug pile are different shapes, so they get different tabs. The Issues tab carries the number of open issues after its label — nothing when that number is zero — and the page itself opens with `N open · M closed in 7d` beside the Active/Archived/All tabs.
 
+`/actors/{name}` opens one agent on its own: hero counters, an activity timeline, and that agent's events as the very same rows the Log renders — minus the actor column, which a page already scoped to one actor has no use for. The timeline covers the last 24 hours by default and the `24H · 7D · 30D` control in its header widens it (`?window=7d`, `?window=30d`), while the hero's `Done 24h` tile stays on the day whatever the timeline shows.
+
 Number keys jump between the tabs in header order (`1` Home, `2` Plan, `3` Issues, `4` Actors, `5` Log); `` ` `` cycles forward through them and `~` cycles back.
 
 Two auxiliary pages — `/tasks/{id}` (single task with peek view at `/tasks/{id}/peek`) and `/search` — round out the click paths but aren't usually entry points. The task page also carries the [found-in](../concepts/found-in/) reference in both directions: `Found in` links the task that surfaced this one, and `Surfaced` lists the issues this task produced; the peek sheet shows `Found in` only.

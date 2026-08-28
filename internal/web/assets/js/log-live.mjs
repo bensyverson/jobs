@@ -11,9 +11,12 @@
   difference this module adds is the c-log-row--new class that plays
   the arrival animation.
 
-  Self-guarded: if the page has no .c-log, the module is a no-op.
-  That way we can load it from the shared layout without per-page
-  wiring.
+  Self-guarded: if the page has no unclaimed .c-log, the module is a
+  no-op. That way we can load it from the shared layout without
+  per-page wiring. The single-actor page's Events section is also a
+  .c-log, but actor-single-live.mjs owns it — it renders the same
+  shared row plus a timeline mark — so this module skips any list that
+  is marked as another view's.
 */
 
 import { renderLogRow } from "./log-row.mjs";
@@ -23,7 +26,7 @@ import { renderLogRow } from "./log-row.mjs";
 const MAX_ROWS = 500;
 
 function init() {
-  const list = document.querySelector(".c-log");
+  const list = document.querySelector(".c-log:not([data-actor-events])");
   if (!list) return;
 
   const live = document.querySelector("live-region");

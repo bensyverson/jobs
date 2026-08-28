@@ -212,6 +212,16 @@ test("renderLogRow: an event at the current instant reads 'just now'", () => {
   assert.match(html, />just now</);
 });
 
+test("renderLogRow: the row never varies by surface", () => {
+  // /actors/{name} hides the redundant actor cell from its list's own
+  // modifier, so the row emitted there is the row emitted on /log —
+  // cell included, and with no per-page class of any kind.
+  const html = renderLogRow(event());
+  assert.match(html, /^<div class="c-log-row c-log-row--created" role="listitem"/);
+  assert.match(html, /c-log-row__actor/);
+  assert.doesNotMatch(html, /single-actor/);
+});
+
 function event(over = {}) {
   return {
     id: 42,

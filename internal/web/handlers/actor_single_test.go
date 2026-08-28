@@ -1,12 +1,14 @@
 package handlers_test
 
 import (
+	"database/sql"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	job "github.com/bensyverson/jobs/internal/job"
 	"github.com/bensyverson/jobs/internal/web/handlers"
 )
 
@@ -423,4 +425,233 @@ func assertStatTileValue(t *testing.T, body, label, want string) {
 	if got != want {
 		t.Errorf("%s tile value: got %q, want %q", label, got, want)
 	}
+}
+
+// --- Shared log row (task yOO7t) ---
+
+// fetchActorSingleQuery drives the handler with a query string, which
+// the window control (task 02FhN) reads.
+func fetchActorSingleQuery(t *testing.T, deps handlers.Deps, name, query string) string {
+	t.Helper()
+	req := httptest.NewRequest("GET", "/actors/"+name+"?"+query, nil)
+	req.SetPathValue("name", name)
+	w := httptest.NewRecorder()
+	handlers.ActorSingle(deps).ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("GET /actors/%s?%s: status %d, body=%s", name, query, w.Code, w.Body.String())
+	}
+	return w.Body.String()
+}
+
+// seedFoundIn records a found_in_set event by actor: two tasks, the
+// second surfaced by the first.
+func seedFoundIn(t *testing.T, db *sql.DB, actor string) (task, source string) {
+	t.Helper()
+	source = mustAdd(t, db, actor, "the source task", nil, nil)
+	task = mustAdd(t, db, actor, "the surfaced task", nil, nil)
+	if err := job.RunSetFoundIn(db, task, source, actor); err != nil {
+		t.Fatalf("RunSetFoundIn: %v", err)
+	}
+	return task, source
+}
+
+// rowWithMeta returns the single c-log-row in body whose metadata cell
+// carries data-event-meta="<eventType>", trimmed to the row's own
+// markup. splitLogRows slices up to the *next* row, so the tail would
+// otherwise carry whatever the surrounding page puts after the list.
+// The row nests no <div>, so its first closing tag is its own.
+func rowWithMeta(t *testing.T, body, eventType string) string {
+	t.Helper()
+	needle := `data-event-meta="` + eventType + `"`
+	var found []string
+	for _, row := range splitLogRows(stripInitialFrame(body)) {
+		if !strings.Contains(row, needle) {
+			continue
+		}
+		if end := strings.Index(row, "</div>"); end >= 0 {
+			row = row[:end+len("</div>")]
+		}
+		found = append(found, strings.TrimSpace(row))
+	}
+	if len(found) != 1 {
+		t.Fatalf("want exactly one row with %s, got %d\n---\n%s", needle, len(found), body)
+	}
+	return found[0]
+}
+
+// TestActorSingle_FoundInSetRowMatchesLogRow is criterion 5VL: the
+// actor page's Events section is the Log filtered to one actor, so the
+// same event must produce byte-identical markup. Nothing is normalised
+// away here — the redundant actor cell is hidden by the *list's*
+// modifier, so the row itself carries no trace of which page it is on.
+func TestActorSingle_FoundInSetRowMatchesLogRow(t *testing.T) {
+	db := setupLogTestDB(t)
+	seedFoundIn(t, db, "alice")
+	deps := newLogDeps(t, db)
+
+	logRow := rowWithMeta(t, fetchLog(t, deps, "actor=alice"), "found_in_set")
+	actorRow := rowWithMeta(t, mustFetchActorSingle(t, deps, "alice"), "found_in_set")
+
+	if actorRow != logRow {
+		t.Errorf("actor-page row differs from log row\n  log:   %s\n  actor: %s", logRow, actorRow)
+	}
+}
+
+// The hiding hangs off the list, so the list is what has to be marked —
+// and the rows inside it must stay clean.
+func TestActorSingle_EventListCarriesSingleActorModifier(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "alice", "a task", nil, nil)
+	deps := newLogDeps(t, db)
+
+	body := mustFetchActorSingle(t, deps, "alice")
+	mustContain(t, body, `class="c-log c-log--single-actor"`)
+	if strings.Contains(body, "c-log-row--single-actor") {
+		t.Errorf("the modifier belongs on the list, not on a row:\n%s", body)
+	}
+}
+
+// The Log's folded verbs and metadata cell must reach the actor page,
+// which before task yOO7t had its own thinner mapping.
+func TestActorSingle_FoundInSetRendersFoldedVerbAndMetadata(t *testing.T) {
+	db := setupLogTestDB(t)
+	_, source := seedFoundIn(t, db, "alice")
+	deps := newLogDeps(t, db)
+
+	row := rowWithMeta(t, mustFetchActorSingle(t, deps, "alice"), "found_in_set")
+	mustContain(t, row, `>found in<`)
+	mustContain(t, row, `<a class="c-id-pill" href="/tasks/`+source+`">`+source+`</a>`)
+}
+
+// --- Timeline window control (task 02FhN) ---
+
+func TestActorSingle_TimelineWindowControlRendersThreeOptions(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "alice", "a task", nil, nil)
+	deps := newLogDeps(t, db)
+
+	body := mustFetchActorSingle(t, deps, "alice")
+	for _, label := range []string{">24H<", ">7D<", ">30D<"} {
+		mustContain(t, body, label)
+	}
+	mustContain(t, body, `href="/actors/alice?window=7d"`)
+	mustContain(t, body, `href="/actors/alice?window=30d"`)
+}
+
+func TestActorSingle_TimelineWindowDefaultsTo24h(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "alice", "a task", nil, nil)
+	deps := newLogDeps(t, db)
+
+	body := mustFetchActorSingle(t, deps, "alice")
+	mustContain(t, body, `Timeline · 24 hours`)
+	mustContain(t, body, `href="/actors/alice?window=24h" class="c-tab c-tab--active" aria-current="page"`)
+}
+
+func TestActorSingle_TimelineWindow7dSelected(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "alice", "a task", nil, nil)
+	deps := newLogDeps(t, db)
+
+	body := fetchActorSingleQuery(t, deps, "alice", "window=7d")
+	mustContain(t, body, `Timeline · 7 days`)
+	mustContain(t, body, `href="/actors/alice?window=7d" class="c-tab c-tab--active" aria-current="page"`)
+}
+
+func TestActorSingle_TimelineWindow30dSelected(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "alice", "a task", nil, nil)
+	deps := newLogDeps(t, db)
+
+	body := fetchActorSingleQuery(t, deps, "alice", "window=30d")
+	mustContain(t, body, `Timeline · 30 days`)
+	mustContain(t, body, `href="/actors/alice?window=30d" class="c-tab c-tab--active" aria-current="page"`)
+}
+
+func TestActorSingle_InvalidWindowFallsBackTo24h(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "alice", "a task", nil, nil)
+	deps := newLogDeps(t, db)
+
+	body := fetchActorSingleQuery(t, deps, "alice", "window=nonsense")
+	mustContain(t, body, `Timeline · 24 hours`)
+	mustContain(t, body, `href="/actors/alice?window=24h" class="c-tab c-tab--active" aria-current="page"`)
+}
+
+// An event three days old is outside the 24h window and inside 7d, so
+// the lanes and the event count must both follow the selected window.
+func TestActorSingle_TimelineMarksScaleToWindow(t *testing.T) {
+	db := setupLogTestDB(t)
+	now := time.Now()
+	taskID := homeSeedTask(t, db, "w1", "old work", "done", now.Add(-72*time.Hour))
+	homeSeedEventActor(t, db, taskID, "done", "alice", now.Add(-72*time.Hour))
+	deps := newLogDeps(t, db)
+
+	day := mustFetchActorSingle(t, deps, "alice")
+	if strings.Contains(day, `c-actor-timeline__mark--done`) {
+		t.Errorf("72h-old event should not mark the 24h timeline\n%s", day)
+	}
+	mustContain(t, day, `>0 events<`)
+
+	week := fetchActorSingleQuery(t, deps, "alice", "window=7d")
+	mustContain(t, week, `c-actor-timeline__mark--done`)
+	mustContain(t, week, `>1 events<`)
+	// 3 of 7 days ago sits at 4/7 of the axis.
+	mustContain(t, week, `--x:57.1%`)
+}
+
+func TestActorSingle_AxisLabelsScaleToWindow(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "alice", "a task", nil, nil)
+	deps := newLogDeps(t, db)
+
+	mustContain(t, mustFetchActorSingle(t, deps, "alice"), `>18h<`)
+	mustContain(t, fetchActorSingleQuery(t, deps, "alice", "window=7d"), `>5d<`)
+	mustContain(t, fetchActorSingleQuery(t, deps, "alice", "window=30d"), `>20d<`)
+}
+
+func TestActorSingle_EmptyTimelineMessageNamesWindow(t *testing.T) {
+	db := setupLogTestDB(t)
+	now := time.Now()
+	taskID := homeSeedTask(t, db, "w2", "ancient", "done", now.Add(-90*24*time.Hour))
+	homeSeedEventActor(t, db, taskID, "done", "alice", now.Add(-90*24*time.Hour))
+	deps := newLogDeps(t, db)
+
+	mustContain(t, mustFetchActorSingle(t, deps, "alice"), `No activity in the last 24 hours.`)
+	mustContain(t, fetchActorSingleQuery(t, deps, "alice", "window=30d"), `No activity in the last 30 days.`)
+}
+
+// The hero's Done 24h tile answers "today", not "the selected window" —
+// widening the timeline must not move it.
+func TestActorSingle_Done24hIgnoresWindow(t *testing.T) {
+	db := setupLogTestDB(t)
+	now := time.Now()
+	recent := homeSeedTask(t, db, "r1", "recent", "done", now.Add(-2*time.Hour))
+	homeSeedEventActor(t, db, recent, "done", "alice", now.Add(-2*time.Hour))
+	old := homeSeedTask(t, db, "r2", "older", "done", now.Add(-72*time.Hour))
+	homeSeedEventActor(t, db, old, "done", "alice", now.Add(-72*time.Hour))
+	deps := newLogDeps(t, db)
+
+	for _, q := range []string{"", "window=7d", "window=30d"} {
+		body := fetchActorSingleQuery(t, deps, "alice", q)
+		idx := strings.Index(body, "Done 24h")
+		if idx < 0 {
+			t.Fatalf("no Done 24h tile (%q)", q)
+		}
+		tile := body[max(0, idx-160):idx]
+		if !strings.Contains(tile, `<span class="c-actor-stat__value">1</span>`) {
+			t.Errorf("Done 24h should stay 1 with %q, got tile %s", q, tile)
+		}
+	}
+}
+
+// The live module reads the window off the DOM so a new mark lands at
+// the right percent without a reload.
+func TestActorSingle_TimelineCarriesWindowSecondsForLiveMarks(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "alice", "a task", nil, nil)
+	deps := newLogDeps(t, db)
+
+	mustContain(t, mustFetchActorSingle(t, deps, "alice"), `data-timeline-window-secs="86400"`)
+	mustContain(t, fetchActorSingleQuery(t, deps, "alice", "window=7d"), `data-timeline-window-secs="604800"`)
 }

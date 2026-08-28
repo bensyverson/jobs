@@ -2965,3 +2965,47 @@ a.c-graph-node__bug:focus-visible {
 .c-tab:hover .c-tab__count {
   color: var(--color-on-surface-muted);
 }
+
+/* ============================================================
+   Single-actor page — shared log row and the timeline window
+   control. Kept as one trailing block so parallel patches to this
+   file merge cleanly.
+   ============================================================ */
+
+/* The Events section on /actors/{name} is the Log filtered to one
+   actor, so its rows are byte-identical to their /log twins — and the
+   actor cell says nothing the page heading hasn't already said. The
+   *list* carries the modifier and hides the cell; the row never learns
+   which page it is on. Hidden rather than dropped, so the row keeps
+   its grid columns. */
+.c-log--single-actor .c-log-row__actor {
+  display: none;
+}
+
+/* Timeline header: heading on the left, window control and event
+   count together on the right. The control is the same segmented
+   control the Plan view's archive tabs use — one component, one
+   muscle memory. */
+.c-actor-timeline__header {
+  gap: var(--space-md);
+  /* Three items in one row: at narrow widths the control drops below
+     the heading rather than squeezing the count off the card. */
+  flex-wrap: wrap;
+}
+
+.c-actor-timeline__windows {
+  margin-left: auto;
+}
+
+/* The control sits inside a card header rather than at the top of a
+   page, so its tabs are tighter than the view-level ones. */
+.c-actor-timeline__windows .c-tab {
+  padding: var(--space-xs) var(--space-sm);
+}
+
+/* Axis labels are positioned by the same --x custom property the
+   marks use, because the tick percents now vary with the selected
+   window and can no longer be enumerated in the stylesheet. */
+.c-actor-timeline__axis-labels span {
+  left: var(--x, 0%);
+}

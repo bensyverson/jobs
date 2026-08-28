@@ -10,6 +10,7 @@ import (
 	"sort"
 	"time"
 
+	job "github.com/bensyverson/jobs/internal/job"
 	"github.com/bensyverson/jobs/internal/web/render"
 	"github.com/bensyverson/jobs/internal/web/templates"
 )
@@ -38,12 +39,104 @@ type ActorHeroStats struct {
 	Blocked  int
 }
 
-// ActorTimeline is the 24-hour activity strip — five lanes (created /
-// claimed / done / blocked / noted), each with marks positioned along
-// the axis as a percent from "24h ago" (0%) to "now" (100%).
+// ActorTimeline is the activity strip — five lanes (created / claimed
+// / done / blocked / noted), each with marks positioned along the axis
+// as a percent from the start of the window (0%) to "now" (100%).
 type ActorTimeline struct {
 	TotalEvents int
 	Lanes       []ActorTimelineLane
+	// Window is the span the strip covers, chosen by ?window=.
+	Window ActorWindow
+	// Options are the segmented-control links (24H / 7D / 30D), built
+	// per actor so each one navigates to this actor's page.
+	Options []ActorWindowOption
+}
+
+// ActorWindow is one selectable span of the single-actor timeline.
+// Everything that scales with the span is carried here rather than
+// derived at the template: the cutoff, the prose the heading and the
+// empty state read, and the axis ticks.
+type ActorWindow struct {
+	// Key is the ?window= value ("24h", "7d", "30d").
+	Key string
+	// Label is the segmented-control label ("24H").
+	Label string
+	// Heading is the prose span, used by the timeline heading
+	// ("Timeline · 24 hours") and the empty state.
+	Heading  string
+	Duration time.Duration
+	// Ticks are the axis labels. Each window names its own so every
+	// label sits at the percent it actually means — a shared
+	// quarter-of-the-window rule would print "5d" over 5.25 days.
+	Ticks []ActorAxisTick
+}
+
+// ActorAxisTick is one axis label at a fixed percent along the strip.
+type ActorAxisTick struct {
+	XPercent string
+	Text     string
+}
+
+// ActorWindowOption is one link in the timeline's segmented control.
+type ActorWindowOption struct {
+	Label  string
+	URL    string
+	Active bool
+}
+
+// actorWindows are the offered spans, in control order. The first is
+// the default: the page answers "what is this agent doing today", so a
+// wider span is a deliberate choice, not the resting state. Distinct
+// from the Actors board's ?range=, which bounds which actors get a
+// column and defaults to 7 days.
+var actorWindows = []ActorWindow{
+	{
+		Key: "24h", Label: "24H", Heading: "24 hours", Duration: 24 * time.Hour,
+		Ticks: []ActorAxisTick{
+			{"0.0", "24h"}, {"25.0", "18h"}, {"50.0", "12h"}, {"75.0", "6h"}, {"100.0", "now"},
+		},
+	},
+	{
+		Key: "7d", Label: "7D", Heading: "7 days", Duration: 7 * 24 * time.Hour,
+		Ticks: []ActorAxisTick{
+			{"0.0", "7d"}, {"28.6", "5d"}, {"57.1", "3d"}, {"85.7", "1d"}, {"100.0", "now"},
+		},
+	},
+	{
+		Key: "30d", Label: "30D", Heading: "30 days", Duration: 30 * 24 * time.Hour,
+		Ticks: []ActorAxisTick{
+			{"0.0", "30d"}, {"33.3", "20d"}, {"66.7", "10d"}, {"100.0", "now"},
+		},
+	},
+}
+
+// parseActorWindow resolves the ?window= value. Anything unrecognised —
+// absent, empty, misspelled, or hand-edited — falls back to the
+// default rather than erroring: a bad query param should not cost the
+// reader their page.
+func parseActorWindow(raw string) ActorWindow {
+	for _, w := range actorWindows {
+		if w.Key == raw {
+			return w
+		}
+	}
+	return actorWindows[0]
+}
+
+// actorWindowOptions builds the segmented control for one actor. The
+// selected window is always named in the URL, so every option is a
+// plain link to a self-describing address.
+func actorWindowOptions(name string, active ActorWindow) []ActorWindowOption {
+	base := "/actors/" + url.PathEscape(name)
+	out := make([]ActorWindowOption, 0, len(actorWindows))
+	for _, w := range actorWindows {
+		out = append(out, ActorWindowOption{
+			Label:  w.Label,
+			URL:    base + "?window=" + w.Key,
+			Active: w.Key == active.Key,
+		})
+	}
+	return out
 }
 
 // ActorTimelineLane is one verb's row of marks. LaneClass is the
@@ -54,7 +147,7 @@ type ActorTimelineLane struct {
 	Marks     []ActorTimelineMark
 }
 
-// ActorTimelineMark is one event positioned along the 24h axis.
+// ActorTimelineMark is one event positioned along the timeline axis.
 type ActorTimelineMark struct {
 	XPercent string // formatted "%.1f" — empty string is invalid
 }
@@ -65,7 +158,7 @@ type ActorTimelineMark struct {
 // the user follows the "View all in Log" link to /log?actor={name}.
 const ActorEventListLimit = 100
 
-// timelineVerbs is the canonical lane order on the 24h timeline.
+// timelineVerbs is the canonical lane order on the timeline.
 // The Log filter bar uses a different order (full event vocabulary);
 // this is the subset that fits on a 5-lane chart.
 var timelineVerbs = []string{"created", "claimed", "done", "blocked", "noted"}
@@ -99,7 +192,8 @@ func ActorSingle(deps Deps) http.Handler {
 			InternalError(deps, w, "actor stats", err)
 			return
 		}
-		timeline, err := loadActorTimeline(r.Context(), deps.DB, name, now)
+		window := parseActorWindow(r.URL.Query().Get("window"))
+		timeline, err := loadActorTimeline(r.Context(), deps.DB, name, now, window)
 		if err != nil {
 			InternalError(deps, w, "actor timeline", err)
 			return
@@ -166,6 +260,9 @@ func loadActorStats(ctx context.Context, db *sql.DB, name string, now time.Time)
 	}
 
 	cutoff1h := now.Add(-1 * time.Hour).Unix()
+	// The hero's Done 24h tile answers "what has this agent finished
+	// today" and is deliberately independent of the timeline's
+	// ?window= — widening the strip must not move the counter.
 	cutoff24h := now.Add(-24 * time.Hour).Unix()
 	if err := db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM events
@@ -198,12 +295,13 @@ func loadActorStats(ctx context.Context, db *sql.DB, name string, now time.Time)
 	return stats, lastSeen, nil
 }
 
-// loadActorTimeline buckets every event by this actor over the last
-// 24 hours into the five canonical lanes. Each event becomes a single
-// mark whose --x is its position from "24h ago" (0%) to "now" (100%).
-func loadActorTimeline(ctx context.Context, db *sql.DB, name string, now time.Time) (ActorTimeline, error) {
-	cutoff := now.Add(-24 * time.Hour).Unix()
-	windowSecs := float64(24 * 60 * 60)
+// loadActorTimeline buckets every event by this actor over the chosen
+// window into the five canonical lanes. Each event becomes a single
+// mark whose --x is its position from the start of the window (0%) to
+// "now" (100%).
+func loadActorTimeline(ctx context.Context, db *sql.DB, name string, now time.Time, window ActorWindow) (ActorTimeline, error) {
+	cutoff := now.Add(-window.Duration).Unix()
+	windowSecs := window.Duration.Seconds()
 
 	rows, err := db.QueryContext(ctx, `
 		SELECT event_type, created_at FROM events
@@ -252,7 +350,19 @@ func loadActorTimeline(ctx context.Context, db *sql.DB, name string, now time.Ti
 			Marks:     byVerb[v],
 		})
 	}
-	return ActorTimeline{TotalEvents: total, Lanes: lanes}, nil
+	return ActorTimeline{
+		TotalEvents: total,
+		Lanes:       lanes,
+		Window:      window,
+		Options:     actorWindowOptions(name, window),
+	}, nil
+}
+
+// WindowSecs is the strip's span in whole seconds, published to the
+// DOM so the live module can place a new mark at the same scale the
+// server used without re-deriving the window from the URL.
+func (t ActorTimeline) WindowSecs() int64 {
+	return int64(t.Window.Duration / time.Second)
 }
 
 func isTimelineVerb(v string) bool {
@@ -260,12 +370,12 @@ func isTimelineVerb(v string) bool {
 }
 
 // loadActorEvents renders this actor's most recent events through the
-// LogEventRow row component so the actor page reuses the Log view's
-// row layout. Capped at ActorEventListLimit — pagination follows in
+// shared log row, so a row read here says exactly what the same row
+// says on /log. Capped at ActorEventListLimit — pagination follows in
 // a later phase task if needed.
 func loadActorEvents(ctx context.Context, db *sql.DB, name string, now time.Time) ([]LogEventRow, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT e.id, e.event_type, e.created_at, e.detail, t.short_id, t.title
+		SELECT e.id, e.task_id, e.event_type, e.created_at, e.detail, t.short_id, t.title
 		FROM events e
 		JOIN tasks t ON t.id = e.task_id
 		WHERE e.actor = ? AND t.deleted_at IS NULL
@@ -279,39 +389,13 @@ func loadActorEvents(ctx context.Context, db *sql.DB, name string, now time.Time
 
 	var out []LogEventRow
 	for rows.Next() {
-		var id, createdAt int64
-		var verb, detail, shortID, title string
-		if err := rows.Scan(&id, &verb, &createdAt, &detail, &shortID, &title); err != nil {
+		var e job.EventEntry
+		var title string
+		if err := rows.Scan(&e.ID, &e.TaskID, &e.EventType, &e.CreatedAt, &e.Detail, &e.ShortID, &title); err != nil {
 			return nil, err
 		}
-		ts := time.Unix(createdAt, 0)
-		row := LogEventRow{
-			EventID:   id,
-			ShortID:   shortID,
-			Actor:     name,
-			EventType: verb,
-			VerbText:  verb,
-			Title:     title,
-			RelTime:   render.RelativeTime(now, ts),
-			ISOTime:   ts.UTC().Format(time.RFC3339),
-			TaskURL:   "/tasks/" + shortID,
-			ActorURL:  "/actors/" + name,
-		}
-		if verb == "claim_expired" {
-			row.VerbText = "expired"
-			row.Actor = "Jobs"
-			row.ActorURL = ""
-			row.IsSystem = true
-		}
-		// Mirror log.go's folded-detail verb mapping so criteria
-		// activity reads as prose on the actor page too.
-		switch verb {
-		case "criteria_added":
-			row.VerbText = criteriaAddedVerb(detail)
-		case "criterion_state":
-			row.VerbText = criterionStateVerb(detail)
-		}
-		out = append(out, row)
+		e.Actor = name
+		out = append(out, buildLogEventRow(e, title, now))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

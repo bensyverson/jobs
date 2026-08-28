@@ -1,8 +1,8 @@
 /*
   Log-row HTML emitter — the client mirror of the "log-row" block in
-  internal/web/templates/html/pages/log.html.tmpl.
+  internal/web/templates/html/partials/log_row.html.tmpl.
 
-  A row on /log is rendered twice: server-side on page load, and here
+  A row on /log and on /actors/{name} is rendered twice: server-side on page load, and here
   when the same event arrives over SSE. The two must agree, or a live
   row reads differently from the row it replaces on the next reload
   (task vz1tg: live found_in_set rows showed FOUND_IN_SET and no
@@ -154,6 +154,9 @@ function parseDetail(detail) {
 
 // renderLogRow returns the markup for one row, byte-for-byte equal to
 // the server's "log-row" block once inter-tag whitespace is collapsed.
+// The row is the same on every view that shows it: a page where a cell
+// is redundant (the actor cell on /actors/{name}) hides it from the
+// list's own modifier, so nothing here varies by surface.
 // Options:
 //   nowSec  — the instant the relative time is measured from
 //             (defaults to the wall clock), in unix seconds.

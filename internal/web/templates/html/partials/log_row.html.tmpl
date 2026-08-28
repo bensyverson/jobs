@@ -1,0 +1,42 @@
+{{- /* One event row, over a handlers.LogEventRow. Lives in partials so
+     every page that shows events renders the identical row: /log
+     renders the whole stream, /actors/{name} renders the same stream
+     filtered to one actor. Defined as its own block so the parity test
+     can render a single row without a page around it.
+
+     The client mirror — used when an event arrives over SSE — is
+     internal/web/assets/js/log-row.mjs; change the two together, and
+     internal/web/handlers/log_row_parity_test.go will tell you if you
+     didn't.
+
+     The row is identical on every view that shows it. Where a cell is
+     redundant — the actor cell on /actors/{name}, a page already
+     scoped to one actor — the *list* carries the modifier
+     (.c-log--single-actor) and CSS hides the cell, so the row itself
+     never has to know which page it is on. */ -}}
+{{define "log-row"}}<div class="c-log-row c-log-row--{{.EventType}}" role="listitem" data-event-id="{{.EventID}}">
+    <time class="c-log-row__time" datetime="{{.ISOTime}}">{{.RelTime}}</time>
+    {{- if .IsSystem -}}
+      <span class="c-log-row__actor c-log-row__actor--system">
+        <span>{{.Actor}}</span>
+      </span>
+    {{- else -}}
+      <a href="{{.ActorURL}}" class="c-log-row__actor" data-actor="{{.Actor}}">
+        <span class="c-avatar c-avatar-sm" data-actor="{{.Actor}}"></span>
+        <span>{{.Actor}}</span>
+      </a>
+    {{- end -}}
+    <span class="c-log-row__verb c-log-row__verb--{{.EventType}}">{{.VerbText}}</span>
+    <span class="c-id-pill">{{.ShortID}}</span>
+    <span class="c-log-row__detail">
+      {{if .Title}}<span class="c-log-row__title">{{.Title}}</span>{{end}}
+    </span>
+    {{- if .Metadata.PillID -}}
+    <span class="c-log-row__meta" data-event-meta="{{.EventType}}">{{if .Metadata.Prefix}}{{.Metadata.Prefix}} {{end}}<a class="c-id-pill" href="/tasks/{{.Metadata.PillID}}">{{.Metadata.PillID}}</a></span>
+    {{- else if .Metadata.State -}}
+    <span class="c-log-row__meta" data-event-meta="{{.EventType}}" data-state="{{.Metadata.State}}">{{.Metadata.Text}}</span>
+    {{- else -}}
+    <span class="c-log-row__meta" data-event-meta="{{.EventType}}">{{.Metadata.Text}}</span>
+    {{- end}}
+    <a href="{{.TaskURL}}" data-peek class="c-row-link" aria-label="Open task {{.ShortID}}"></a>
+  </div>{{end}}

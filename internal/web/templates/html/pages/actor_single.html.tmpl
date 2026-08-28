@@ -1,7 +1,13 @@
-{{- /* Single-actor page. Hero + 24h timeline + event list. The event
-     list reuses the same row component as the Log view so visual
-     density and semantics match. Live updates and the timeline
-     scrubber land in later phase tasks. */ -}}
+{{- /* Single-actor page. Hero + timeline + event list.
+
+     The event list is the Log filtered to one actor, so it renders
+     through the shared "log-row" partial and its rows are byte-identical
+     to their /log twins. The redundant actor cell is hidden by the
+     list's own c-log--single-actor modifier, not by anything on the row.
+
+     The timeline's span comes from ?window= (24h / 7d / 30d, default
+     24h); the hero's Done 24h tile deliberately does not follow it.
+     The timeline scrubber lands in a later phase task. */ -}}
 {{define "title"}}{{.Name}} · Actors · Jobs{{end}}
 {{define "live-region-src"}}/events?actor={{.Name}}{{end}}
 {{define "content"}}
@@ -37,14 +43,19 @@
 
 <section class="c-actor-timeline" aria-labelledby="a-timeline">
   <div class="c-actor-timeline__header">
-    <h2 id="a-timeline" class="t-heading-md">Timeline · 24 hours</h2>
-    <span class="t-dim t-body-sm">{{.Timeline.TotalEvents}} events</span>
+    <h2 id="a-timeline" class="t-heading-md">Timeline · {{.Timeline.Window.Heading}}</h2>
+    <nav class="c-tabs c-actor-timeline__windows" aria-label="Timeline window">
+      {{- range .Timeline.Options -}}
+      <a href="{{.URL}}" class="c-tab{{if .Active}} c-tab--active{{end}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}}</a>
+      {{- end -}}
+    </nav>
+    <span class="t-dim t-body-sm" data-timeline-count="{{.Timeline.TotalEvents}}">{{.Timeline.TotalEvents}} events</span>
   </div>
-  <div class="c-actor-timeline__lanes">
+  <div class="c-actor-timeline__lanes" data-actor-timeline="{{.Name}}" data-timeline-window-secs="{{.Timeline.WindowSecs}}">
     {{- range $lane := .Timeline.Lanes -}}
       <div class="c-actor-timeline__lane">
         <span class="c-actor-timeline__lane-label">{{$lane.Verb}}</span>
-        <div class="c-actor-timeline__track">
+        <div class="c-actor-timeline__track" data-lane="{{$lane.Verb}}">
           {{- range $lane.Marks -}}
             <span class="c-actor-timeline__mark {{$lane.LaneClass}}" style="--x:{{.XPercent}}%;--w:3px"></span>
           {{- end -}}
@@ -53,16 +64,14 @@
     {{- end -}}
   </div>
   {{- if eq .Timeline.TotalEvents 0 -}}
-    <p class="c-actor-timeline__empty">No activity in the last 24 hours.</p>
+    <p class="c-actor-timeline__empty">No activity in the last {{.Timeline.Window.Heading}}.</p>
   {{- end -}}
   <div class="c-actor-timeline__axis">
     <span></span>
     <div class="c-actor-timeline__axis-labels">
-      <span style="left: 0%">24h</span>
-      <span style="left: 25%">18h</span>
-      <span style="left: 50%">12h</span>
-      <span style="left: 75%">6h</span>
-      <span style="left: 100%">now</span>
+      {{- range .Timeline.Window.Ticks -}}
+      <span style="--x:{{.XPercent}}%">{{.Text}}</span>
+      {{- end -}}
     </div>
   </div>
 </section>
@@ -72,27 +81,9 @@
     <h2 class="c-section__title">Events</h2>
     <a href="{{.LogURL}}" class="t-label-caps t-muted">View all in Log →</a>
   </div>
-  <div class="c-log" role="list" data-actor-events="{{.Name}}">
+  <div class="c-log c-log--single-actor" role="list" data-actor-events="{{.Name}}">
     {{- range .Events -}}
-      <div class="c-log-row c-log-row--{{.EventType}}" role="listitem" data-event-id="{{.EventID}}">
-        <time class="c-log-row__time" datetime="{{.ISOTime}}">{{.RelTime}}</time>
-        {{- if .IsSystem -}}
-          <span class="c-log-row__actor c-log-row__actor--system">
-            <span>{{.Actor}}</span>
-          </span>
-        {{- else -}}
-          <a href="{{.ActorURL}}" class="c-log-row__actor" data-actor="{{.Actor}}">
-            <span class="c-avatar c-avatar-sm" data-actor="{{.Actor}}"></span>
-            <span>{{.Actor}}</span>
-          </a>
-        {{- end -}}
-        <span class="c-log-row__verb c-log-row__verb--{{.EventType}}">{{.VerbText}}</span>
-        <span class="c-id-pill">{{.ShortID}}</span>
-        <span class="c-log-row__detail">
-          {{if .Title}}<span class="c-log-row__title">{{.Title}}</span>{{end}}
-        </span>
-        <a href="{{.TaskURL}}" data-peek class="c-row-link" aria-label="Open task {{.ShortID}}"></a>
-      </div>
+      {{template "log-row" .}}
     {{- else -}}
       <div class="c-log-row c-log-row--empty" role="listitem">
         <span class="t-muted">No events recorded for this actor.</span>
