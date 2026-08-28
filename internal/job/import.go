@@ -17,6 +17,12 @@ type ImportedTask struct {
 	Title     string   `json:"title"`
 	Parent    string   `json:"parent"`
 	BlockedBy []string `json:"blocked_by,omitempty"`
+	// Kind is set only when the row asked for a non-default tree kind, so a
+	// plain plan echoes exactly as it always has.
+	Kind string `json:"kind,omitempty"`
+	// FoundIn is the short ID (or dry-run placeholder) of the task that
+	// surfaced this one.
+	FoundIn string `json:"found_in,omitempty"`
 }
 
 type ImportResult struct {
@@ -32,8 +38,15 @@ type parsedTask struct {
 	Labels    []string
 	Ref       string
 	BlockedBy []string
+	FoundIn   string
 	Criteria  []Criterion
 	Children  []*parsedTask
+
+	// Kind is KindTask unless the row asked otherwise. kindPresent records
+	// whether the key appeared at all, because the key is refused on a child
+	// whatever its value.
+	Kind        TreeKind
+	kindPresent bool
 
 	// pathLabel is the YAML path like "tasks[1].children[0]"; filled during validation.
 	pathLabel string
@@ -49,11 +62,16 @@ type rawTask struct {
 	Labels    []string   `yaml:"labels"`
 	Ref       string     `yaml:"ref"`
 	BlockedBy []string   `yaml:"blockedBy"`
+	FoundIn   string     `yaml:"foundIn"`
+	Kind      string     `yaml:"kind"`
 	Criteria  []string   `yaml:"criteria"`
 	Children  []*rawTask `yaml:"children"`
 
 	// Set when a title key was present in the YAML at all (even empty).
 	titlePresent bool
+	// Set when a kind key was present, whatever its value: kind is refused on
+	// a child even when it names the default.
+	kindPresent bool
 }
 
 // Custom unmarshal to track whether title was explicitly provided.
@@ -84,6 +102,15 @@ func (r *rawTask) UnmarshalYAML(n *yaml.Node) error {
 			}
 		case "blockedBy":
 			if err := v.Decode(&r.BlockedBy); err != nil {
+				return err
+			}
+		case "foundIn":
+			if err := v.Decode(&r.FoundIn); err != nil {
+				return err
+			}
+		case "kind":
+			r.kindPresent = true
+			if err := v.Decode(&r.Kind); err != nil {
 				return err
 			}
 		case "criteria":
@@ -200,6 +227,8 @@ var importGrammarKeys = map[string]bool{
 	"labels":    true,
 	"ref":       true,
 	"blockedBy": true,
+	"foundIn":   true,
+	"kind":      true,
 	"criteria":  true,
 	"children":  true,
 }
@@ -295,6 +324,9 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 	if err := validateRefs(flat); err != nil {
 		return nil, err
 	}
+	if err := validateKinds(tree, flat, parentShortID != "", parentShortID); err != nil {
+		return nil, err
+	}
 
 	// Validate --parent target (before any writes).
 	var parentTask *Task
@@ -326,49 +358,48 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 		}
 	}
 
-	// Pre-resolve blockedBy — some resolutions hit existing DB rows.
-	// Resolution targets: refIndex, titleIndex, or existing DB short ID.
-	// The plan: resolve to either a *parsedTask (local) or a *Task (existing DB row).
-	type resolved struct {
-		local  *parsedTask
-		dbTask *Task
+	index := importIndex{
+		refs:        refIndex,
+		titles:      titleIndex,
+		titleCounts: titleCounts,
 	}
-	blockedByResolved := make(map[*parsedTask][]resolved)
+
+	// Pre-resolve blockedBy — some resolutions hit existing DB rows.
+	blockedByResolved := make(map[*parsedTask][]resolvedRef)
 	for _, p := range flat {
 		if len(p.BlockedBy) == 0 {
 			continue
 		}
-		list := make([]resolved, 0, len(p.BlockedBy))
+		list := make([]resolvedRef, 0, len(p.BlockedBy))
 		for i, entry := range p.BlockedBy {
-			if t, ok := refIndex[entry]; ok {
-				list = append(list, resolved{local: t})
-				continue
-			}
-			if cnt := titleCounts[entry]; cnt >= 2 {
-				return nil, fmt.Errorf(
-					"%s: blockedBy[%d] %q matches multiple tasks; use a ref or a short ID to disambiguate",
-					p.pathLabel, i, entry,
-				)
-			}
-			if t, ok := titleIndex[entry]; ok {
-				list = append(list, resolved{local: t})
-				continue
-			}
-			// Try existing DB short ID.
-			existing, err := GetTaskByShortID(db, entry)
+			r, err := index.resolve(db, p.pathLabel, fmt.Sprintf("blockedBy[%d]", i), entry)
 			if err != nil {
 				return nil, err
 			}
-			if existing != nil {
-				list = append(list, resolved{dbTask: existing})
-				continue
-			}
-			return nil, fmt.Errorf(
-				"%s: blockedBy[%d] %q does not match any ref, imported task title, or existing task ID",
-				p.pathLabel, i, entry,
-			)
+			list = append(list, r)
 		}
 		blockedByResolved[p] = list
+	}
+
+	// foundIn resolves the same three ways, one value per task. Recorded in
+	// the same second pass as blockedBy so a plan can name a task the
+	// document has not reached yet.
+	foundInResolved := make(map[*parsedTask]resolvedRef)
+	for _, p := range flat {
+		if p.FoundIn == "" {
+			continue
+		}
+		r, err := index.resolve(db, p.pathLabel, "foundIn", p.FoundIn)
+		if err != nil {
+			return nil, err
+		}
+		if r.local == p {
+			return nil, fmt.Errorf(
+				"%s: foundIn %q refers to the task itself; a task cannot be found in itself",
+				p.pathLabel, p.FoundIn,
+			)
+		}
+		foundInResolved[p] = r
 	}
 
 	// Build echo order. If dry-run, emit placeholders. Warnings ride along on
@@ -384,17 +415,19 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 			}
 			var blockedBy []string
 			for _, r := range blockedByResolved[p] {
-				if r.local != nil {
-					blockedBy = append(blockedBy, fmt.Sprintf("<new-%d>", r.local.flatIndex+1))
-				} else if r.dbTask != nil {
-					blockedBy = append(blockedBy, r.dbTask.ShortID)
-				}
+				blockedBy = append(blockedBy, dryRunRefID(r))
+			}
+			foundIn := ""
+			if r, ok := foundInResolved[p]; ok {
+				foundIn = dryRunRefID(r)
 			}
 			result.Tasks = append(result.Tasks, ImportedTask{
 				ID:        fmt.Sprintf("<new-%d>", i+1),
 				Title:     p.Title,
 				Parent:    parent,
 				BlockedBy: blockedBy,
+				Kind:      echoKind(p.Kind),
+				FoundIn:   foundIn,
 			})
 		}
 		return result, nil
@@ -409,6 +442,9 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 
 	shortIDByParsed := make(map[*parsedTask]string)
 	dbIDByParsed := make(map[*parsedTask]int64)
+	// Found-in edges resolve after every row exists, so the echo entry has to
+	// be reachable again once the source's short ID is known.
+	resultIndexByParsed := make(map[*parsedTask]int)
 
 	// Insert in pre-order DFS so parents exist before children. Each node
 	// receives an explicit sort_order so findNextSibling's strict-greater
@@ -422,22 +458,28 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 		now := CurrentNowFunc().Unix()
 		var id int64
 		err = tx.QueryRow(`
-			INSERT INTO tasks (short_id, parent_id, title, description, status, sort_order, created_at, updated_at)
-			VALUES (?, ?, ?, ?, 'available', ?, ?, ?)
+			INSERT INTO tasks (short_id, parent_id, title, description, status, sort_order, created_at, updated_at, kind)
+			VALUES (?, ?, ?, ?, 'available', ?, ?, ?, ?)
 			RETURNING id
-		`, sid, parentDBID, node.Title, node.Desc, sortOrder, now, now).Scan(&id)
+		`, sid, parentDBID, node.Title, node.Desc, sortOrder, now, now, string(node.Kind)).Scan(&id)
 		if err != nil {
 			return err
 		}
 		shortIDByParsed[node] = sid
 		dbIDByParsed[node] = id
 
-		if err := recordEvent(tx, id, "created", actor, map[string]any{
+		createdDetail := map[string]any{
 			"parent_id":   parentShort,
 			"title":       node.Title,
 			"description": node.Desc,
 			"sort_order":  sortOrder,
-		}); err != nil {
+		}
+		// Mirrors `add --kind issue`: the default is silent, so a plain plan's
+		// event stream is byte-for-byte what it was.
+		if node.Kind.IsIssue() {
+			createdDetail["kind"] = string(node.Kind)
+		}
+		if err := recordEvent(tx, id, "created", actor, createdDetail); err != nil {
 			return err
 		}
 
@@ -469,10 +511,12 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 			}
 		}
 
+		resultIndexByParsed[node] = len(result.Tasks)
 		result.Tasks = append(result.Tasks, ImportedTask{
 			ID:     sid,
 			Title:  node.Title,
 			Parent: parentShort,
+			Kind:   echoKind(node.Kind),
 		})
 
 		// Children of this just-inserted node have no pre-existing
@@ -536,6 +580,28 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 			}); err != nil {
 				return nil, err
 			}
+		}
+	}
+
+	// Record found-in edges after all inserts, for the same forward-reference
+	// reason blockedBy waits.
+	for parsed, r := range foundInResolved {
+		task, err := GetTaskByShortID(tx, shortIDByParsed[parsed])
+		if err != nil {
+			return nil, err
+		}
+		source := r.dbTask
+		if r.local != nil {
+			source, err = GetTaskByShortID(tx, shortIDByParsed[r.local])
+			if err != nil {
+				return nil, err
+			}
+		}
+		if err := setFoundInTx(tx, task, source, task.ShortID, source.ShortID, actor); err != nil {
+			return nil, err
+		}
+		if i, ok := resultIndexByParsed[parsed]; ok {
+			result.Tasks[i].FoundIn = source.ShortID
 		}
 	}
 
@@ -627,15 +693,26 @@ func buildParsedTree(rawList []*rawTask) ([]*parsedTask, []*parsedTask, error) {
 			if cerr != nil {
 				return nil, cerr
 			}
+			kind := KindTask
+			if r.kindPresent {
+				k, kerr := ParseTreeKind(r.Kind)
+				if kerr != nil {
+					return nil, fmt.Errorf("%s: %s", path, kerr.Error())
+				}
+				kind = k
+			}
 			p := &parsedTask{
-				Title:     r.Title,
-				Desc:      r.Desc,
-				Labels:    labels,
-				Ref:       r.Ref,
-				BlockedBy: r.BlockedBy,
-				Criteria:  criteria,
-				pathLabel: path,
-				flatIndex: len(flat),
+				Title:       r.Title,
+				Desc:        r.Desc,
+				Labels:      labels,
+				Ref:         r.Ref,
+				BlockedBy:   r.BlockedBy,
+				FoundIn:     strings.TrimSpace(r.FoundIn),
+				Criteria:    criteria,
+				Kind:        kind,
+				kindPresent: r.kindPresent,
+				pathLabel:   path,
+				flatIndex:   len(flat),
 			}
 			flat = append(flat, p)
 			children, err := walk(r.Children, path)

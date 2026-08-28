@@ -63,22 +63,14 @@ func newImportCmd() *cobra.Command {
 				}
 				for _, t := range res.Tasks {
 					indent := strings.Repeat("  ", depth[t.ID])
-					line := fmt.Sprintf("%s- [ ] `%s` %s", indent, t.ID, t.Title)
-					if len(t.BlockedBy) > 0 {
-						line += fmt.Sprintf(" (blocked on %s)", strings.Join(t.BlockedBy, ", "))
-					}
-					fmt.Fprintln(cmd.OutOrStdout(), line)
+					fmt.Fprintf(cmd.OutOrStdout(), "%s- [ ] `%s` %s%s\n",
+						indent, t.ID, t.Title, importAnnotations(t))
 				}
 				return nil
 			}
 
 			for _, t := range res.Tasks {
-				if len(t.BlockedBy) > 0 {
-					fmt.Fprintf(cmd.OutOrStdout(), "%s  %s (blocked on %s)\n",
-						t.ID, t.Title, strings.Join(t.BlockedBy, ", "))
-				} else {
-					fmt.Fprintf(cmd.OutOrStdout(), "%s  %s\n", t.ID, t.Title)
-				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%s  %s%s\n", t.ID, t.Title, importAnnotations(t))
 			}
 			return nil
 		},
@@ -87,4 +79,23 @@ func newImportCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "validate the plan without writing to the database")
 	cmd.Flags().StringVar(&format, "format", "md", "output format (md|json)")
 	return cmd
+}
+
+// importAnnotations renders the parenthesised trailers on one echoed import
+// row: the tree kind, the blockers, and the found-in source, in that order.
+// Each is omitted when the plan did not ask for it, so a plan using none of
+// them echoes exactly as it always has. `(issue-tree)` matches the tag `ls`
+// puts on an issue root; the default task-tree is silent.
+func importAnnotations(t job.ImportedTask) string {
+	var out string
+	if t.Kind == string(job.KindIssue) {
+		out += " (issue-tree)"
+	}
+	if len(t.BlockedBy) > 0 {
+		out += fmt.Sprintf(" (blocked on %s)", strings.Join(t.BlockedBy, ", "))
+	}
+	if t.FoundIn != "" {
+		out += fmt.Sprintf(" (found in %s)", t.FoundIn)
+	}
+	return out
 }

@@ -102,6 +102,45 @@ A few facts that aren't obvious from the schema:
 - **Refs scope to one import.** A ref defined in one plan is not addressable from another plan — the next plan must use the resulting short id, or re-use a verbatim title.
 - **Blockers auto-clear when the blocker is `done`.** You only need `block remove` for edges you want to drop while the blocker is still open.
 
+## Tree kind and found-in
+
+Two more keys let a plan express the things a bug pile needs: which trees are issue-trees, and which task surfaced which.
+
+```yaml
+tasks:
+  - title: Ship v1
+    children:
+      - title: Wire it into the router
+        ref: router
+
+  - title: Bugs
+    kind: issue                                  # this root is an issue-tree
+    children:
+      - title: Router drops the trailing slash
+        foundIn: router                          # ref → the leaf that surfaced it
+      - title: 404 page renders twice
+        foundIn: Wire it into the router         # title resolution
+      - title: Stale cache after deploy
+        foundIn: abc12                           # short id from a prior import
+```
+
+**`kind: task|issue`** sets the [tree kind](../concepts/tree-kinds/) and is valid **on a root of the import only** — a top-level entry, imported without `--parent`. `task` is the default; `issue` marks the tree as discovered work, which `next`, `orient` and `claim --next` skip. The key on a child is an error naming the row (`tasks[0].children[1]: kind is a property of the root only`), and so is the key on any row when `--parent` is given, because that flag makes every imported task a child. `kind: task` on a child is refused too: the value would be true but meaningless, and a value no reader consults is worse than a refusal.
+
+**`foundIn:`** records the [found-in](../concepts/found-in/) reference — the task that surfaced this one. It is provenance and only provenance: it parents nothing and blocks nothing in either direction. Unlike `blockedBy` it is **one value, not a list**, because work is found in one place. It resolves through the same three steps `blockedBy` uses (ref, unambiguous verbatim title, existing short id), with the same ambiguity error when a title matches twice. A `foundIn` that names the task itself, or that resolves to nothing, fails the whole import.
+
+Both are resolved in the same second pass as `blockedBy`, so a `foundIn` may name a task the document has not reached yet — the bug pile can come first.
+
+`--dry-run` reports what each would create:
+
+```text
+- [ ] `<new-1>` Ship v1
+  - [ ] `<new-2>` Wire it into the router
+- [ ] `<new-3>` Bugs (issue-tree)
+  - [ ] `<new-4>` Router drops the trailing slash (found in <new-2>)
+```
+
+The default `task` kind is not annotated — the same reason `job show` prints no `Kind:` line for a task-tree.
+
 ## Importing under an existing parent
 
 By default, the plan's roots become roots in the database. With `--parent <id>`, every root is nested under that parent instead — useful when an agent wants to drop a phase plan into the parent it was scoped from.
@@ -110,7 +149,7 @@ By default, the plan's roots become roots in the database. With `--parent <id>`,
 job import phase-2.md --parent abc12
 ```
 
-Inside the plan, `blockedBy` entries that point at short ids work as before — they're resolved against the database, not the import. So a plan can refer to existing work on the way in.
+Inside the plan, `blockedBy` and `foundIn` entries that point at short ids work as before — they're resolved against the database, not the import. So a plan can refer to existing work on the way in. `kind` is the one key `--parent` forbids: nothing in the plan is a root any more, so a kind there would name a property no row has.
 
 ## A complete worked example
 
@@ -146,6 +185,14 @@ tasks:
   - title: Phase 2 — billing
     blockedBy: [phase-1]
     desc: Stripe Checkout flow. Out of scope for the v1 launch but staged here.
+
+  - title: Auth bugs
+    kind: issue
+    desc: Defects surfaced while building phase 1. Open-ended by design.
+    children:
+      - title: Callback drops the return-to path
+        labels: [backend]
+        foundIn: oauth-callback
 ```
 
 Validate it without writing:

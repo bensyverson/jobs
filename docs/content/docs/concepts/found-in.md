@@ -37,6 +37,8 @@ removes the reference. Clearing a task that has none is an error rather than a s
 
 A task cannot be found in itself. Longer loops are permitted: nothing walks this edge, so there is no traversal to protect and no cycle to detect.
 
+A whole pile of bugs can arrive at once: `foundIn: <ref|title|short-id>` on any task in a `job import` plan records the edge as part of the import — see [the plan grammar](../../plan-grammar/#tree-kind-and-found-in).
+
 ## Reading it, from both ends
 
 `job show` prints the reference on the task and its mirror on the source:

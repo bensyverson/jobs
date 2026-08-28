@@ -353,7 +353,7 @@ Every task inside the first fenced YAML block whose top-level key is `tasks:` is
 
 | Command | Description |
 |---------|-------------|
-| `job import <file.md>` | Import tasks from a Markdown plan. |
+| `job import <file.md>` | Import tasks from a Markdown plan. Roots may declare `kind: issue`, and any task may declare `foundIn:`. |
 | | `-n, --dry-run` Validate without writing. |
 | | `-p, --parent <id>` Import under an existing task. |
 | | `--format=json` Machine-readable echo of created IDs. |
@@ -364,6 +364,8 @@ Per-task keys in the YAML:
 - `desc` — optional description; supports YAML block scalars.
 - `ref` — optional handle used by other `blockedBy` entries in the same import. Flat namespace across the whole plan. Not persisted.
 - `blockedBy` — optional list. Each entry resolves as (1) a `ref` in the plan, (2) a verbatim task title in the plan if unambiguous, or (3) a pre-existing short ID.
+- `foundIn` — optional single value naming the task that surfaced this one (provenance only, no blocking). Resolves the same three ways as a `blockedBy` entry; a task cannot be found in itself.
+- `kind` — optional `task|issue`, valid on a root of the import only. `issue` creates an issue-tree. On a child — or on any row when `--parent` is given, since that makes every task a child — it is an error naming the row.
 - `children` — optional sub-tasks, recursive.
 - `labels` — optional list of free-form labels, persisted on the task. Queryable via `list --label <name>`.
 

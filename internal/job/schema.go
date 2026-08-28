@@ -44,6 +44,15 @@ const schemaJSON = `{
             "items": { "type": "string" },
             "description": "Optional list. Each entry must resolve in order: (1) a ref defined elsewhere in this import; (2) a verbatim task title elsewhere in this import (must be unambiguous); (3) a pre-existing short ID in the database."
           },
+          "foundIn": {
+            "type": "string",
+            "description": "Optional. Records the task that surfaced this one — provenance only, creating no blocking relationship in either direction. One value, not a list: work is found in one place. Resolves exactly as a ` + "`" + `blockedBy` + "`" + ` entry does: (1) a ref defined elsewhere in this import; (2) a verbatim task title elsewhere in this import (must be unambiguous); (3) a pre-existing short ID in the database. A task cannot be found in itself."
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["task", "issue"],
+            "description": "Optional tree kind, valid on a root of this import only — a top-level entry imported without --parent. Defaults to 'task'. 'issue' marks an issue-tree: discovered work that next/orient/claim --next skip. Setting it on a child (or on any row when --parent makes every imported task a child) is an error."
+          },
           "criteria": {
             "type": "array",
             "items": { "type": "string" },

@@ -37,6 +37,8 @@ job add "Flaky auth test on CI" --kind issue
 
 `--kind issue` with a parent is an error, for the same root-only reason.
 
+A plan can declare it too: `kind: task|issue` on a root of a `job import` document, refused on a child — see [the plan grammar](../../plan-grammar/#tree-kind-and-found-in).
+
 ## What the default readers do
 
 `next`, `orient`, and the no-argument `claim --next` answer "what is next in my plan", so they **skip issue-trees**. `job status`'s `Next:` hint and the trailing `Next:` hint on a `done` ack follow the same rule — the `done` hint skips issue-tree roots when it crosses out of the closed task's own tree, and never filters inside it. Pass `--issues` to ask the opposite question — the frontier across issue-trees — as a deliberate triage move:

@@ -86,3 +86,59 @@ func TestSchema_DeclaresRequiredTitle(t *testing.T) {
 		t.Errorf("children.type = %v, want array", children["type"])
 	}
 }
+
+// 9s2qL — the grammar's two root/provenance keys must be in the published
+// schema: `kind` with its enum, `foundIn` as a single string.
+func TestSchema_DeclaresKindAndFoundIn(t *testing.T) {
+	var buf bytes.Buffer
+	if err := RunSchema(&buf); err != nil {
+		t.Fatalf("RunSchema: %v", err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &schema); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	props := schema["properties"].(map[string]any)
+	tasks := props["tasks"].(map[string]any)
+	items := tasks["items"].(map[string]any)
+	itemProps, ok := items["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("schema: missing items.properties")
+	}
+
+	kind, ok := itemProps["kind"].(map[string]any)
+	if !ok {
+		t.Fatal("schema: missing items.properties.kind")
+	}
+	if kind["type"] != "string" {
+		t.Errorf("kind.type = %v, want string", kind["type"])
+	}
+	enum, ok := kind["enum"].([]any)
+	if !ok {
+		t.Fatal("schema: kind must declare an enum")
+	}
+	want := map[string]bool{"task": true, "issue": true}
+	if len(enum) != len(want) {
+		t.Fatalf("kind.enum = %v, want task and issue", enum)
+	}
+	for _, e := range enum {
+		s, _ := e.(string)
+		if !want[s] {
+			t.Errorf("kind.enum has unexpected value %q", s)
+		}
+	}
+	if desc, _ := kind["description"].(string); desc == "" {
+		t.Error("kind needs a description")
+	}
+
+	foundIn, ok := itemProps["foundIn"].(map[string]any)
+	if !ok {
+		t.Fatal("schema: missing items.properties.foundIn")
+	}
+	if foundIn["type"] != "string" {
+		t.Errorf("foundIn.type = %v, want string (one source per task)", foundIn["type"])
+	}
+	if desc, _ := foundIn["description"].(string); desc == "" {
+		t.Error("foundIn needs a description")
+	}
+}
