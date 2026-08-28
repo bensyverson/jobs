@@ -16,6 +16,9 @@ type Task struct {
 	CreatedAt      int64
 	UpdatedAt      int64
 	DeletedAt      *int64
+	// Kind is meaningful on roots only: children of an issue root are
+	// ordinary tasks and always carry KindTask. See internal/job/kind.go.
+	Kind TreeKind
 }
 
 type Event struct {
@@ -62,7 +65,7 @@ func scanTask(s scanner) (*Task, error) {
 	err := s.Scan(
 		&t.ID, &t.ShortID, &parentID, &t.Title, &t.Description,
 		&t.Status, &t.SortOrder, &claimedBy, &claimExpiresAt,
-		&completionNote, &t.CreatedAt, &t.UpdatedAt, &deletedAt,
+		&completionNote, &t.CreatedAt, &t.UpdatedAt, &deletedAt, &t.Kind,
 	)
 	if err != nil {
 		return nil, err

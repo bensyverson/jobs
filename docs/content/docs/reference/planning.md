@@ -3,7 +3,7 @@ title: Planning
 weight: 2
 ---
 
-The verbs that shape the tree before — and during — work: `add`, `import`, `edit`, `block`, `move`, `label`, `split`. Every one of them is a write that emits an event.
+The verbs that shape the tree before — and during — work: `add`, `import`, `edit`, `block`, `move`, `kind`, `label`, `split`. Every one of them is a write that emits an event.
 
 ## `add`
 
@@ -18,6 +18,7 @@ job add abc12 "Bake compliance" --criterion "audit log lines exist" \
                                 --criterion "PII redacted in transit"
 job add abc12 "Refactor parser" -l p0 -l infra
 ID=$(job add abc12 "Then claim it" --id-only)        # capture just the new id
+job add "Flaky auth test on CI" --kind issue         # a new issue-tree root
 ```
 
 The non-obvious moves:
@@ -26,6 +27,7 @@ The non-obvious moves:
 - `--criterion` is repeatable and seeds [acceptance criteria](../../concepts/criteria/) on the new task. Add as many as you want; each lands as `pending` and is referenced by a short id later.
 - `--before <sib>` (or `-b`) is the only way to position a new task without a follow-up `move`. Without it, new children land at the end of the parent's child list.
 - `--parent` and the positional parent argument are interchangeable — useful for scripts that pass the parent as a flag.
+- `--kind task|issue` sets the new root's [tree kind](../../concepts/tree-kinds/). It is only valid when creating a root — kind is root-only, so `--kind issue` with a parent is an error rather than a silent downgrade.
 - `--id-only` makes `add` scriptable: stdout is exactly the new task's bare id, with the advisory lines (auto-release, child-count hint) suppressed, so `ID=$(job add … --id-only)` captures a clean value for an immediate `claim`. (Criteria are still attached; only the chatter is suppressed.)
 - `add` is leaf-only behavior on the parent: the parent stays open, but its leaf status flips off as soon as the first child is added.
 - The positional order is **strict**: `add <parent> <title>`. If the leading arg doesn't resolve as a short id, `add` errors with `add: no such parent …` and reminds you of the order. If you pass a single arg that *does* resolve as an existing short id (the "forgot the title" slip), `add` refuses with `add: ambiguous single arg …` rather than silently creating a root task literally named after the id. Both errors lead with a stable, greppable prefix and tell you the fix. To create a root task whose title happens to look like a short id, pass `--parent=""` to declare the literal-title intent.
@@ -120,6 +122,23 @@ job move abc12 under  newparent before xyz99       # reparent and position
 ```
 
 Move never closes a task. Combined with `add --before` and `import --parent`, this is everything you need to refactor a plan in place after work has started.
+
+Moving an **issue-tree root** under a parent is refused: a root that gains a parent stops being a root, and its [kind](../../concepts/tree-kinds/) would silently stop meaning anything. Run `job kind <id> task` first, so the conversion lands in the event log.
+
+## `kind`
+
+Reads or sets a root's [tree kind](../../concepts/tree-kinds/) — task-tree (the default) or issue-tree.
+
+```sh
+job kind abc12                                     # read the current kind
+job kind abc12 issue                               # mark it as an issue-tree
+job kind abc12 task                                # convert it back
+```
+
+- **Roots only.** Children of an issue root are ordinary tasks; setting a kind on a non-root is an error.
+- **Nothing is lost either way.** Only the kind changes, and the change is recorded as a `kind_changed` event carrying the before and after.
+- **It steers the default readers.** `next`, `orient`, `claim --next` and `status`'s `Next:` hint skip issue-trees; `--issues` targets them instead. An explicit id, an explicit scope, or a focus on the issue root overrides that.
+- A no-op set (asking for the kind the root already has) prints a confirmation and records nothing.
 
 ## `label`
 

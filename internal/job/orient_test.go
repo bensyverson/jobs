@@ -268,7 +268,7 @@ func TestRunOrient_Notes_IncludeNotedAndCompletion_ExcludeChurn(t *testing.T) {
 
 	// Done-leaf notes only surface in the full view (the default elides done
 	// history); the note-filtering contract itself is unchanged.
-	view, err := RunOrientOpts(db, available, "", TestActor, true)
+	view, err := RunOrientOpts(db, available, "", TestActor, true, false)
 	if err != nil {
 		t.Fatalf("RunOrientOpts: %v", err)
 	}

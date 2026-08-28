@@ -12,6 +12,7 @@ func newOrientCmd() *cobra.Command {
 	var format string
 	var scope string
 	var full bool
+	var issues bool
 	cmd := &cobra.Command{
 		Use:   "orient [id]",
 		Short: "Regenerate the plan tree around a target leaf for a fresh agent",
@@ -23,8 +24,9 @@ func newOrientCmd() *cobra.Command {
 			"a single completion_note breadcrumb marks the most recent note-bearing close. Use `job show <id>` " +
 			"for any elided history, or --full for the unelided view.\n\n" +
 			"This is the worker's session-opener, complementing `job status` (the orchestrator's). With no id, " +
-			"the target is the next available leaf; pass an id to target a specific task. The rendered tree " +
-			"defaults to the target's whole root tree; --scope <id> limits it to a subtree.",
+			"the target is the next available leaf in a task-tree; issue-trees are skipped unless --issues is " +
+			"passed (see `job kind`). Pass an id to target a specific task — an explicit id always wins. The " +
+			"rendered tree defaults to the target's whole root tree; --scope <id> limits it to a subtree.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch format {
@@ -52,7 +54,7 @@ func newOrientCmd() *cobra.Command {
 			// but never require --as the way write verbs do.
 			actor, _ := job.ResolveIdentity(db, asFlag)
 
-			view, err := job.RunOrientOpts(db, target, scope, actor, full)
+			view, err := job.RunOrientOpts(db, target, scope, actor, full, issues)
 			if err != nil {
 				// Orienting is a read; an empty tree (or an exhausted
 				// focused root) is a valid answer, not a broken tool. next
@@ -74,5 +76,6 @@ func newOrientCmd() *cobra.Command {
 	cmd.Flags().StringVar(&format, "format", "yaml", "output format (yaml; md planned)")
 	cmd.Flags().StringVar(&scope, "scope", "", "limit the rendered tree to this subtree")
 	cmd.Flags().BoolVar(&full, "full", false, "keep desc, notes, and criteria on done tasks (unelided view)")
+	cmd.Flags().BoolVar(&issues, "issues", false, "target the next available leaf in an issue-tree (see `job kind`)")
 	return cmd
 }

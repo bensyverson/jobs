@@ -84,13 +84,15 @@ type OrientNode struct {
 // stays within an agent's context budget as a plan accumulates history; use
 // RunOrientOpts with full=true for the unelided view.
 func RunOrient(db *sql.DB, targetShortID, scopeShortID, actor string) (*OrientView, error) {
-	return RunOrientOpts(db, targetShortID, scopeShortID, actor, false)
+	return RunOrientOpts(db, targetShortID, scopeShortID, actor, false, false)
 }
 
-// RunOrientOpts is RunOrient with the elision policy explicit: full=true
-// keeps desc, notes, and criteria on every node regardless of status.
-func RunOrientOpts(db *sql.DB, targetShortID, scopeShortID, actor string, full bool) (*OrientView, error) {
-	target, err := resolveOrientTarget(db, targetShortID, actor)
+// RunOrientOpts is RunOrient with the elision policy and the tree-kind scope
+// explicit: full=true keeps desc, notes, and criteria on every node regardless
+// of status; issues=true targets the issue-tree frontier instead of the
+// task-tree one. Both are ignored when an explicit target id is given.
+func RunOrientOpts(db *sql.DB, targetShortID, scopeShortID, actor string, full, issues bool) (*OrientView, error) {
+	target, err := resolveOrientTarget(db, targetShortID, actor, issues)
 	if err != nil {
 		return nil, err
 	}
@@ -182,9 +184,9 @@ func RunOrientNoTasks(db *sql.DB, actor, message string, full bool) (*OrientNoTa
 
 // resolveOrientTarget returns the positional target when an id is given, else
 // the next available leaf (RunNext).
-func resolveOrientTarget(db *sql.DB, targetShortID, actor string) (*Task, error) {
+func resolveOrientTarget(db *sql.DB, targetShortID, actor string, issues bool) (*Task, error) {
 	if strings.TrimSpace(targetShortID) == "" {
-		return RunNext(db, "", actor)
+		return RunNextFiltered(db, "", actor, "", false, issues)
 	}
 	target, err := GetTaskByShortID(db, targetShortID)
 	if err != nil {

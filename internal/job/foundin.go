@@ -15,14 +15,14 @@ import (
 // over an existing one replaces it and records both ids on the event.
 
 const taskSelectColumns = `id, short_id, parent_id, title, description, status, sort_order,
-	       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at`
+	       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind`
 
 // Qualified form for the queries that join found_in, which carries its own
 // created_at and would otherwise make the column reference ambiguous.
 const qualifiedTaskSelectColumns = `tasks.id, tasks.short_id, tasks.parent_id, tasks.title,
 	       tasks.description, tasks.status, tasks.sort_order, tasks.claimed_by,
 	       tasks.claim_expires_at, tasks.completion_note, tasks.created_at,
-	       tasks.updated_at, tasks.deleted_at`
+	       tasks.updated_at, tasks.deleted_at, tasks.kind`
 
 // RunSetFoundIn records that taskShortID was surfaced by sourceShortID,
 // replacing any source already recorded. A task cannot be found in itself;

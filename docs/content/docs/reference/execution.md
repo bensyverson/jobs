@@ -17,12 +17,14 @@ job claim --next infra-root                # restrict the search to a subtree
 job claim --next 2h                        # combine: next leaf, longer hold
 job claim abc12 --force                    # override an existing claim
 job claim abc12 -q                         # one-line ack only, no briefing
+job claim --next --issues                  # claim the next open issue instead
 ```
 
 The `--next` modes:
 
 - `claim --next` walks the leaf frontier in plan order and atomically claims the first available one. With a [focus](#focus) set, the no-argument walk stays inside your focused root; an explicit parent argument searches that subtree regardless of focus. The race-safe contract is: if two agents call `claim --next` at the same moment, exactly one wins each leaf — the loser gets the *next* leaf, not an error. This is the canonical spawn pattern for parallel agents.
 - `--include-parents` widens the walk to include any available task, not only leaves. Reach for it only when you genuinely want to claim a task that has open children — usually you don't.
+- `--issues` points the no-argument walk at [issue-trees](../../concepts/tree-kinds/) instead of task-trees. Without it, `claim --next` never hands you a bug — it answers "what is next in my plan". Like `next --issues`, it is forest-wide. An explicit parent argument, or a focus set on an issue root, overrides the default without the flag.
 - `--label <name>` restricts the search to tasks carrying a label. Combined with multi-agent setups, this is how you steer different agents toward different streams of work.
 
 Idiomatic combination: `job claim --next 1h && do-the-work && job done <id> --claim-next`. See `done --claim-next` below.
@@ -43,6 +45,7 @@ The rules, in claim order:
 - **It releases itself.** When the focused root completes (including by cascade) or is canceled, focus releases automatically. `focus --clear` is the manual version — the "pause this tree" case.
 - **Exhaustion fails loudly.** When your focused root has no available leaf, no-arg `next`/`claim --next` return an error naming the root and the escapes — claim in another tree to shift focus, or `focus --clear` — instead of silently crossing into a different plan.
 - **Explicit arguments always win.** `claim --next <id>`, `next <id>`, `orient <id>`, and `status <id>` behave exactly as if focus didn't exist.
+- **A focus on an issue root is itself the override.** Claiming inside an [issue-tree](../../concepts/tree-kinds/) flips your focus to it, and your no-argument defaults then stay there — no `--issues` needed — until you claim elsewhere or `focus --clear`.
 
 ## `release` (and its alias `unclaim`)
 

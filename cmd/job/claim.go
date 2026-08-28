@@ -13,6 +13,7 @@ func newClaimCmd() *cobra.Command {
 	var quiet bool
 	var next bool
 	var includeParents bool
+	var issues bool
 	var format string
 	var note string
 	var noteFile string
@@ -40,7 +41,7 @@ Tip: use 'job claim --next [parent] [duration]' to find and claim the next avail
 			}
 
 			if next {
-				return runClaimNext(cmd, db, args, actor, force, includeParents, quiet, format)
+				return runClaimNext(cmd, db, args, actor, force, includeParents, issues, quiet, format)
 			}
 
 			if len(args) < 1 {
@@ -105,6 +106,7 @@ Tip: use 'job claim --next [parent] [duration]' to find and claim the next avail
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "suppress the trailing show briefing — keep only the one-line confirm")
 	cmd.Flags().BoolVar(&next, "next", false, "find and claim the next available leaf (replaces standalone `claim-next`)")
 	cmd.Flags().BoolVar(&includeParents, "include-parents", false, "with --next: permit claiming tasks with open children")
+	cmd.Flags().BoolVar(&issues, "issues", false, "with --next: claim from the issue-trees instead of the task-trees (see `job kind`)")
 	cmd.Flags().StringVar(&format, "format", "md", "with --next: output format (md|json)")
 	cmd.Flags().StringVarP(&note, "message", "m", "", "record a starting note before claiming (supports @path and `-` for stdin)")
 	registerFileFlag(cmd, &noteFile, "starting note", "message")
@@ -112,9 +114,9 @@ Tip: use 'job claim --next [parent] [duration]' to find and claim the next avail
 }
 
 // runClaimNext is the body of `claim --next [parent] [duration]`.
-func runClaimNext(cmd *cobra.Command, db *sql.DB, args []string, actor string, force, includeParents, quiet bool, format string) error {
+func runClaimNext(cmd *cobra.Command, db *sql.DB, args []string, actor string, force, includeParents, issues, quiet bool, format string) error {
 	parentShortID, duration := job.ParseNextParentAndDuration(args)
-	task, err := job.RunClaimNextFiltered(db, parentShortID, duration, actor, force, includeParents)
+	task, err := job.RunClaimNextFiltered(db, parentShortID, duration, actor, force, includeParents, issues)
 	if err != nil {
 		return err
 	}

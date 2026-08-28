@@ -229,7 +229,7 @@ func getTaskByShortIDIncludeDeleted(tx dbtx, shortID string) (*Task, error) {
 func getTaskByShortIDFilter(tx dbtx, shortID string, excludeDeleted bool) (*Task, error) {
 	q := `
 		SELECT id, short_id, parent_id, title, description, status, sort_order,
-		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at
+		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE short_id = ?`
 	if excludeDeleted {
 		q += " AND deleted_at IS NULL"
@@ -248,7 +248,7 @@ func getTaskByShortIDFilter(tx dbtx, shortID string, excludeDeleted bool) (*Task
 func loadAllTasks(db *sql.DB) ([]*Task, error) {
 	rows, err := db.Query(`
 		SELECT id, short_id, parent_id, title, description, status, sort_order,
-		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at
+		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE deleted_at IS NULL ORDER BY parent_id, sort_order
 	`)
 	if err != nil {
@@ -362,7 +362,7 @@ func GetLatestEventDetail(tx dbtx, taskID int64, eventType string) (map[string]a
 func findClosedDescendants(tx dbtx, taskID int64) ([]*Task, error) {
 	rows, err := tx.Query(`
 		SELECT id, short_id, parent_id, title, description, status, sort_order,
-		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at
+		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE parent_id = ? AND deleted_at IS NULL
 	`, taskID)
 	if err != nil {
@@ -391,7 +391,7 @@ func findClosedDescendants(tx dbtx, taskID int64) ([]*Task, error) {
 func findDoneDescendants(tx dbtx, taskID int64) ([]*Task, error) {
 	rows, err := tx.Query(`
 		SELECT id, short_id, parent_id, title, description, status, sort_order,
-		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at
+		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE parent_id = ? AND deleted_at IS NULL
 	`, taskID)
 	if err != nil {
@@ -423,7 +423,7 @@ func findDoneDescendants(tx dbtx, taskID int64) ([]*Task, error) {
 func findOpenDescendants(tx dbtx, taskID int64) ([]*Task, error) {
 	rows, err := tx.Query(`
 		SELECT id, short_id, parent_id, title, description, status, sort_order,
-		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at
+		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE parent_id = ? AND `+openChildFilter(""), taskID)
 	if err != nil {
 		return nil, err
@@ -451,7 +451,7 @@ func findOpenDescendants(tx dbtx, taskID int64) ([]*Task, error) {
 func findAllDescendants(tx dbtx, taskID int64) ([]*Task, error) {
 	rows, err := tx.Query(`
 		SELECT id, short_id, parent_id, title, description, status, sort_order,
-		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at
+		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE parent_id = ? AND deleted_at IS NULL
 	`, taskID)
 	if err != nil {
@@ -478,7 +478,7 @@ func findAllDescendants(tx dbtx, taskID int64) ([]*Task, error) {
 func findIncompleteDescendants(tx dbtx, taskID int64) ([]*Task, error) {
 	rows, err := tx.Query(`
 		SELECT id, short_id, parent_id, title, description, status, sort_order,
-		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at
+		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE parent_id = ? AND status != 'done' AND deleted_at IS NULL
 	`, taskID)
 	if err != nil {

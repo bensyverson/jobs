@@ -26,6 +26,7 @@ What's worth knowing:
 
 - The default ("actionable") view is the work *you can pick up right now*: available, unblocked, unclaimed. Use `--all` when you want the whole picture, `--open` when you want everything still in flight.
 - **Recently closed footer.** Closed tasks render inline under their open parent when the local context is small; otherwise they collect into a flat "Recently closed (N of M)" footer below the tree, capped at 10. Widen with `--since 2h`, `--since 50` (count), or `--no-truncate` for the full closed history. `--since` and `--no-truncate` are mutually exclusive.
+- **Issue roots are tagged.** A root marked as an [issue-tree](../../concepts/tree-kinds/) renders as `- [ ] `abc12` Bugs (issue-tree)`, in the same parenthesised group as claims, blockers and labels. `ls` still lists them — it is the "show me everything" view; it is `next`, `orient` and `claim --next` that skip them.
 - **`tree` and `list` are aliases for `ls`.** Type whichever your fingers prefer.
 - **`--format=json` returns the full closed history with no cap.** When you're driving `ls` from a script, JSON is usually what you want.
 
@@ -39,6 +40,8 @@ job show abc12 abc34 abc56                 # variadic, blank line between blocks
 job show abc12 --ancestors                 # prepend the parent chain
 job show abc12 --format=json               # array of one or more task records
 ```
+
+A root marked as an [issue-tree](../../concepts/tree-kinds/) carries a `Kind: issue` line under `Parent: (root)`. Task roots print nothing — `task` is the default, and stating it everywhere would be noise.
 
 `show --ancestors` is the move when you've been handed an id with no plan context: it prints root → … → parent → node, each with title and description, so you have the full ancestry above the task itself.
 
@@ -70,7 +73,7 @@ job status abc12                           # subtree-only
 job status --format=json                   # machine-parsable form
 ```
 
-`status` is the right command to open every session with — identity check and landscape briefing in one call. The "Next:" hint at the bottom of the global view names the leaf the system would hand you if you ran `claim --next` next. With a [focus](../execution/#focus) set, the global view adds a `Focus:` line and the Next: hint resolves *inside* the focused root — when that root is exhausted, the hint spells out the escapes instead of pointing at another tree. The per-root rollup rows and pending decisions always stay forest-wide; focus narrows the hint, never the landscape.
+`status` is the right command to open every session with — identity check and landscape briefing in one call. The "Next:" hint at the bottom of the global view names the leaf the system would hand you if you ran `claim --next` next. With a [focus](../execution/#focus) set, the global view adds a `Focus:` line and the Next: hint resolves *inside* the focused root — when that root is exhausted, the hint spells out the escapes instead of pointing at another tree. The per-root rollup rows and pending decisions always stay forest-wide; focus narrows the hint, never the landscape. Unfocused, the hint skips [issue-trees](../../concepts/tree-kinds/) so it agrees with `next` and `claim --next`; the rollup rows still list every root.
 
 `--format=json` mirrors the human output's structure. Forest scope returns `{identity, counts, last_activity_unix, roots, next, focus, stale, decisions}`; subtree scope swaps the preamble for `{target, children, …}`. See [the JSON output reference](../machine-interface/json-output/) for the per-field shape.
 
@@ -118,12 +121,14 @@ job next all                               # full claimable frontier (multiple i
 job next abc12 all                         # entire frontier inside abc12
 job next --label p0                        # restrict to a label
 job next --include-parents                 # widen to non-leaf availables
+job next --issues                          # walk the issue-trees instead
 ```
 
-Three facts to keep straight:
+Four facts to keep straight:
 
 - `next` returns *leaves* by default. A task with open children is descended through, never returned. `--include-parents` is the legacy "any available" behavior — useful if you genuinely need to claim a parent task, otherwise leave it off.
 - With a [focus](../execution/#focus) set, bare `next` stays inside your focused root and fails loudly (naming the escapes) when it's exhausted; an explicit parent argument bypasses focus.
+- **Issue-trees are skipped by default.** `next` answers "what is next in my plan", so roots marked as [issue-trees](../../concepts/tree-kinds/) are not walked. `--issues` asks the opposite question and is forest-wide (it ignores focus, like `all`). An explicit parent, or a focus set on an issue root, overrides the default on its own.
 - `all` (in either position) returns the whole frontier instead of the single next leaf. Pair with `--format=json` to feed a fanout script that spawns one agent per id.
 
 ## `orient`
@@ -136,6 +141,7 @@ job orient abc12                           # target a specific task
 job orient abc12 --scope def34             # render only the def34 subtree
 job orient --full                          # keep done-task history (unelided)
 job orient --format yaml                   # explicit default
+job orient --issues                        # target the next open issue instead
 ```
 
 Output is a top-level `orient:` header followed by the `tasks:` tree. The header is the synthesized punchline — what an agent would otherwise compute by hand before starting:
@@ -146,8 +152,9 @@ Output is a top-level `orient:` header followed by the `tasks:` tree. The header
 - `own_notes` — the target's *own* prior progress notes, inlined for primacy (often empty on a fresh leaf).
 - `weigh_notes` — a pointer list of node ids whose notes bear on this task: the target's same-parent sibling leaves that carry notes. Their bodies stay folded in the tree; the header just points at them.
 
-Five things to keep straight:
+Six things to keep straight:
 
+- **The default target skips issue-trees.** With no id, orient targets the next available leaf in a *task-tree*; `--issues` targets the [issue-tree](../../concepts/tree-kinds/) frontier instead. An explicit id always wins over both.
 - **The default target respects your focus.** With no id and a [focus](../execution/#focus) set, orient targets the next available leaf *inside your focused root*. An explicit id ignores focus entirely.
 - **An empty tree is a valid answer, not an error.** When there's nothing available to target — the focused root is exhausted, or the whole repo is (with no focus) — orient still exits **0**. It prints the same guidance `next` would have failed with (naming the root and the escapes when a focus is exhausted) under `orient.target: null` and `orient.message`, in place of the usual synthesized header, and `tasks:` still renders whatever's in scope: the focused root's tree, or every root in the forest with no focus. `next` and `claim --next` keep their non-zero exit for this same condition — there the caller explicitly asked for a task and didn't get one.
 - **Target and scope are orthogonal.** The positional id (or the next leaf) is *what you're working on*; `--scope` only bounds *what gets rendered*. By default the scope is the target's whole root tree — the full context the plan doc used to supply. `--scope <id>` narrows it to a subtree for very large plans, but `root` in the header still names the true root.

@@ -257,7 +257,7 @@ func collectClosedTail(db *sql.DB, f ListFilter) ([]ClosedTailRow, int, error) {
 	q := `
 		SELECT t.id, t.short_id, t.parent_id, t.title, t.description, t.status,
 		       t.sort_order, t.claimed_by, t.claim_expires_at, t.completion_note,
-		       t.created_at, t.updated_at, t.deleted_at,
+		       t.created_at, t.updated_at, t.deleted_at, t.kind,
 		       e.created_at AS closed_at, e.actor AS closer
 		FROM tasks t
 		JOIN events e ON e.task_id = t.id
@@ -300,7 +300,7 @@ func collectClosedTail(db *sql.DB, f ListFilter) ([]ClosedTailRow, int, error) {
 		if err := rows.Scan(
 			&t.ID, &t.ShortID, &parentID, &t.Title, &t.Description,
 			&t.Status, &t.SortOrder, &claimedBy, &claimExpiresAt,
-			&completionNote, &t.CreatedAt, &t.UpdatedAt, &deletedAt,
+			&completionNote, &t.CreatedAt, &t.UpdatedAt, &deletedAt, &t.Kind,
 			&closedAt, &closer,
 		); err != nil {
 			return nil, 0, err

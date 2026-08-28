@@ -116,7 +116,11 @@ func BuildRollup(db *sql.DB, target *Task, actor string) (*Summary, error) {
 			parentID = &focus.ID
 		}
 	}
-	leaves, err := queryAvailableLeafFrontier(db, parentID, 1, "")
+	// Unfocused, `status` answers the same question as `next` and must give
+	// the same answer: issue trees are not the plan's next step. A focus (or
+	// an explicit root) is an explicit scope and overrides that, exactly as
+	// it does in RunNextFiltered.
+	leaves, err := queryAvailableLeafFrontier(db, parentID, 1, "", KindTask)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +245,7 @@ func buildRollup(db *sql.DB, t *Task) (*SubtreeRollup, error) {
 	// "Available" reports the truly claimable leaves — same definition as
 	// `next` and the leaf-frontier docs. Reuse the canonical query so we
 	// don't drift.
-	avail, err := queryAvailableTasks(db, t.ShortID, 0, "", false)
+	avail, err := queryAvailableTasks(db, t.ShortID, 0, "", false, "")
 	if err != nil {
 		return nil, err
 	}

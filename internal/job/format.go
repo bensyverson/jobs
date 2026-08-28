@@ -83,13 +83,24 @@ func CollectBlockers(db *sql.DB, nodes []*TaskNode) (map[string][]string, error)
 }
 
 type taskNodeJSON struct {
-	ID             string         `json:"id"`
-	Title          string         `json:"title"`
-	Status         string         `json:"status"`
-	Description    string         `json:"description"`
-	ClaimedBy      *string        `json:"claimed_by,omitempty"`
-	ClaimExpiresAt *int64         `json:"claim_expires_at,omitempty"`
-	Children       []taskNodeJSON `json:"children"`
+	ID             string  `json:"id"`
+	Title          string  `json:"title"`
+	Status         string  `json:"status"`
+	Description    string  `json:"description"`
+	ClaimedBy      *string `json:"claimed_by,omitempty"`
+	ClaimExpiresAt *int64  `json:"claim_expires_at,omitempty"`
+	// Kind is emitted only for issue roots: task is the default, and an
+	// always-present field would change every existing consumer's payload.
+	Kind     string         `json:"kind,omitempty"`
+	Children []taskNodeJSON `json:"children"`
+}
+
+// jsonKind returns the tree kind to emit for a task, or "" to omit it.
+func jsonKind(t *Task) string {
+	if t.ParentID == nil && t.Kind.IsIssue() {
+		return string(t.Kind)
+	}
+	return ""
 }
 
 func FormatTaskNodesJSON(nodes []*TaskNode) ([]byte, error) {
@@ -112,6 +123,7 @@ func taskNodeToJSON(node *TaskNode) taskNodeJSON {
 		Description:    node.Task.Description,
 		ClaimedBy:      node.Task.ClaimedBy,
 		ClaimExpiresAt: node.Task.ClaimExpiresAt,
+		Kind:           jsonKind(node.Task),
 		Children:       children,
 	}
 }
@@ -135,6 +147,11 @@ func RenderMarkdownList(w io.Writer, nodes []*TaskNode, blockers map[string][]st
 
 func listStateParens(node *TaskNode, blockers map[string][]string, labels map[int64][]string) string {
 	var parts []string
+	// Tree kind is root-only, so this marks exactly the issue roots — the
+	// trees `next`, `orient` and `claim --next` skip by default.
+	if node.Task.ParentID == nil && node.Task.Kind.IsIssue() {
+		parts = append(parts, "issue-tree")
+	}
 	switch node.Task.Status {
 	case "done":
 		// Completion note bodies used to be inlined here; they now live
@@ -219,6 +236,11 @@ func RenderInfoMarkdown(w io.Writer, info *TaskInfo) {
 		fmt.Fprintf(w, "Parent:       %s (%s)\n", info.Parent.ShortID, info.Parent.Title)
 	} else {
 		fmt.Fprintf(w, "Parent:       (root)\n")
+	}
+	// Only issue roots print a kind: task is the default and saying so on
+	// every root would be noise.
+	if info.Task.ParentID == nil && info.Task.Kind.IsIssue() {
+		fmt.Fprintf(w, "Kind:         %s\n", info.Task.Kind)
 	}
 	if len(info.Labels) > 0 {
 		fmt.Fprintf(w, "Labels:       %s\n", strings.Join(info.Labels, ", "))
@@ -416,6 +438,7 @@ func RenderInfoJSON(w io.Writer, info *TaskInfo) {
 		Title       string      `json:"title"`
 		Description string      `json:"description"`
 		Status      string      `json:"status"`
+		Kind        string      `json:"kind,omitempty"`
 		Parent      *string     `json:"parent,omitempty"`
 		Children    []childJSON `json:"children"`
 		Blockers    []string    `json:"blockers,omitempty"`
@@ -471,6 +494,7 @@ func RenderInfoJSON(w io.Writer, info *TaskInfo) {
 		Title:       info.Task.Title,
 		Description: info.Task.Description,
 		Status:      info.Task.Status,
+		Kind:        jsonKind(info.Task),
 		Parent:      parentID,
 		Children:    children,
 		Blockers:    blockers,
@@ -496,6 +520,7 @@ func RenderTaskJSON(w io.Writer, task *Task) {
 		Description:    task.Description,
 		ClaimedBy:      task.ClaimedBy,
 		ClaimExpiresAt: task.ClaimExpiresAt,
+		Kind:           jsonKind(task),
 	}
 	b, _ := json.MarshalIndent(obj, "", "  ")
 	w.Write(b)
@@ -760,6 +785,13 @@ func FormatEventDescription(eventType, detailJSON string) string {
 			base = fmt.Sprintf("%s (%s %s)", base, direction, relativeTo)
 		}
 		return base
+	case eventKindChanged:
+		from, _ := detail["from"].(string)
+		to, _ := detail["to"].(string)
+		if from == "" || to == "" {
+			return "kind changed"
+		}
+		return fmt.Sprintf("kind %s-tree → %s-tree", from, to)
 	case "removed":
 		parts := []string{"removed"}
 		if detail != nil {

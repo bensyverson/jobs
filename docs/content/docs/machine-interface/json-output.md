@@ -48,6 +48,8 @@ job ls --format=json
 
 `ls --format=json` returns the **full closed history** — the 10-item Markdown footer cap doesn't apply.
 
+A root marked as an [issue-tree](../../concepts/tree-kinds/) carries `"kind": "issue"`. The field is **absent** on everything else — `task` is the default, so an always-present field would change every existing payload for no information. `next`, `claim` and `show` emit it on the same terms.
+
 `job show --format=json` is richer; it adds the things `ls` deliberately omits (description, labels, notes, criteria, claim metadata):
 
 ```json

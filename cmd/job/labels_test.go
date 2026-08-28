@@ -432,7 +432,7 @@ func TestNext_LabelFilter(t *testing.T) {
 	if _, err := job.RunLabelAdd(db, b, []string{"foo"}, job.TestActor); err != nil {
 		t.Fatal(err)
 	}
-	task, err := job.RunNextFiltered(db, "", job.TestActor, "foo", false)
+	task, err := job.RunNextFiltered(db, "", job.TestActor, "foo", false, false)
 	if err != nil {
 		t.Fatalf("next filtered: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestNextAll_LabelFilter(t *testing.T) {
 	if _, err := job.RunLabelAdd(db, c, []string{"x"}, job.TestActor); err != nil {
 		t.Fatal(err)
 	}
-	tasks, err := job.RunNextAllFiltered(db, "", job.TestActor, "x", false)
+	tasks, err := job.RunNextAllFiltered(db, "", job.TestActor, "x", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}

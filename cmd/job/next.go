@@ -10,10 +10,11 @@ func newNextCmd() *cobra.Command {
 	var format string
 	var labelFilter string
 	var includeParents bool
+	var issues bool
 	cmd := &cobra.Command{
 		Use:   "next [parent] [all]",
 		Short: "Show the next available task (or all of them with `all`)",
-		Long:  "Show the next available (unblocked, unclaimed, not done) task. By default only leaves (tasks with no open children) are surfaced — tasks with open children are descended through, not returned. Pass --include-parents to surface any available task regardless of whether it has open children. With 'all' (in either position), returns the full claimable frontier instead. Use --label <name> to filter to tasks carrying that label. Without a parent, searches the entire tree.",
+		Long:  "Show the next available (unblocked, unclaimed, not done) task. By default only leaves (tasks with no open children) are surfaced — tasks with open children are descended through, not returned. Pass --include-parents to surface any available task regardless of whether it has open children. With 'all' (in either position), returns the full claimable frontier instead. Use --label <name> to filter to tasks carrying that label. Without a parent, searches the entire tree — issue-trees excluded, since `next` answers \"what is next in my plan\"; pass --issues to walk the issue-trees instead (see `job kind`).",
 		Args:  cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openDBFromCmd()
@@ -39,7 +40,7 @@ func newNextCmd() *cobra.Command {
 			actor, _ := job.ResolveIdentity(db, asFlag)
 
 			if showAll {
-				tasks, err := job.RunNextAllFiltered(db, parentShortID, actor, labelFilter, includeParents)
+				tasks, err := job.RunNextAllFiltered(db, parentShortID, actor, labelFilter, includeParents, issues)
 				if err != nil {
 					return err
 				}
@@ -50,7 +51,7 @@ func newNextCmd() *cobra.Command {
 				return nil
 			}
 
-			task, err := job.RunNextFiltered(db, parentShortID, actor, labelFilter, includeParents)
+			task, err := job.RunNextFiltered(db, parentShortID, actor, labelFilter, includeParents, issues)
 			if err != nil {
 				return err
 			}
@@ -67,5 +68,6 @@ func newNextCmd() *cobra.Command {
 	cmd.Flags().StringVar(&format, "format", "md", "output format (md|json)")
 	cmd.Flags().StringVarP(&labelFilter, "label", "l", "", "filter to tasks carrying this label")
 	cmd.Flags().BoolVar(&includeParents, "include-parents", false, "surface tasks with open children (legacy behavior)")
+	cmd.Flags().BoolVar(&issues, "issues", false, "walk issue-trees instead of task-trees (see `job kind`)")
 	return cmd
 }

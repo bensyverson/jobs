@@ -156,7 +156,7 @@ func TestRunOrientOpts_Full_Unelided(t *testing.T) {
 	db := SetupTestDB(t)
 	_, doneLeaf, container, _, open := seedElisionTree(t, db)
 
-	view, err := RunOrientOpts(db, open, "", TestActor, true)
+	view, err := RunOrientOpts(db, open, "", TestActor, true, false)
 	if err != nil {
 		t.Fatalf("RunOrientOpts: %v", err)
 	}

@@ -183,7 +183,7 @@ func TestRenderOrientYAML_ClosedDateAndFullDesc(t *testing.T) {
 	doneLeaf := MustAddDesc(t, db, root, "Done leaf", longDesc)
 	MustDone(t, db, doneLeaf)
 
-	view, err := RunOrientOpts(db, available, "", TestActor, true)
+	view, err := RunOrientOpts(db, available, "", TestActor, true, false)
 	if err != nil {
 		t.Fatalf("RunOrientOpts: %v", err)
 	}

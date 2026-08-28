@@ -491,7 +491,7 @@ func RunRelease(db *sql.DB, shortID, note, actor string) error {
 //
 // "Open children" means status NOT IN ('done', 'canceled'). A task whose
 // children are all closed is itself treated as a leaf.
-func queryAvailableTasks(db *sql.DB, parentShortID string, limit int, labelName string, includeParents bool) ([]*Task, error) {
+func queryAvailableTasks(db *sql.DB, parentShortID string, limit int, labelName string, includeParents bool, kind TreeKind) ([]*Task, error) {
 	var parentID *int64
 	if parentShortID != "" {
 		parent, err := GetTaskByShortID(db, parentShortID)
@@ -502,18 +502,21 @@ func queryAvailableTasks(db *sql.DB, parentShortID string, limit int, labelName 
 			return nil, fmt.Errorf("task %q not found", parentShortID)
 		}
 		parentID = &parent.ID
+		// An explicit scope is the operator naming the tree they want, so
+		// the root-kind default does not apply inside it.
+		kind = ""
 	}
 
 	if includeParents {
-		return queryAvailableDirectChildren(db, parentID, limit, labelName)
+		return queryAvailableDirectChildren(db, parentID, limit, labelName, kind)
 	}
-	return queryAvailableLeafFrontier(db, parentID, limit, labelName)
+	return queryAvailableLeafFrontier(db, parentID, limit, labelName, kind)
 }
 
 // queryAvailableDirectChildren implements the legacy behavior used by
 // --include-parents: return direct children of the scope (or root tasks),
 // regardless of whether they have open children of their own.
-func queryAvailableDirectChildren(db *sql.DB, parentID *int64, limit int, labelName string) ([]*Task, error) {
+func queryAvailableDirectChildren(db *sql.DB, parentID *int64, limit int, labelName string, kind TreeKind) ([]*Task, error) {
 	var parentFilter string
 	var args []any
 	if parentID != nil {
@@ -521,6 +524,10 @@ func queryAvailableDirectChildren(db *sql.DB, parentID *int64, limit int, labelN
 		args = append(args, *parentID)
 	} else {
 		parentFilter = "AND t.parent_id IS NULL"
+		if kind != "" {
+			parentFilter += " AND t.kind = ?"
+			args = append(args, string(kind))
+		}
 	}
 
 	labelFilter := ""
@@ -536,7 +543,7 @@ func queryAvailableDirectChildren(db *sql.DB, parentID *int64, limit int, labelN
 
 	query := fmt.Sprintf(`
 		SELECT t.id, t.short_id, t.parent_id, t.title, t.description, t.status, t.sort_order,
-		       t.claimed_by, t.claim_expires_at, t.completion_note, t.created_at, t.updated_at, t.deleted_at
+		       t.claimed_by, t.claim_expires_at, t.completion_note, t.created_at, t.updated_at, t.deleted_at, t.kind
 		FROM tasks t
 		WHERE t.status = 'available' AND t.deleted_at IS NULL %s %s
 		  AND NOT EXISTS (
@@ -568,7 +575,7 @@ func queryAvailableDirectChildren(db *sql.DB, parentID *int64, limit int, labelN
 // are available, unblocked, and have no open children. Results are ordered
 // by depth-first sort_order traversal so sibling-declaration order is
 // preserved.
-func queryAvailableLeafFrontier(db *sql.DB, parentID *int64, limit int, labelName string) ([]*Task, error) {
+func queryAvailableLeafFrontier(db *sql.DB, parentID *int64, limit int, labelName string, kind TreeKind) ([]*Task, error) {
 	var anchorFilter string
 	var args []any
 	if parentID != nil {
@@ -576,6 +583,10 @@ func queryAvailableLeafFrontier(db *sql.DB, parentID *int64, limit int, labelNam
 		args = append(args, *parentID)
 	} else {
 		anchorFilter = "t.parent_id IS NULL"
+		if kind != "" {
+			anchorFilter += " AND t.kind = ?"
+			args = append(args, string(kind))
+		}
 	}
 
 	labelFilter := ""
@@ -605,7 +616,7 @@ func queryAvailableLeafFrontier(db *sql.DB, parentID *int64, limit int, labelNam
 			WHERE t.deleted_at IS NULL
 		)
 		SELECT t.id, t.short_id, t.parent_id, t.title, t.description, t.status, t.sort_order,
-		       t.claimed_by, t.claim_expires_at, t.completion_note, t.created_at, t.updated_at, t.deleted_at
+		       t.claimed_by, t.claim_expires_at, t.completion_note, t.created_at, t.updated_at, t.deleted_at, t.kind
 		FROM tasks t JOIN subtree s ON s.id = t.id
 		WHERE t.status = 'available' AND t.deleted_at IS NULL %s
 		  AND NOT EXISTS (
@@ -638,10 +649,14 @@ func queryAvailableLeafFrontier(db *sql.DB, parentID *int64, limit int, labelNam
 }
 
 func RunNext(db *sql.DB, parentShortID, actor string) (*Task, error) {
-	return RunNextFiltered(db, parentShortID, actor, "", false)
+	return RunNextFiltered(db, parentShortID, actor, "", false, false)
 }
 
-func RunNextFiltered(db *sql.DB, parentShortID, actor, labelName string, includeParents bool) (*Task, error) {
+// RunNextFiltered walks the claimable frontier. With no explicit parent it
+// answers "what is next in my plan": only task-trees are considered. Pass
+// issues=true to ask the opposite question — the frontier across issue-trees,
+// forest-wide, the way `next all` ignores focus for the explicit form.
+func RunNextFiltered(db *sql.DB, parentShortID, actor, labelName string, includeParents, issues bool) (*Task, error) {
 	if err := expireStaleClaims(db, actor); err != nil {
 		return nil, err
 	}
@@ -649,10 +664,12 @@ func RunNextFiltered(db *sql.DB, parentShortID, actor, labelName string, include
 	// With no explicit parent, the actor's focus scopes the walk: the
 	// frontier stays inside the focused root, and an exhausted focused
 	// root fails loudly instead of silently crossing into another tree.
-	// An explicit parent (or no focus) leaves behavior untouched.
+	// An explicit parent (or no focus) leaves behavior untouched. A focused
+	// root is an explicit scope, so focusing an issue root is itself the
+	// override for the task-tree default.
 	scope := parentShortID
 	var focus *Task
-	if parentShortID == "" {
+	if parentShortID == "" && !issues {
 		var err error
 		focus, err = GetFocus(db, actor)
 		if err != nil {
@@ -663,11 +680,14 @@ func RunNextFiltered(db *sql.DB, parentShortID, actor, labelName string, include
 		}
 	}
 
-	tasks, err := queryAvailableTasks(db, scope, 1, labelName, includeParents)
+	tasks, err := queryAvailableTasks(db, scope, 1, labelName, includeParents, defaultKindScope(issues))
 	if err != nil {
 		return nil, err
 	}
 	if len(tasks) == 0 {
+		if issues {
+			return nil, newErrNoAvailableTasks("No available tasks in any issue tree. Run 'list all' to see blocked or claimed work.")
+		}
 		if focus != nil {
 			return nil, newErrNoAvailableTasks(fmt.Sprintf(
 				"No available tasks in focused root %s %q. Claim in another tree ('claim --next <id>' or 'claim <id>') to shift focus, or release it with 'job focus --clear'.",
@@ -680,18 +700,27 @@ func RunNextFiltered(db *sql.DB, parentShortID, actor, labelName string, include
 }
 
 func runNextAll(db *sql.DB, parentShortID, actor string) ([]*Task, error) {
-	return RunNextAllFiltered(db, parentShortID, actor, "", false)
+	return RunNextAllFiltered(db, parentShortID, actor, "", false, false)
 }
 
-func RunNextAllFiltered(db *sql.DB, parentShortID, actor, labelName string, includeParents bool) ([]*Task, error) {
+func RunNextAllFiltered(db *sql.DB, parentShortID, actor, labelName string, includeParents, issues bool) ([]*Task, error) {
 	if err := expireStaleClaims(db, actor); err != nil {
 		return nil, err
 	}
-	return queryAvailableTasks(db, parentShortID, 0, labelName, includeParents)
+	return queryAvailableTasks(db, parentShortID, 0, labelName, includeParents, defaultKindScope(issues))
+}
+
+// defaultKindScope maps the --issues switch onto the root kind the unscoped
+// frontier filters by.
+func defaultKindScope(issues bool) TreeKind {
+	if issues {
+		return KindIssue
+	}
+	return KindTask
 }
 
 func RunClaimNext(db *sql.DB, parentShortID, duration, actor string, force bool) (*Task, error) {
-	return RunClaimNextFiltered(db, parentShortID, duration, actor, force, false)
+	return RunClaimNextFiltered(db, parentShortID, duration, actor, force, false, false)
 }
 
 // RunClaimNextUnderRootOf scopes a follow-on claim to the root subtree of the
@@ -712,11 +741,11 @@ func RunClaimNextUnderRootOf(db *sql.DB, closedShortID, duration, actor string, 
 	if err != nil {
 		return nil, err
 	}
-	return RunClaimNextFiltered(db, root.ShortID, duration, actor, force, false)
+	return RunClaimNextFiltered(db, root.ShortID, duration, actor, force, false, false)
 }
 
-func RunClaimNextFiltered(db *sql.DB, parentShortID, duration, actor string, force, includeParents bool) (*Task, error) {
-	task, err := RunNextFiltered(db, parentShortID, actor, "", includeParents)
+func RunClaimNextFiltered(db *sql.DB, parentShortID, duration, actor string, force, includeParents, issues bool) (*Task, error) {
+	task, err := RunNextFiltered(db, parentShortID, actor, "", includeParents, issues)
 	if err != nil {
 		return nil, err
 	}

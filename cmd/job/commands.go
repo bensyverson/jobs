@@ -182,6 +182,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newNoteCmd())
 	cmd.AddCommand(newCancelCmd())
 	cmd.AddCommand(newMoveCmd())
+	cmd.AddCommand(newKindCmd())
 	cmd.AddCommand(newSplitCmd())
 	cmd.AddCommand(newInfoCmd())
 	cmd.AddCommand(newBlockCmd())

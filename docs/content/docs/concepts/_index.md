@@ -12,6 +12,7 @@ The seven ideas that make Jobs work. Each page is a tight reference, not a tutor
   {{< card link="blockers" title="Blockers" subtitle="`block add`/`remove`, cycle detection, auto-unblock on done." >}}
   {{< card link="found-in" title="Found-in" subtitle="Provenance without blocking: `job found-in`, `add --found-in`." >}}
   {{< card link="labels" title="Labels" subtitle="Free-form labels and the `decision` convention." >}}
+  {{< card link="tree-kinds" title="Tree kinds" subtitle="Task-trees vs issue-trees, `job kind`, and the `--issues` readers." >}}
   {{< card link="events" title="The event log" subtitle="Append-only, replayable, the source of truth behind every other surface." >}}
 {{< /cards >}}
 

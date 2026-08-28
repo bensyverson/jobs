@@ -15,10 +15,11 @@ func newAddCmd() *cobra.Command {
 	var parentFlag string
 	var idOnly bool
 	var foundIn string
+	var kindFlag string
 	cmd := &cobra.Command{
 		Use:   "add [parent] <title>",
 		Short: "Add a new task",
-		Long:  "Add a new task. If parent is provided, the task is added as a child. Use --desc for a description (or -F <path> to read it from a file), --before to insert before a specific sibling, --criterion (repeatable) to attach acceptance criteria, and --found-in to record the task that surfaced this one.",
+		Long:  "Add a new task. If parent is provided, the task is added as a child. Use --desc for a description (or -F <path> to read it from a file), --before to insert before a specific sibling, --criterion (repeatable) to attach acceptance criteria, and --found-in to record the task that surfaced this one. Use --kind issue to create an issue-tree root (see `job kind`); tree kind is root-only, so it is invalid with a parent.",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openDBFromCmd()
@@ -112,7 +113,19 @@ func newAddCmd() *cobra.Command {
 				priorChildCount, _, _ = job.CountOpenChildrenOfShortID(db, parentShortID)
 			}
 
-			res, err := job.RunAdd(db, parentShortID, title, desc, before, labels, actor)
+			kind := job.KindTask
+			if cmd.Flags().Changed("kind") {
+				k, kerr := job.ParseTreeKind(kindFlag)
+				if kerr != nil {
+					return kerr
+				}
+				if k.IsIssue() && parentShortID != "" {
+					return fmt.Errorf("add: --kind issue is only valid when creating a root; %q was given the parent %s", title, parentShortID)
+				}
+				kind = k
+			}
+
+			res, err := job.RunAddKind(db, parentShortID, title, desc, before, labels, actor, kind)
 			if err != nil {
 				return err
 			}
@@ -156,6 +169,7 @@ func newAddCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&criteria, "criterion", nil, "acceptance criterion to attach, defaults to pending state (repeatable)")
 	cmd.Flags().StringVar(&parentFlag, "parent", "", "parent task ID (alias for the positional parent argument)")
 	cmd.Flags().StringVar(&foundIn, "found-in", "", "record the task that surfaced this one (provenance only — creates no blocking relationship)")
+	cmd.Flags().StringVar(&kindFlag, "kind", string(job.KindTask), "tree kind for a new root task (task|issue); invalid with a parent")
 	cmd.Flags().BoolVar(&idOnly, "id-only", false, "print only the new task's bare ID on stdout (suppress advisory lines), for `ID=$(job add ... --id-only)`")
 	return cmd
 }

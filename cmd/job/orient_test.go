@@ -227,3 +227,16 @@ func TestNextAndClaimNext_EmptyRepo_StillExitNonZero(t *testing.T) {
 		t.Errorf("claim --next error: got %q, want %q", err.Error(), wantMsg)
 	}
 }
+
+// `orient --issues` with no issue-tree leaf available is an empty answer,
+// not a failure — the same rule as the task-tree default.
+func TestOrient_Issues_EmptyForest_ExitsZeroWithGuidance(t *testing.T) {
+	dbFile := setupCLI(t)
+	stdout, _, err := runCLI(t, dbFile, "orient", "--issues")
+	if err != nil {
+		t.Fatalf("orient --issues on an empty forest: %v", err)
+	}
+	if !strings.Contains(stdout, "target: null") || !strings.Contains(stdout, "No available tasks in any issue tree") {
+		t.Errorf("stdout:\n%s", stdout)
+	}
+}

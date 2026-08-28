@@ -106,7 +106,7 @@ func TestRunOrientOpts_Full_NoCompletionNoteAnnotation(t *testing.T) {
 		t.Fatalf("done: %v", err)
 	}
 
-	view, err := RunOrientOpts(db, open, "", TestActor, true)
+	view, err := RunOrientOpts(db, open, "", TestActor, true, false)
 	if err != nil {
 		t.Fatalf("RunOrientOpts: %v", err)
 	}

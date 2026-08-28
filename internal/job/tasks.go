@@ -36,7 +36,23 @@ type AddResult struct {
 	AutoReleasedByActor string
 }
 
+// RunAdd creates a task-kind node. Roots created this way are task-trees;
+// use RunAddKind to create an issue root.
 func RunAdd(db *sql.DB, parentShortID, title, desc, beforeShortID string, labels []string, actor string) (*AddResult, error) {
+	return RunAddKind(db, parentShortID, title, desc, beforeShortID, labels, actor, KindTask)
+}
+
+// RunAddKind is RunAdd with the new task's tree kind explicit. Only a root
+// may be created as an issue-tree — kind is a property of the root, so
+// asking for one on a child is an error rather than a silent downgrade.
+func RunAddKind(db *sql.DB, parentShortID, title, desc, beforeShortID string, labels []string, actor string, kind TreeKind) (*AddResult, error) {
+	if kind != KindTask && kind != KindIssue {
+		return nil, fmt.Errorf("invalid kind %q (want task|issue)", kind)
+	}
+	if kind.IsIssue() && parentShortID != "" {
+		return nil, fmt.Errorf("kind %q is only valid on a root task; %q was given a parent", kind, title)
+	}
+
 	tx, err := db.Begin()
 	if err != nil {
 		return nil, err
@@ -104,10 +120,10 @@ func RunAdd(db *sql.DB, parentShortID, title, desc, beforeShortID string, labels
 	now := CurrentNowFunc().Unix()
 	var taskID int64
 	err = tx.QueryRow(`
-		INSERT INTO tasks (short_id, parent_id, title, description, status, sort_order, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 'available', ?, ?, ?)
+		INSERT INTO tasks (short_id, parent_id, title, description, status, sort_order, created_at, updated_at, kind)
+		VALUES (?, ?, ?, ?, 'available', ?, ?, ?, ?)
 		RETURNING id
-	`, shortID, parentID, title, desc, sortOrder, now, now).Scan(&taskID)
+	`, shortID, parentID, title, desc, sortOrder, now, now, string(kind)).Scan(&taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -116,12 +132,16 @@ func RunAdd(db *sql.DB, parentShortID, title, desc, beforeShortID string, labels
 	if parentShortID != "" {
 		eventParentID = parentShortID
 	}
-	if err := recordEvent(tx, taskID, "created", actor, map[string]any{
+	createdDetail := map[string]any{
 		"parent_id":   eventParentID,
 		"title":       title,
 		"description": desc,
 		"sort_order":  sortOrder,
-	}); err != nil {
+	}
+	if kind.IsIssue() {
+		createdDetail["kind"] = string(kind)
+	}
+	if err := recordEvent(tx, taskID, "created", actor, createdDetail); err != nil {
 		return nil, err
 	}
 
@@ -381,7 +401,7 @@ func cascadeAutoCloseAncestors(tx dbtx, taskID int64, triggerShortID, triggerKin
 
 		row := tx.QueryRow(`
 			SELECT id, short_id, parent_id, title, description, status, sort_order,
-			       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at
+			       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 			FROM tasks WHERE id = ?`, *parentID)
 		p, err := scanTask(row)
 		if err != nil {
@@ -1145,6 +1165,16 @@ func RunReparent(db *sql.DB, shortID, newParentShortID, direction, relativeToSho
 	var newParentID *int64
 	var newParentShortOut string
 	if newParentShortID != "" {
+		// An issue root that gains a parent stops being a root, and its kind
+		// would silently stop meaning anything. Refuse rather than reset:
+		// the reset is one explicit `job kind <id> task` away, and that
+		// conversion belongs in the event log where a silent one would not be.
+		if task.ParentID == nil && task.Kind.IsIssue() {
+			return fmt.Errorf(
+				"%s is an issue-tree root; tree kind is root-only. Run 'job kind %s task' first if you mean to fold it into another tree.",
+				shortID, shortID,
+			)
+		}
 		newParent, err := GetTaskByShortID(tx, newParentShortID)
 		if err != nil {
 			return err
@@ -1525,7 +1555,7 @@ func findNextClaimableLeafHierarchical(db *sql.DB, closed *Task) (*Task, *Task, 
 func getTaskByID(db dbtx, id int64) (*Task, error) {
 	row := db.QueryRow(`
 		SELECT id, short_id, parent_id, title, description, status, sort_order,
-		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at
+		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE id = ? AND deleted_at IS NULL
 	`, id)
 	t, err := scanTask(row)
@@ -1541,7 +1571,7 @@ func getTaskByID(db dbtx, id int64) (*Task, error) {
 func getRootTasks(db *sql.DB) ([]*Task, error) {
 	rows, err := db.Query(`
 		SELECT id, short_id, parent_id, title, description, status, sort_order,
-		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at
+		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE parent_id IS NULL AND deleted_at IS NULL
 		ORDER BY sort_order
 	`)
@@ -1563,7 +1593,7 @@ func getRootTasks(db *sql.DB) ([]*Task, error) {
 func getChildren(db *sql.DB, parentID int64) ([]*Task, error) {
 	rows, err := db.Query(`
 		SELECT id, short_id, parent_id, title, description, status, sort_order,
-		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at
+		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE parent_id = ? AND deleted_at IS NULL
 		ORDER BY sort_order
 	`, parentID)
@@ -1688,7 +1718,7 @@ func descendToClaimableLeaf(db *sql.DB, t *Task) (*Task, error) {
 	if open == 0 {
 		return t, nil
 	}
-	leaves, err := queryAvailableLeafFrontier(db, &t.ID, 1, "")
+	leaves, err := queryAvailableLeafFrontier(db, &t.ID, 1, "", "")
 	if err != nil {
 		return nil, err
 	}
@@ -1733,7 +1763,7 @@ func RunInfo(db *sql.DB, shortID string) (*TaskInfo, error) {
 	if task.ParentID != nil {
 		row := db.QueryRow(`
 			SELECT id, short_id, parent_id, title, description, status, sort_order,
-			       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at
+			       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 			FROM tasks WHERE id = ? AND deleted_at IS NULL
 		`, *task.ParentID)
 		p, err := scanTask(row)
@@ -1745,7 +1775,7 @@ func RunInfo(db *sql.DB, shortID string) (*TaskInfo, error) {
 
 	rows, err := db.Query(`
 		SELECT id, short_id, parent_id, title, description, status, sort_order,
-		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at
+		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE parent_id = ? AND deleted_at IS NULL
 		ORDER BY sort_order
 	`, task.ID)
@@ -1854,7 +1884,7 @@ func GetAncestors(db *sql.DB, shortID string) ([]*Task, error) {
 	for cur.ParentID != nil {
 		row := db.QueryRow(`
 			SELECT id, short_id, parent_id, title, description, status, sort_order,
-			       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at
+			       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 			FROM tasks WHERE id = ? AND deleted_at IS NULL
 		`, *cur.ParentID)
 		p, err := scanTask(row)
