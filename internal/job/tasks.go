@@ -383,8 +383,10 @@ func filterByClaimedActor(nodes []*TaskNode, actor string) []*TaskNode {
 // status-aware: if any sibling closed as "done", the ancestor cascades
 // to "done"; if every sibling is "canceled", the ancestor cascades to
 // "canceled". triggerKind labels the event ("done" or "cancel") so the
-// log can distinguish the two cascade flavours. Returns the ordered
-// list of auto-closed ancestors, nearest-parent first.
+// log can distinguish the two cascade flavours. The cascade never closes an
+// issue-tree root — it stops there instead, leaving the root open — since an
+// issue tree is open-ended by design. Returns the ordered list of
+// auto-closed ancestors, nearest-parent first.
 func cascadeAutoCloseAncestors(tx dbtx, taskID int64, triggerShortID, triggerKind, actor string, now int64) ([]AutoClosedAncestor, error) {
 	var result []AutoClosedAncestor
 	cursorID := taskID
@@ -418,6 +420,18 @@ func cascadeAutoCloseAncestors(tx dbtx, taskID int64, triggerShortID, triggerKin
 			return nil, err
 		}
 		if open > 0 {
+			return result, nil
+		}
+
+		// An issue-tree root is open-ended by design (see tree-kinds docs):
+		// its lifetime is not bounded by the plan that surfaced it. The
+		// cascade stops here without closing it — a bug filed under it later
+		// must land on a still-open root. Intermediate parents inside an
+		// issue tree (an issue with its own task children) are not roots and
+		// still auto-close normally; only the root itself is exempt. An
+		// explicit `job done`/`job cancel` on the root is unaffected — that
+		// path never goes through this cascade.
+		if p.ParentID == nil && p.Kind.IsIssue() {
 			return result, nil
 		}
 

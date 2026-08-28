@@ -140,7 +140,14 @@ func TestBuildIssuesStatus_NextNamesClaimableIssueLeaf(t *testing.T) {
 	}
 }
 
-func TestBuildIssuesStatus_NextNilWhenNoneClaimable(t *testing.T) {
+// lXi9K — an issue-tree root never auto-closes (it is open-ended by
+// design), so closing its last child leaves the root itself open with no
+// open children. That makes the root the frontier: `job next --issues`
+// surfaces it, matching the docs' "the next open issue" — there is nothing
+// left to point at except the container itself. This test previously
+// asserted Next == nil under the old (buggy) cascade, where closing the
+// leaf also closed the root out from under it.
+func TestBuildIssuesStatus_NextNilWhenIssueRootExhausted(t *testing.T) {
 	db := SetupTestDB(t)
 	bugs := MustAdd(t, db, "", "Bugs")
 	mustSetKind(t, db, bugs, KindIssue)
@@ -154,8 +161,10 @@ func TestBuildIssuesStatus_NextNilWhenNoneClaimable(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil status: the issue root still exists")
 	}
+	// The root stays open (it never auto-closes) but it is not a unit of
+	// work, so an exhausted issue tree has nothing next.
 	if got.Next != nil {
-		t.Errorf("Next = %+v, want nil (no claimable issue leaf)", got.Next)
+		t.Errorf("Next = %+v, want nil: an issue root is never the next issue", got.Next)
 	}
 }
 

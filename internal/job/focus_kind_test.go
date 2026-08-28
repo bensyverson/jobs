@@ -214,7 +214,13 @@ func TestClaimInTaskTree_LeavesTheIssueFocusAlone(t *testing.T) {
 
 // n7J — closing an issue root releases every actor's issue focus on it and
 // leaves task focuses untouched.
-func TestCloseIssueRoot_ReleasesTheIssueFocusOnly(t *testing.T) {
+// lXi9K — an issue-tree root never auto-closes (open-ended by design), so
+// the leaf-frontier cascade must never reach releaseFocusOnRootClose for it:
+// closing the last open leaf under an issue root leaves the root, and every
+// actor's issue focus on it, exactly as they were. This test previously
+// named itself for the opposite (buggy) behavior, where the cascade closed
+// the issue root and released everyone's issue focus.
+func TestCloseIssueLeaf_LeavesIssueFocusInPlace(t *testing.T) {
 	db := SetupTestDB(t)
 	taskRoot, taskLeaf, issueRoot, issueLeaf := seedTwoKinds(t, db)
 
@@ -222,14 +228,18 @@ func TestCloseIssueRoot_ReleasesTheIssueFocusOnly(t *testing.T) {
 	MustClaim(t, db, issueLeaf, "1h")
 	mustSetFocus(t, db, issueRoot, "bystander")
 
-	// Closing the only open leaf cascade-closes the issue root.
+	// Closing the only open leaf no longer cascade-closes the issue root.
 	if _, _, err := RunDone(db, []string{issueLeaf}, false, "", nil, TestActor, false, ""); err != nil {
 		t.Fatalf("done issue leaf: %v", err)
 	}
 
 	for _, actor := range []string{TestActor, "bystander"} {
-		if got, err := GetFocusKind(db, actor, KindIssue); err != nil || got != nil {
-			t.Errorf("issue focus for %s after the root closed: got %v (err %v), want nil", actor, got, err)
+		got, err := GetFocusKind(db, actor, KindIssue)
+		if err != nil {
+			t.Fatalf("GetFocusKind(issue) for %s: %v", actor, err)
+		}
+		if got == nil || got.ShortID != issueRoot {
+			t.Errorf("issue focus for %s after the leaf closed: got %v, want %s (root stays open)", actor, got, issueRoot)
 		}
 	}
 	got, err := GetFocusKind(db, TestActor, KindTask)
@@ -237,10 +247,10 @@ func TestCloseIssueRoot_ReleasesTheIssueFocusOnly(t *testing.T) {
 		t.Fatalf("GetFocusKind(task): %v", err)
 	}
 	if got == nil || got.ShortID != taskRoot {
-		t.Errorf("task focus after an issue root closed: got %v, want %s (untouched)", got, taskRoot)
+		t.Errorf("task focus after an issue leaf closed: got %v, want %s (untouched)", got, taskRoot)
 	}
-	if n := focusReleasedCount(t, db, "bystander"); n != 1 {
-		t.Errorf("focus_released events for the bystander: got %d, want 1", n)
+	if n := focusReleasedCount(t, db, "bystander"); n != 0 {
+		t.Errorf("focus_released events for the bystander: got %d, want 0 (root never closes)", n)
 	}
 }
 

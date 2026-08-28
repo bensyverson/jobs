@@ -122,3 +122,37 @@ func TestCloseUnfocusedRoot_NoReleaseEvents(t *testing.T) {
 		t.Errorf("focus must survive closing an unrelated root: got %v, want %s", got, focusRoot)
 	}
 }
+
+// lXi9K — An issue root never auto-closes (it is open-ended by design), so
+// the cascade must never reach releaseFocusOnRootClose for it: closing the
+// last open bug in an issue tree must not release anyone's issue focus.
+func TestCascadeCloseIssueRoot_DoesNotReleaseFocus(t *testing.T) {
+	db := SetupTestDB(t)
+	root, err := RunAddKind(db, "", "Bugs", "", "", nil, TestActor, KindIssue)
+	if err != nil {
+		t.Fatalf("RunAddKind: %v", err)
+	}
+	bug := MustAdd(t, db, root.ShortID, "Bug")
+	MustClaim(t, db, bug, "1h")
+
+	got, err := GetFocusKind(db, TestActor, KindIssue)
+	if err != nil {
+		t.Fatalf("GetFocusKind before done: %v", err)
+	}
+	if got == nil || got.ShortID != root.ShortID {
+		t.Fatalf("issue focus before done = %v, want %s", got, root.ShortID)
+	}
+
+	MustDone(t, db, bug)
+
+	if n := focusReleasedCount(t, db, TestActor); n != 0 {
+		t.Errorf("focus_released events after closing an issue root's last child: got %d, want 0", n)
+	}
+	got, err = GetFocusKind(db, TestActor, KindIssue)
+	if err != nil {
+		t.Fatalf("GetFocusKind after done: %v", err)
+	}
+	if got == nil || got.ShortID != root.ShortID {
+		t.Errorf("issue focus after cascade should survive (root stays open): got %v, want %s", got, root.ShortID)
+	}
+}

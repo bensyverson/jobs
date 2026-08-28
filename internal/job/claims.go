@@ -546,6 +546,7 @@ func queryAvailableDirectChildren(db *sql.DB, parentID *int64, limit int, labelN
 		       t.claimed_by, t.claim_expires_at, t.completion_note, t.created_at, t.updated_at, t.deleted_at, t.kind
 		FROM tasks t
 		WHERE t.status = 'available' AND t.deleted_at IS NULL %s %s
+		  AND NOT (t.parent_id IS NULL AND t.kind = 'issue')
 		  AND NOT EXISTS (
 		    SELECT 1 FROM blocks b
 		    JOIN tasks bt ON bt.id = b.blocker_id
@@ -575,6 +576,8 @@ func queryAvailableDirectChildren(db *sql.DB, parentID *int64, limit int, labelN
 // are available, unblocked, and have no open children. Results are ordered
 // by depth-first sort_order traversal so sibling-declaration order is
 // preserved.
+// An issue root is never a candidate in either query: it stays open by
+// design once its children close, but it is a container, not work.
 func queryAvailableLeafFrontier(db *sql.DB, parentID *int64, limit int, labelName string, kind TreeKind) ([]*Task, error) {
 	var anchorFilter string
 	var args []any
@@ -619,6 +622,7 @@ func queryAvailableLeafFrontier(db *sql.DB, parentID *int64, limit int, labelNam
 		       t.claimed_by, t.claim_expires_at, t.completion_note, t.created_at, t.updated_at, t.deleted_at, t.kind
 		FROM tasks t JOIN subtree s ON s.id = t.id
 		WHERE t.status = 'available' AND t.deleted_at IS NULL %s
+		  AND NOT (t.parent_id IS NULL AND t.kind = 'issue')
 		  AND NOT EXISTS (
 		    SELECT 1 FROM blocks b
 		    JOIN tasks bt ON bt.id = b.blocker_id

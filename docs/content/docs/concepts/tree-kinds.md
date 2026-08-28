@@ -11,7 +11,7 @@ A bug found while working a plan gets filed where it was found. It then holds th
 
 Underneath that is a mismatch in how the two things complete. A plan is a **decomposition**: it has a bottom, and a parent closes when its children close. A defect is **encountered**: its lifetime is not bounded by the plan that surfaced it, and it closes on evidence — a regression test — rather than on structure.
 
-An issue-tree is a place where that open-endedness is normal.
+An issue-tree is a place where that open-endedness is normal. Consequently, the auto-close cascade that closes a parent when its last open child closes never closes an issue-tree root — closing the last open bug under it leaves the root open; only an explicit `job done <root>` closes it.
 
 ## Kind is a property of the root only
 

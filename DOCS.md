@@ -237,7 +237,7 @@ without criteria see no new friction.
 
 ### Tree kinds
 
-Every **root** is either a **task-tree** (the default) or an **issue-tree**. A plan is a decomposition — it has a bottom, and a parent closes when its children close. A defect is *encountered*: its lifetime is not bounded by the plan that surfaced it. Filing a bug as a leaf of the plan it was found in therefore holds that plan open indefinitely. An issue-tree is where that open-endedness is normal.
+Every **root** is either a **task-tree** (the default) or an **issue-tree**. A plan is a decomposition — it has a bottom, and a parent closes when its children close. A defect is *encountered*: its lifetime is not bounded by the plan that surfaced it. Filing a bug as a leaf of the plan it was found in therefore holds that plan open indefinitely. An issue-tree is where that open-endedness is normal. Because of that, the leaf-frontier auto-close cascade never closes an issue-tree root — closing its last open child leaves the root itself open; only an explicit `job done <root>` closes it.
 
 Kind is a property of the **root only**. Children of an issue root are ordinary tasks — an issue owns task children directly, so it stays one object with one lifetime, and every verb works unchanged inside it.
 
