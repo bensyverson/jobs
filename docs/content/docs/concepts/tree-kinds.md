@@ -39,7 +39,7 @@ job add "Flaky auth test on CI" --kind issue
 
 ## What the default readers do
 
-`next`, `orient`, and the no-argument `claim --next` answer "what is next in my plan", so they **skip issue-trees**. `job status`'s `Next:` hint follows the same rule. Pass `--issues` to ask the opposite question — the frontier across issue-trees — as a deliberate triage move:
+`next`, `orient`, and the no-argument `claim --next` answer "what is next in my plan", so they **skip issue-trees**. `job status`'s `Next:` hint and the trailing `Next:` hint on a `done` ack follow the same rule — the `done` hint skips issue-tree roots when it crosses out of the closed task's own tree, and never filters inside it. Pass `--issues` to ask the opposite question — the frontier across issue-trees — as a deliberate triage move:
 
 ```sh
 job next --issues                          # the next open issue

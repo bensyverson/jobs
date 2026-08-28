@@ -195,9 +195,9 @@ Tip: pass --claim-next to atomically close this task and claim the next availabl
 				var cerr error
 				switch {
 				case claimUnder != "":
-					t, cerr = job.RunClaimNextFiltered(db, claimUnder, "", actor, false, false, false)
+					t, cerr = job.RunClaimNextFiltered(db, claimUnder, "", "", actor, false, false, false)
 				case claimAny:
-					t, cerr = job.RunClaimNextFiltered(db, "", "", actor, false, false, false)
+					t, cerr = job.RunClaimNextFiltered(db, "", "", "", actor, false, false, false)
 				default:
 					t, cerr = job.RunClaimNextUnderRootOf(db, lastCtxID, "", actor, false)
 				}

@@ -1489,11 +1489,23 @@ func findNextClaimableLeafHierarchical(db *sql.DB, closed *Task) (*Task, *Task, 
 		var err error
 		if anchorParentID == nil {
 			children, err = getRootTasks(db)
+			if err != nil {
+				return nil, nil, "", err
+			}
+			// The final pass treats the root forest as virtual siblings, and
+			// it is the only level where the walk leaves the closed task's
+			// own tree. Crossing into an issue-tree there would hand the
+			// operator a bug report as "what's next" — `next`, `orient` and
+			// `claim --next` all scope to task-trees by default, so the hint
+			// does too. Work inside the closed task's own tree stays
+			// reachable whatever its kind: that root is the came-from at
+			// this level, and every level below it is unfiltered.
+			children = taskKindRoots(children)
 		} else {
 			children, err = getChildren(db, *anchorParentID)
-		}
-		if err != nil {
-			return nil, nil, "", err
+			if err != nil {
+				return nil, nil, "", err
+			}
 		}
 
 		// Forward candidates: sort_order strictly greater than came-from's.
@@ -1566,6 +1578,19 @@ func getTaskByID(db dbtx, id int64) (*Task, error) {
 		return nil, err
 	}
 	return t, nil
+}
+
+// taskKindRoots drops issue-tree roots from a root-forest candidate list,
+// matching the default scope of `next`, `orient` and `claim --next`.
+func taskKindRoots(roots []*Task) []*Task {
+	out := roots[:0:0]
+	for _, r := range roots {
+		if r.Kind.IsIssue() {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 func getRootTasks(db *sql.DB) ([]*Task, error) {

@@ -174,7 +174,7 @@ List output is GitHub-Flavored Markdown with checkbox items, so pasting `job ls 
 | | `--format=json` Machine-readable output. |
 | `job reopen <id>` | Reopen a completed task and auto-claim it (so you can continue work immediately). `--no-claim` skips the auto-claim. `--cascade` also reopens all done descendants (auto-claim is suppressed with `--cascade` since the parent would have open children). |
 
-After a successful `done`, the ack ends with a `Next:` hint naming the suggested next claimable leaf. The walk starts at the closed task's parent and, at each ancestor level, prefers forward siblings (later sort_order) over earlier ones before stepping up; it only crosses into a different root tree once the closed task's own root is exhausted. Agents following the hint stay inside the current plan as long as there's work there.
+After a successful `done`, the ack ends with a `Next:` hint naming the suggested next claimable leaf. The walk starts at the closed task's parent and, at each ancestor level, prefers forward siblings (later sort_order) over earlier ones before stepping up; it only crosses into a different root tree once the closed task's own root is exhausted. Agents following the hint stay inside the current plan as long as there's work there. When it does cross, it skips issue-tree roots, matching `next` and `claim --next` — the closed task's own tree stays fully reachable whatever its kind.
 
 #### Acceptance criteria
 
@@ -242,7 +242,7 @@ Kind is a property of the **root only**. Children of an issue root are ordinary 
 | `job --as <name> kind <root> task\|issue` | Set it. Records a `kind_changed` event with the before and after. Setting a kind on a non-root is an error. A no-op set records nothing. |
 | `job add <title> --kind issue` | Create a new root already marked as an issue-tree. Invalid with a parent. |
 
-**The default readers skip issue-trees.** `next`, `orient`, `claim --next` and `status`'s `Next:` hint all answer "what is next in my plan", so they never surface a bug. Pass `--issues` to `next`, `orient` or `claim --next` to ask the opposite question:
+**The default readers skip issue-trees.** `next`, `orient`, `claim --next`, `status`'s `Next:` hint and the `done` ack's `Next:` hint all answer "what is next in my plan", so they never surface a bug. Pass `--issues` to `next`, `orient` or `claim --next` to ask the opposite question:
 
 ```sh
 job next --issues            # the next open issue
@@ -260,9 +260,9 @@ Deliberately absent: severity, triage states, reporters. Labels cover severity a
 
 | Command | Description |
 |---------|-------------|
-| `job claim <id> [duration]` | Claim a task. Duration defaults to `30m`. Units: `s`, `m`, `h`, `d`. Ack echoes the title for confirmation: `Claimed: <id> "<title>" (expires in <dur>)`. The full `show <id>` briefing follows the ack, so `claim` is also the briefing — no follow-up `show` needed. The first line stays the load-bearing scriptable signal (scripts grepping for `Claimed:` keep working); same flow for `claim-next` and `done --claim-next`. |
+| `job claim <id> [duration]` | Claim a task. Duration defaults to `30m`. Units: `s`, `m`, `h`, `d`. Ack echoes the title for confirmation: `Claimed: <id> "<title>" (expires in <dur>)`. The full `show <id>` briefing follows the ack, so `claim` is also the briefing — no follow-up `show` needed. The first line stays the load-bearing scriptable signal (scripts grepping for `Claimed:` keep working); same flow for `claim --next` and `done --claim-next`. `-m "<text>"` records a starting note in the same transaction as the claim; `-F <path>` reads it from a file (`-F -` from stdin). |
 | `job release <id>` | Release a claim. `-m "<text>"` records a parting note; `-F <path>` reads it from a file (`-F -` from stdin). |
-| `job claim-next [parent] [duration]` | Find and claim the next available leaf in one step. Pass `--include-parents` to claim any available task, or `--issues` to claim from the issue-trees instead (see [Tree kinds](#tree-kinds)). |
+| `job claim --next [parent] [duration]` | Find and claim the next available leaf in one step. Pass `--include-parents` to claim any available task, or `--issues` to claim from the issue-trees instead (see [Tree kinds](#tree-kinds)). `-m` / `-F` record a starting note on whichever leaf is picked, exactly as on `claim <id>`. |
 | `job heartbeat <id> [<id>...]` | Extend your live claim(s) by 30 minutes. Rarely needed — any write to a task you hold (`note`, `edit`, `label add`, `label remove`) auto-extends the claim. Reach for `heartbeat` only for the "I'm thinking, not writing" case. |
 
 Claims are attributed to the `--as` name. Claims expire automatically. `--force` overrides an existing claim. Writes to a claimed task by its holder auto-extend the TTL — keep noting, editing, or labelling and the claim stays fresh without explicit heartbeats.

@@ -387,7 +387,7 @@ func TestClaimNextExcludesIssueTreesAndIssuesIncludesThem(t *testing.T) {
 		t.Fatalf("claim --next = %s, want %s", got.ShortID, taskLeaf)
 	}
 
-	got, err = RunClaimNextFiltered(db, "", "", TestActor, false, false, true)
+	got, err = RunClaimNextFiltered(db, "", "", "", TestActor, false, false, true)
 	if err != nil {
 		t.Fatalf("RunClaimNextFiltered(--issues): %v", err)
 	}

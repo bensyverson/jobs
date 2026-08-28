@@ -18,6 +18,8 @@ job claim --next 2h                        # combine: next leaf, longer hold
 job claim abc12 --force                    # override an existing claim
 job claim abc12 -q                         # one-line ack only, no briefing
 job claim --next --issues                  # claim the next open issue instead
+job claim abc12 -m "what I'm trying"       # starting note, same transaction
+job claim --next -F plan.md                # ... including on the leaf --next picks
 ```
 
 The `--next` modes:
@@ -25,6 +27,7 @@ The `--next` modes:
 - `claim --next` walks the leaf frontier in plan order and atomically claims the first available one. With a [focus](#focus) set, the no-argument walk stays inside your focused root; an explicit parent argument searches that subtree regardless of focus. The race-safe contract is: if two agents call `claim --next` at the same moment, exactly one wins each leaf — the loser gets the *next* leaf, not an error. This is the canonical spawn pattern for parallel agents.
 - `--include-parents` widens the walk to include any available task, not only leaves. Reach for it only when you genuinely want to claim a task that has open children — usually you don't.
 - `--issues` points the no-argument walk at [issue-trees](../../concepts/tree-kinds/) instead of task-trees. Without it, `claim --next` never hands you a bug — it answers "what is next in my plan". Like `next --issues`, it is forest-wide. An explicit parent argument, or a focus set on an issue root, overrides the default without the flag.
+- `-m "<text>"` / `-F <path>` work the same under `--next` as on `claim <id>`: the starting note is recorded on whichever leaf the walk picks, in the same transaction as the claim. A malformed body aborts before anything is claimed.
 - `--label <name>` restricts the search to tasks carrying a label. Combined with multi-agent setups, this is how you steer different agents toward different streams of work.
 
 Idiomatic combination: `job claim --next 1h && do-the-work && job done <id> --claim-next`. See `done --claim-next` below.
@@ -109,6 +112,7 @@ Things to keep in mind:
 - **Auto-cascade.** Closing the last open child of a parent auto-closes the parent. The chain continues to the root, attributed to whichever agent closed the final leaf.
 - **`--claim-next` is race-safe.** The close and the next claim are one transaction; two agents racing the same `done --claim-next` cannot both end up claiming the same follow-on leaf.
 - **`--claim-next` is scoped to the closed task's root by default.** It claims the next available leaf within the root subtree of the task you just closed, so a focused session never gets handed an unrelated leaf in a different root. Override with `--under <id>` to target another subtree, or `--any` to restore the old repo-global next-leaf behavior.
+- **The trailing `Next:` hint skips issue-trees.** The walk prefers forward siblings, then earlier ones, stepping up the closed task's ancestor chain before crossing into another root tree. When it crosses, it considers task-tree roots only — the same default `next`, `orient` and `claim --next` use — so closing planned work never hands you a bug report as "what's next". Inside the closed task's own tree nothing is filtered, whatever its kind.
 
 ## `reopen`
 

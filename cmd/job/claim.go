@@ -40,8 +40,22 @@ Tip: use 'job claim --next [parent] [duration]' to find and claim the next avail
 				return err
 			}
 
+			// The body is resolved before the --next branch: `claim --next -m`
+			// records its note on whichever leaf is picked, exactly as
+			// `claim <id> -m` does, and a malformed body must abort before
+			// anything is claimed.
+			resolved, _, rerr := resolveBodyFlag(cmd, bodyFlagSpec{
+				Verb:       "claim",
+				InlineName: "message",
+				Inline:     note,
+				File:       noteFile,
+			})
+			if rerr != nil {
+				return rerr
+			}
+
 			if next {
-				return runClaimNext(cmd, db, args, actor, force, includeParents, issues, quiet, format)
+				return runClaimNext(cmd, db, args, resolved, actor, force, includeParents, issues, quiet, format)
 			}
 
 			if len(args) < 1 {
@@ -52,16 +66,6 @@ Tip: use 'job claim --next [parent] [duration]' to find and claim the next avail
 			var duration string
 			if len(args) >= 2 {
 				duration = args[1]
-			}
-
-			resolved, _, rerr := resolveBodyFlag(cmd, bodyFlagSpec{
-				Verb:       "claim",
-				InlineName: "message",
-				Inline:     note,
-				File:       noteFile,
-			})
-			if rerr != nil {
-				return rerr
 			}
 
 			pre, _ := job.GetTaskByShortID(db, shortID)
@@ -114,9 +118,9 @@ Tip: use 'job claim --next [parent] [duration]' to find and claim the next avail
 }
 
 // runClaimNext is the body of `claim --next [parent] [duration]`.
-func runClaimNext(cmd *cobra.Command, db *sql.DB, args []string, actor string, force, includeParents, issues, quiet bool, format string) error {
+func runClaimNext(cmd *cobra.Command, db *sql.DB, args []string, note, actor string, force, includeParents, issues, quiet bool, format string) error {
 	parentShortID, duration := job.ParseNextParentAndDuration(args)
-	task, err := job.RunClaimNextFiltered(db, parentShortID, duration, actor, force, includeParents, issues)
+	task, err := job.RunClaimNextFiltered(db, parentShortID, duration, note, actor, force, includeParents, issues)
 	if err != nil {
 		return err
 	}

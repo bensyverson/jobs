@@ -720,7 +720,7 @@ func defaultKindScope(issues bool) TreeKind {
 }
 
 func RunClaimNext(db *sql.DB, parentShortID, duration, actor string, force bool) (*Task, error) {
-	return RunClaimNextFiltered(db, parentShortID, duration, actor, force, false, false)
+	return RunClaimNextFiltered(db, parentShortID, duration, "", actor, force, false, false)
 }
 
 // RunClaimNextUnderRootOf scopes a follow-on claim to the root subtree of the
@@ -741,16 +741,21 @@ func RunClaimNextUnderRootOf(db *sql.DB, closedShortID, duration, actor string, 
 	if err != nil {
 		return nil, err
 	}
-	return RunClaimNextFiltered(db, root.ShortID, duration, actor, force, false, false)
+	return RunClaimNextFiltered(db, root.ShortID, duration, "", actor, force, false, false)
 }
 
-func RunClaimNextFiltered(db *sql.DB, parentShortID, duration, actor string, force, includeParents, issues bool) (*Task, error) {
+// RunClaimNextFiltered picks the next available leaf in scope and claims it.
+// note, when non-empty, is recorded on the leaf that was actually picked —
+// `claim --next -m` has the same meaning as `claim <id> -m`, and lands in the
+// same transaction as the claim itself, so a failed claim leaves no orphan
+// note behind.
+func RunClaimNextFiltered(db *sql.DB, parentShortID, duration, note, actor string, force, includeParents, issues bool) (*Task, error) {
 	task, err := RunNextFiltered(db, parentShortID, actor, "", includeParents, issues)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := RunClaim(db, task.ShortID, duration, "", actor, force); err != nil {
+	if err := RunClaim(db, task.ShortID, duration, note, actor, force); err != nil {
 		return nil, err
 	}
 

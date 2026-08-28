@@ -137,7 +137,7 @@ job kind abc12 task                                # convert it back
 
 - **Roots only.** Children of an issue root are ordinary tasks; setting a kind on a non-root is an error.
 - **Nothing is lost either way.** Only the kind changes, and the change is recorded as a `kind_changed` event carrying the before and after.
-- **It steers the default readers.** `next`, `orient`, `claim --next` and `status`'s `Next:` hint skip issue-trees; `--issues` targets them instead. An explicit id, an explicit scope, or a focus on the issue root overrides that.
+- **It steers the default readers.** `next`, `orient`, `claim --next`, `status`'s `Next:` hint and the `done` ack's `Next:` hint skip issue-trees; `--issues` targets them instead. An explicit id, an explicit scope, or a focus on the issue root overrides that.
 - A no-op set (asking for the kind the root already has) prints a confirmation and records nothing.
 
 ## `label`
