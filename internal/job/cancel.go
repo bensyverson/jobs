@@ -373,6 +373,15 @@ func executePurge(
 			if _, err := tx.Exec("DELETE FROM blocks WHERE blocker_id = ? OR blocked_id = ?", tid, tid); err != nil {
 				return nil, err
 			}
+			// found-in survives every status change of either end, but not
+			// purge: the task row itself is erased, so the reference has
+			// nothing left to point at. Deleted explicitly rather than left
+			// to ON DELETE CASCADE, because `PRAGMA foreign_keys=ON` is set
+			// on one pooled connection and may not be in force here — the
+			// same reason the blocks delete above is explicit.
+			if _, err := tx.Exec("DELETE FROM found_in WHERE task_id = ? OR source_id = ?", tid, tid); err != nil {
+				return nil, err
+			}
 		}
 		// Children first to satisfy foreign-key chain (descendants are listed
 		// in pre-order; reverse to delete leaves first).

@@ -1706,6 +1706,8 @@ type TaskInfo struct {
 	ChildLabels   map[int64][]string  // child task ID → labels (for `RenderMarkdownList` reuse)
 	Blockers      []*Task
 	Blocked       []*Task // tasks this task is blocking (outbound)
+	FoundIn       *Task   // the task that surfaced this one, if recorded
+	Surfaced      []*Task // tasks recorded as found in this one
 	Labels        []string
 	Notes         []NoteEntry
 	Criteria      []Criterion
@@ -1771,6 +1773,16 @@ func RunInfo(db *sql.DB, shortID string) (*TaskInfo, error) {
 		return nil, err
 	}
 
+	foundIn, err := foundInSourceByID(db, task.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	surfaced, err := surfacedByID(db, task.ID)
+	if err != nil {
+		return nil, err
+	}
+
 	labels, err := GetLabels(db, task.ID)
 	if err != nil {
 		return nil, err
@@ -1817,6 +1829,8 @@ func RunInfo(db *sql.DB, shortID string) (*TaskInfo, error) {
 		ChildLabels:   childLabels,
 		Blockers:      blockers,
 		Blocked:       blocked,
+		FoundIn:       foundIn,
+		Surfaced:      surfaced,
 		Labels:        labels,
 		Notes:         notes,
 		Criteria:      criteria,

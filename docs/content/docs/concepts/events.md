@@ -1,6 +1,6 @@
 ---
 title: The event log
-weight: 6
+weight: 7
 ---
 
 Jobs is an **event-sourced** system. Every state change is recorded as an immutable event in an append-only log; the current shape of the world is a projection of those events. The `tasks`, `claims`, `blockers`, and other tables are caches — useful for queries, but the events are the truth.

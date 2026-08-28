@@ -132,13 +132,14 @@ All writes additionally require `--as <name>` (see [Identity](#identity)).
 | | `-d, --desc <text>` Set a description. Always literal — no `@path` expansion, so a description starting with `@` is stored as typed. |
 | | `-F, --file <path>` Read the description from a file; `-F -` reads stdin. Mutually exclusive with `-d`. |
 | | `-b, --before <id>` Insert before this sibling. |
+| | `--found-in <id>` Record the task that surfaced this one. Provenance only — no parenting, no blocking. The source is resolved before the task is created, so a bad id leaves nothing behind. |
 
 ### Viewing tasks
 
 | Command | Description |
 |---------|-------------|
 | `job ls [parent] [--all]` | List actionable tasks. `--all` (or the legacy positional `all`) shows live work plus a flat "Recently closed (N of M)" footer of the 10 most recently closed tasks; closed children of an open parent render inline under that parent so local context stays visible. `--since <window>` (e.g. `5m`, `2h`, `7d`) or `--since <count>` (e.g. `50`) widens the footer; `--no-truncate` removes the cap entirely. The two are mutually exclusive. `--format=json` returns the full closed history, bypassing the cap. Use `-l, --label <name>` to filter, `--mine` for caller-claimed only, `--claimed-by <name>` for a specific agent. `job list` and `job tree` are silent aliases. |
-| `job show <id> [id ...]` | Show full details for one or more tasks, separated by a blank line. When the task has 1–10 direct children, a `Children:` section lists them inline as a markdown checklist (same shape as `job ls` rows, including blockers / claim / labels in parens); above 10 it collapses to a count line pointing at `job ls <id>`. Includes a `Notes:` section listing every `noted` event chronologically with actor and relative timestamp. Description and note bodies are unwrapped on render — author-supplied single newlines collapse to spaces, blank-line paragraph breaks and bullet lists are preserved. `--ancestors` prepends each ancestor's id, title, and description before the named node, in root → parent → node order, so a single call gives the full plan context without extra round-trips. `--format=json` returns a JSON array; the `children` field is an array of `{id,title,status,blockers?,labels?}` objects. `job info <id>` is a silent alias. |
+| `job show <id> [id ...]` | Show full details for one or more tasks, separated by a blank line. When the task has 1–10 direct children, a `Children:` section lists them inline as a markdown checklist (same shape as `job ls` rows, including blockers / claim / labels in parens); above 10 it collapses to a count line pointing at `job ls <id>`. Includes a `Notes:` section listing every `noted` event chronologically with actor and relative timestamp. Description and note bodies are unwrapped on render — author-supplied single newlines collapse to spaces, blank-line paragraph breaks and bullet lists are preserved. `--ancestors` prepends each ancestor's id, title, and description before the named node, in root → parent → node order, so a single call gives the full plan context without extra round-trips. When a found-in reference is recorded, a `Found in:` line names the source with its status, and a `Surfaced:` checklist on the source names what it produced. `--format=json` returns a JSON array; the `children` field is an array of `{id,title,status,blockers?,labels?}` objects, and `found_in` / `surfaced` carry the provenance edges. `job info <id>` is a silent alias. |
 | `job next [parent]` | Show the next available leaf (a task with no open children). Pass `--include-parents` to surface any available task. `-l, --label <name>` filters. |
 | `job orient [id]` | Regenerate the full plan tree around a target leaf for a fresh agent: a synthesized `orient:` header (target, blockers/blocks, criteria tally, own/weigh notes) followed by the `tasks:` tree. No id defaults to the next available leaf (respecting [focus](#identity)); `--scope <id>` narrows what's rendered; `--full` keeps done-task history (default view elides it). Read-only, never requires `--as`, YAML-only (`--format md` is planned). Unlike `next` and `claim --next`, an empty tree is a valid answer, not an error: when there's nothing to target (an exhausted focused root, or an empty repo), `orient` still exits **0**, printing the same guidance under `orient.target: null` / `orient.message` and rendering whatever's in scope. |
 | `job status` | Session briefing: claimed / open / done tally + identity line, then a per-root rollup of the top-level forest (one row per top-level task with its own subtree counts). Ends with a `Next:` hint naming the globally-next claimable leaf, `Stale:` lines for any claims past their TTL, and `Decision:` lines for any open tasks labeled `decision` (human-decision pending). With `--as`, the claimed count is scoped to the caller; without, it counts all live claims. |
@@ -256,6 +257,22 @@ These three behaviors together mean parents are pure scaffolding: you never expl
 | `job block remove <blocked> by <blocker> [<blocker>...]` | Remove one or more blocking relationships atomically. Blocks also auto-remove when the blocker is marked done. |
 
 The legacy single-blocker forms `job block <blocked> by <blocker>` and `job unblock <blocked> from <blocker>` still work but emit a one-line stderr deprecation notice routing to the canonical `block add` / `block remove` form.
+
+### Provenance
+
+A **found-in** reference records where a task was surfaced — the leaf someone was working when a defect turned up. It is the opposite of a blocker: it links the two tasks and gates nothing.
+
+| Command | Description |
+|---------|-------------|
+| `job found-in <task> in <source>` | Record that the task was found while working the source. One source per task; setting a new one replaces the old, and the event records both ids. A task cannot be found in itself; longer loops are allowed, since nothing traverses the edge. |
+| `job found-in <task> --clear` | Remove the reference. Clearing a task that has none is an error, so a mistyped id is caught. |
+| `job add <parent> <title> --found-in <source>` | Record it at creation time, when the issue is filed onto its own root. |
+
+`job show` prints both ends: `Found in: <id> <title> (<status>)` on the task, and a `Surfaced:` checklist on the source. `--format=json` carries them as `found_in` and `surfaced`.
+
+The reference survives the source being marked done, canceled, canceled by cascade, or deleted — the common case is that the plan ships while the bug does not. It does not survive `cancel --purge`, which erases the row it points at. Neither end blocks the other: both stay claimable and closable regardless of the other's state, and closing the source's tree never cascades into the task.
+
+For the rare defect that genuinely *should* hold a plan open, state both: `job found-in` for the provenance, `job block add <leaf> by <bug>` for the gate.
 
 ### Labels
 

@@ -1,6 +1,6 @@
 ---
 title: Labels
-weight: 5
+weight: 6
 ---
 
 Tasks carry free-form, flat **labels** — a simple slicing mechanism for filtering the frontier by area, priority, owner, or any other dimension you find useful.

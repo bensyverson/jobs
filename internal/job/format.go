@@ -259,6 +259,18 @@ func RenderInfoMarkdown(w io.Writer, info *TaskInfo) {
 		}
 		fmt.Fprintf(w, "Blocks:       %s\n", strings.Join(ids, ", "))
 	}
+	// found-in is provenance, printed apart from the two blocking lines so
+	// the reader is never invited to read it as sequence. The source's
+	// status is inline because the useful case is a closed source.
+	if info.FoundIn != nil {
+		fmt.Fprintf(w, "Found in:     %s %s (%s)\n", info.FoundIn.ShortID, info.FoundIn.Title, info.FoundIn.Status)
+	}
+	if len(info.Surfaced) > 0 {
+		fmt.Fprintln(w, "Surfaced:")
+		for _, sfc := range info.Surfaced {
+			fmt.Fprintf(w, "  - `%s` %s\n", sfc.ShortID, sfc.Title)
+		}
+	}
 	fmt.Fprintf(w, "Created:      %s\n", formatTimestamp(info.Task.CreatedAt))
 
 	if info.Task.Description != "" {
@@ -407,6 +419,8 @@ func RenderInfoJSON(w io.Writer, info *TaskInfo) {
 		Parent      *string     `json:"parent,omitempty"`
 		Children    []childJSON `json:"children"`
 		Blockers    []string    `json:"blockers,omitempty"`
+		FoundIn     string      `json:"found_in,omitempty"`
+		Surfaced    []string    `json:"surfaced,omitempty"`
 		Labels      []string    `json:"labels"`
 		Notes       []noteJSON  `json:"notes"`
 		CreatedAt   int64       `json:"created_at"`
@@ -419,6 +433,15 @@ func RenderInfoJSON(w io.Writer, info *TaskInfo) {
 	var blockers []string
 	for _, b := range info.Blockers {
 		blockers = append(blockers, b.ShortID)
+	}
+
+	var foundIn string
+	if info.FoundIn != nil {
+		foundIn = info.FoundIn.ShortID
+	}
+	var surfaced []string
+	for _, s := range info.Surfaced {
+		surfaced = append(surfaced, s.ShortID)
 	}
 
 	labels := info.Labels
@@ -451,6 +474,8 @@ func RenderInfoJSON(w io.Writer, info *TaskInfo) {
 		Parent:      parentID,
 		Children:    children,
 		Blockers:    blockers,
+		FoundIn:     foundIn,
+		Surfaced:    surfaced,
 		Labels:      labels,
 		Notes:       notes,
 		CreatedAt:   info.Task.CreatedAt,
@@ -626,6 +651,29 @@ func FormatEventDescription(eventType, detailJSON string) string {
 			}
 		}
 		return fmt.Sprintf("unblocked from %s%s", blockerID, reason)
+	case "found_in_set":
+		source := ""
+		previous := ""
+		if detail != nil {
+			if v, ok := detail["source_id"].(string); ok {
+				source = v
+			}
+			if v, ok := detail["previous_source_id"].(string); ok {
+				previous = v
+			}
+		}
+		if previous != "" {
+			return fmt.Sprintf("found in %s (was %s)", source, previous)
+		}
+		return fmt.Sprintf("found in %s", source)
+	case "found_in_cleared":
+		source := ""
+		if detail != nil {
+			if v, ok := detail["source_id"].(string); ok {
+				source = v
+			}
+		}
+		return fmt.Sprintf("found-in cleared (was %s)", source)
 	case "labeled":
 		names := stringListFromDetail(detail, "names")
 		existing := stringListFromDetail(detail, "existing")

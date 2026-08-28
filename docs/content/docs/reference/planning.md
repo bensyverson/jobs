@@ -88,6 +88,26 @@ What's worth knowing:
 - A blocker auto-removes when its target is `done`. You only need `block remove` for edges you want to drop manually — for instance, a task you've decided no longer depends on its blocker.
 - The bare `job block <blocked> by <blocker>` (no `add`/`remove`) still works as a deprecated alias for `block add` and emits a stderr notice. Prefer the explicit form.
 
+## `found-in`
+
+Record where a task was surfaced, without parenting it there and without creating a blocking edge.
+
+```sh
+job found-in qP4nR in kTuMb                        # the bug turned up while doing kTuMb
+job found-in qP4nR --clear                         # drop the reference
+job add 9xKmT "Router drops trailing slash" --found-in kTuMb
+```
+
+What's worth knowing:
+
+- **One source per task.** Setting a new one replaces the old; the event keeps both ids, so the history still holds the earlier answer.
+- **It gates nothing.** Both ends stay claimable and closable regardless of the other's state, and closing the source's tree never cascades into the task.
+- **It survives the source closing** — done, canceled, canceled by cascade, or deleted. The exception is `cancel --purge`, which erases the row the reference points at.
+- `job show` prints `Found in:` on the task and `Surfaced:` on the source; `--format=json` carries them as `found_in` and `surfaced`.
+- A task cannot be found in itself. Longer loops are fine — nothing walks the edge.
+
+See [Found-in](../../concepts/found-in/) for when to reach for this instead of hierarchy or a blocker.
+
 ## `move`
 
 Reorder among siblings, or reparent under a new parent.

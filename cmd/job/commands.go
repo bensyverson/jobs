@@ -186,6 +186,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newInfoCmd())
 	cmd.AddCommand(newBlockCmd())
 	cmd.AddCommand(newUnblockCmd())
+	cmd.AddCommand(newFoundInCmd())
 	cmd.AddCommand(newClaimCmd())
 	cmd.AddCommand(newHeartbeatCmd())
 	cmd.AddCommand(newReleaseCmd())
