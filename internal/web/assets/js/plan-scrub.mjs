@@ -1,8 +1,12 @@
 /*
   Plan-view scrubber driver.
 
+  Drives both /plan and /issues: one page skeleton, one kind filter.
+  The per-view config is read back off the page root's data attributes
+  (readViewFromDOM), so the module needs no per-page wiring.
+
   When the scrubber pill dispatches 'jobs:scrubber-frame' on the
-  document, this module rebuilds <main .c-section[aria-label="Plan"]>
+  document, this module rebuilds <main .c-section[data-plan-view]>
   (and the filter bar above it) from the in-memory Frame, mirroring
   what plan.go would render server-side at the cursor's event id.
   Live mode is restored by 'jobs:scrubber-live': re-fetch the live
@@ -22,6 +26,7 @@
 
 import {
   buildForestFromFrame,
+  filterRootsByKind,
   filterRootsByShow,
   filterForestByLabels,
   pickStripLabels,
@@ -54,22 +59,24 @@ export function parseFiltersFromSearch(search) {
 
 // buildShowTabs emits the Active/Archived/All tabs preserving the
 // current label selection. Same shape as plan.go's buildShowTabs.
-export function buildShowTabs(selected, show) {
+// base defaults to the Plan view; /issues and its scoped form pass
+// their own so a tab click doesn't jump the reader to another view.
+export function buildShowTabs(selected, show, base = "/plan") {
   return [
-    { label: "Active", url: planURL(selected, "active"), active: show === "active" },
-    { label: "Archived", url: planURL(selected, "archived"), active: show === "archived" },
-    { label: "All", url: planURL(selected, "all"), active: show === "all" },
+    { label: "Active", url: planURL(selected, "active", base), active: show === "active" },
+    { label: "Archived", url: planURL(selected, "archived", base), active: show === "archived" },
+    { label: "All", url: planURL(selected, "all", base), active: show === "all" },
   ];
 }
 
 // buildPlanLabelChips turns a strip-name list into the renderFilterBar
 // shape. Each chip's URL toggles that label in/out of the selection;
 // active flag is true when the label is currently selected.
-export function buildPlanLabelChips(stripNames, selected, show) {
+export function buildPlanLabelChips(stripNames, selected, show, base = "/plan") {
   const sel = new Set(selected);
   return stripNames.map((name) => ({
     name,
-    url: planURL(toggleLabel(selected, name), show),
+    url: planURL(toggleLabel(selected, name), show, base),
     active: sel.has(name),
   }));
 }
@@ -78,28 +85,64 @@ export function buildPlanLabelChips(stripNames, selected, show) {
 // input renderFilterBar consumes: the show tabs, the label strip, the
 // "any" pill URL/active flag. Centralizes the chrome computation so
 // the driver can re-emit it on every frame swap.
-export function composePlanFilterBarShape(frame, { selected, show }) {
+//
+// view is the per-view config read off the page root ({ kind, base,
+// filterLabel, sectionLabel, meta }); it defaults to the Plan view.
+// The kind filter runs before the label strip is picked, so /issues
+// never offers a label that only exists in the plan.
+export function composePlanFilterBarShape(frame, { selected, show }, view = {}) {
+  const kind = view.kind ?? "task";
+  const base = view.base ?? "/plan";
   // Strip labels are computed against the *unfiltered* forest so they
   // stay stable across label clicks (matches plan.go's two-pass shape).
-  const allRoots = buildForestFromFrame(frame);
+  const allRoots = filterRootsByKind(buildForestFromFrame(frame), kind);
   const stripNames = pickStripLabels(allRoots, selected, show, STRIP_LIMIT);
   return {
-    showTabs: buildShowTabs(selected, show),
-    labels: buildPlanLabelChips(stripNames, selected, show),
-    allURL: planURL([], show),
+    showTabs: buildShowTabs(selected, show, base),
+    labels: buildPlanLabelChips(stripNames, selected, show, base),
+    allURL: planURL([], show, base),
     allActive: selected.length === 0,
+    filterLabel: view.filterLabel ?? "Plan filter",
+    sectionLabel: view.sectionLabel ?? "Plan",
+    meta: view.meta ?? "",
   };
 }
 
 // composePlanSectionHTML returns the HTML string for the Plan
 // <section> at the given frame and filter set. Driver swaps this in
 // via DOMParser.
-function composePlanSectionHTML(frame, { selected, show }, nowSec) {
-  const allRoots = buildForestFromFrame(frame);
+function composePlanSectionHTML(frame, { selected, show }, nowSec, view = {}) {
+  const kind = view.kind ?? "task";
+  const base = view.base ?? "/plan";
+  const allRoots = filterRootsByKind(buildForestFromFrame(frame), kind);
   let roots = filterRootsByShow(allRoots, show);
   roots = filterForestByLabels(roots, selected);
-  const planNodes = buildPlanNodes(roots, frame, nowSec, { selected, show });
-  return renderPlanSection(planNodes);
+  const planNodes = buildPlanNodes(roots, frame, nowSec, { selected, show, base });
+  return renderPlanSection(planNodes, {
+    label: view.sectionLabel ?? "Plan",
+    kind,
+    base,
+    emptyText: view.emptyText ?? "No active tasks.",
+  });
+}
+
+// readViewFromDOM recovers the per-view config the server rendered.
+// The section carries the kind and the base path as data attributes;
+// the accessible names and the empty-state copy follow from the kind,
+// and the meta line is carried through as-is — it is an always-now
+// stat like the footer metrics, not something the cursor reshapes.
+export function readViewFromDOM(section, doc) {
+  const kind = section?.getAttribute("data-plan-view") === "issue" ? "issue" : "task";
+  const sectionLabel = kind === "issue" ? "Issues" : "Plan";
+  const metaEl = doc?.querySelector("main [data-view-meta]");
+  return {
+    kind,
+    base: section?.getAttribute("data-plan-base") || (kind === "issue" ? "/issues" : "/plan"),
+    sectionLabel,
+    filterLabel: `${sectionLabel} filter`,
+    emptyText: kind === "issue" ? "No open issues." : "No active tasks.",
+    meta: metaEl ? metaEl.textContent : "",
+  };
 }
 
 // --- DOM driver ---
@@ -110,7 +153,10 @@ function composePlanSectionHTML(frame, { selected, show }, nowSec) {
 // re-hydration plan-live.js does (color paint, plan-collapse).
 
 function findPlanSection(doc) {
-  return doc.querySelector("main .c-section[aria-label='Plan']");
+  // Matches both views: /plan and /issues render the same section with
+  // a different data-plan-view. Selecting on the attribute rather than
+  // the accessible name keeps one selector for both.
+  return doc.querySelector("main .c-section[data-plan-view]");
 }
 
 function findFilterBarHost(doc) {
@@ -155,12 +201,13 @@ function applyFrameToDOM(frame, event) {
   if (!section) return;
   const filters = parseFiltersFromSearch(window.location.search);
   const nowSec = event?.created_at ?? Math.floor(Date.now() / 1000);
+  const view = readViewFromDOM(section, doc);
 
   // Replace the filter bar (tabs + c-filter-bar) and the Plan section.
   const filterHost = findFilterBarHost(doc);
   if (filterHost) {
     const tabsRow = filterHost.previousElementSibling;
-    const barShape = composePlanFilterBarShape(frame, filters);
+    const barShape = composePlanFilterBarShape(frame, filters, view);
     const html = renderFilterBar(barShape);
     // Swap both the tabs row and the filter bar in one go.
     if (tabsRow && tabsRow.classList.contains("row")) {
@@ -169,7 +216,7 @@ function applyFrameToDOM(frame, event) {
     swapHTMLInto(html, filterHost);
   }
 
-  const sectionHTML = composePlanSectionHTML(frame, filters, nowSec);
+  const sectionHTML = composePlanSectionHTML(frame, filters, nowSec, view);
   swapHTMLInto(sectionHTML, findPlanSection(doc));
   rehydrate(doc);
 }
@@ -186,8 +233,11 @@ async function refetchLive() {
     if (!res.ok) return;
     const html = await res.text();
     const fresh = new DOMParser().parseFromString(html, "text/html");
-    const freshSection = fresh.querySelector("main .c-section[aria-label='Plan']");
+    const freshSection = findPlanSection(fresh);
     if (freshSection) findPlanSection(doc).replaceWith(freshSection);
+    const freshHeader = fresh.querySelector("main .c-view-header");
+    const oldHeader = doc.querySelector("main .c-view-header");
+    if (freshHeader && oldHeader) oldHeader.replaceWith(freshHeader);
     const freshBar = fresh.querySelector("main section.c-filter-bar");
     const oldBar = doc.querySelector("main section.c-filter-bar");
     if (freshBar && oldBar) oldBar.replaceWith(freshBar);

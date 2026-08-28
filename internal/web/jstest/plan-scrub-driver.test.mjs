@@ -15,6 +15,7 @@ import {
   buildShowTabs,
   buildPlanLabelChips,
   composePlanFilterBarShape,
+  readViewFromDOM,
 } from "../assets/js/plan-scrub.mjs";
 import { initialFrame } from "../assets/js/replay.mjs";
 
@@ -100,4 +101,104 @@ test("composePlanFilterBarShape: assembles the renderFilterBar input from a fram
     out.labels.map((l) => l.name),
     ["web", "dx"],
   );
+});
+
+// --- view parameterisation ---
+
+test("composePlanFilterBarShape: an issue view filters the forest by kind and targets /issues", () => {
+  const frame = initialFrame({
+    headEventId: 0,
+    tasks: [
+      { shortId: "P0001", title: "Plan", status: "available", sortOrder: 1, kind: "task", labels: ["web"] },
+      { shortId: "I0001", title: "Issues", status: "available", sortOrder: 2, kind: "issue" },
+      { shortId: "C0001", title: "Bug", status: "available", parentShortId: "I0001", sortOrder: 1, labels: ["parser"] },
+    ],
+    blocks: [],
+    claims: [],
+  });
+  const out = composePlanFilterBarShape(
+    frame,
+    { selected: [], show: "active" },
+    { kind: "issue", base: "/issues", filterLabel: "Issues filter", meta: "1 open · 0 closed in 7d" },
+  );
+  assert.equal(out.allURL, "/issues");
+  assert.equal(out.filterLabel, "Issues filter");
+  assert.equal(out.meta, "1 open · 0 closed in 7d");
+  // Strip labels come from the issue forest only — "web" lives on the
+  // task root and must not leak into the Issues view's filter strip.
+  assert.deepStrictEqual(
+    out.labels.map((l) => l.name),
+    ["parser"],
+  );
+  assert.equal(out.showTabs[1].url, "/issues?show=archived");
+});
+
+test("composePlanFilterBarShape: the default (task) view still excludes issue roots", () => {
+  const frame = initialFrame({
+    headEventId: 0,
+    tasks: [
+      { shortId: "P0001", title: "Plan", status: "available", sortOrder: 1, kind: "task", labels: ["web"] },
+      { shortId: "I0001", title: "Issues", status: "available", sortOrder: 2, kind: "issue", labels: ["parser"] },
+    ],
+    blocks: [],
+    claims: [],
+  });
+  const out = composePlanFilterBarShape(frame, { selected: [], show: "active" });
+  assert.deepStrictEqual(
+    out.labels.map((l) => l.name),
+    ["web"],
+  );
+  assert.equal(out.allURL, "/plan");
+});
+
+// --- readViewFromDOM ---
+//
+// The driver recovers the per-view config from the attributes the SSR
+// template already emitted, so no page has to wire the module up. The
+// fakes below carry only the two methods it calls.
+
+function fakeSection(attrs) {
+  return { getAttribute: (k) => attrs[k] ?? null };
+}
+
+function fakeDoc(metaText) {
+  return {
+    querySelector: (sel) =>
+      sel === "main [data-view-meta]" && metaText !== null
+        ? { textContent: metaText }
+        : null,
+  };
+}
+
+test("readViewFromDOM: an issue section yields the Issues names, base and meta", () => {
+  const view = readViewFromDOM(
+    fakeSection({ "data-plan-view": "issue", "data-plan-base": "/issues/abc12" }),
+    fakeDoc("3 open · 5 closed in 7d"),
+  );
+  assert.deepStrictEqual(view, {
+    kind: "issue",
+    base: "/issues/abc12",
+    sectionLabel: "Issues",
+    filterLabel: "Issues filter",
+    emptyText: "No open issues.",
+    meta: "3 open · 5 closed in 7d",
+  });
+});
+
+test("readViewFromDOM: a plan section yields the Plan defaults and no meta", () => {
+  const view = readViewFromDOM(
+    fakeSection({ "data-plan-view": "task", "data-plan-base": "/plan" }),
+    fakeDoc(null),
+  );
+  assert.equal(view.kind, "task");
+  assert.equal(view.base, "/plan");
+  assert.equal(view.sectionLabel, "Plan");
+  assert.equal(view.emptyText, "No active tasks.");
+  assert.equal(view.meta, "");
+});
+
+test("readViewFromDOM: a section missing its attributes falls back to the Plan view", () => {
+  const view = readViewFromDOM(fakeSection({}), fakeDoc(null));
+  assert.equal(view.kind, "task");
+  assert.equal(view.base, "/plan");
 });

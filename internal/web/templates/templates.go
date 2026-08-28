@@ -30,9 +30,15 @@ var files embed.FS
 // read {{.ActiveTab}} uniformly.
 type Chrome struct {
 	// ActiveTab marks which top-nav tab renders as c-tab--active.
-	// Valid values: "home", "plan", "actors", "log", or empty for
-	// views that aren't a top-level tab (e.g. /tasks/<id>).
+	// Valid values: "home", "plan", "issues", "actors", "log", or
+	// empty for views that aren't a top-level tab (e.g. /tasks/<id>).
 	ActiveTab string
+	// IssuesOpen is the number of open tasks under every issue-tree
+	// root, rendered as a small count after the Issues tab's label.
+	// Zero renders no suffix — a standing "0" is the tracker chrome
+	// the design notes warn against. Reflects the page load, not the
+	// live stream: the header is not swapped by the live modules.
+	IssuesOpen int
 	// InitialFrameJSON is the head-frame snapshot the time-travel
 	// scrubber's JS bootstrap reads from a <script type="application/
 	// json" id="initial-frame"> island in the layout. Already encoded

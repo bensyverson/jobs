@@ -7,8 +7,9 @@
   <nav class="c-tabs" aria-label="Primary">
     <a href="/" class="c-tab{{if eq .ActiveTab "home"}} c-tab--active{{end}}"{{if eq .ActiveTab "home"}} aria-current="page"{{end}} title="Home (press 1)">Home</a>
     <a href="/plan" class="c-tab{{if eq .ActiveTab "plan"}} c-tab--active{{end}}"{{if eq .ActiveTab "plan"}} aria-current="page"{{end}} title="Plan (press 2)">Plan</a>
-    <a href="/actors" class="c-tab{{if eq .ActiveTab "actors"}} c-tab--active{{end}}"{{if eq .ActiveTab "actors"}} aria-current="page"{{end}} title="Actors (press 3)">Actors</a>
-    <a href="/log" class="c-tab{{if eq .ActiveTab "log"}} c-tab--active{{end}}"{{if eq .ActiveTab "log"}} aria-current="page"{{end}} title="Log (press 4)">Log</a>
+    <a href="/issues" class="c-tab{{if eq .ActiveTab "issues"}} c-tab--active{{end}}"{{if eq .ActiveTab "issues"}} aria-current="page"{{end}} title="Issues (press 3)">Issues{{if .IssuesOpen}} <span class="c-tab__count">{{.IssuesOpen}}</span>{{end}}</a>
+    <a href="/actors" class="c-tab{{if eq .ActiveTab "actors"}} c-tab--active{{end}}"{{if eq .ActiveTab "actors"}} aria-current="page"{{end}} title="Actors (press 4)">Actors</a>
+    <a href="/log" class="c-tab{{if eq .ActiveTab "log"}} c-tab--active{{end}}"{{if eq .ActiveTab "log"}} aria-current="page"{{end}} title="Log (press 5)">Log</a>
   </nav>
   <div class="grow"></div>
   <div class="c-header__search-wrap" data-search-root>

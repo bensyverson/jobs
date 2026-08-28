@@ -443,11 +443,15 @@ func TestEngine_Render_LayoutShipsIdleFaviconLink(t *testing.T) {
 }
 
 func TestEngine_Render_HeaderTabsAdvertiseShortcuts(t *testing.T) {
+	// The Issues tab sits after Plan, so it takes key 3 and Actors /
+	// Log shift to 4 / 5. The hints follow header order because
+	// shortcuts.mjs maps the number keys positionally.
 	out := renderHome(t, newEngine(t))
 	mustContain(t, out, `title="Home (press 1)"`)
 	mustContain(t, out, `title="Plan (press 2)"`)
-	mustContain(t, out, `title="Actors (press 3)"`)
-	mustContain(t, out, `title="Log (press 4)"`)
+	mustContain(t, out, `title="Issues (press 3)"`)
+	mustContain(t, out, `title="Actors (press 4)"`)
+	mustContain(t, out, `title="Log (press 5)"`)
 }
 
 func TestEngine_Render_UnknownPageErrors(t *testing.T) {

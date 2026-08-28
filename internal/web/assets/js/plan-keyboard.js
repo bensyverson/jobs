@@ -43,7 +43,7 @@
   document.addEventListener("DOMContentLoaded", init);
 
   function init() {
-    var section = document.querySelector("main .c-section[aria-label='Plan']");
+    var section = document.querySelector("main .c-section[data-plan-view]");
     if (!section) return;
     primeFirstRow();
     document.addEventListener("keydown", onKeydown);

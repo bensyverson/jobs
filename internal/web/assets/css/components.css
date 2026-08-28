@@ -2929,3 +2929,39 @@ a.c-graph-node__bug:focus-visible {
 .c-log-row__verb--found_in_set { color: var(--color-primary-dim); }
 .c-log-row__verb--found_in_cleared { color: var(--color-on-surface-dim); }
 .c-log-row__verb--kind_changed { color: var(--color-on-surface-dim); }
+
+/* ============================================================
+   Issues view — additions. Kept in one block at the end of the
+   file so parallel patches merge cleanly.
+   ============================================================ */
+
+/* The view header: the archive tabs on the left, the view's period
+   stat pushed to the far edge. /plan leaves the stat empty, so the
+   row degrades to exactly what it was before. */
+.c-view-header {
+  align-items: center;
+}
+
+/* One-line period stat beside the archive tabs ("3 open · 5 closed in
+   7d"). Dim and tabular so the numbers sit still as they change; it
+   annotates the view rather than announcing itself. */
+.c-view-meta {
+  margin-left: auto;
+  padding-right: var(--space-md);
+  color: var(--color-on-surface-dim);
+  font-size: var(--font-body-sm-size);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Count suffix on a primary tab (Issues). Deliberately not a badge —
+   no fill, no pill, no alert colour: it is the tab's label continuing
+   in a quieter voice, and it disappears entirely at zero. */
+.c-tab__count {
+  color: var(--color-on-surface-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.c-tab--active .c-tab__count,
+.c-tab:hover .c-tab__count {
+  color: var(--color-on-surface-muted);
+}

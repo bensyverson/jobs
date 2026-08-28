@@ -25,7 +25,9 @@ test("escapeHTML: escapes <, >, &, \", '", () => {
 
 test("renderPlanSection: empty roots emit the c-plan-empty placeholder", () => {
   const html = renderPlanSection([]);
-  assert.match(html, /<section class="c-section" aria-label="Plan">/);
+  // The section now carries the view's data attributes (the SSR
+  // template does the same), so the open tag is no longer bare.
+  assert.match(html, /<section class="c-section" aria-label="Plan" data-plan-view="task"/);
   assert.match(html, /c-plan-empty/);
   assert.match(html, /No active tasks\./);
 });
@@ -296,4 +298,51 @@ test("renderFilterBar: emits label pills with active class and any-pill", () => 
   assert.match(html, /c-label-pill c-label-pill--all">any<\/a>/);
   assert.match(html, /c-label-pill c-label-pill--active" data-label="web"/);
   assert.match(html, /c-label-pill" data-label="alpha"/);
+});
+
+// --- view parameterisation (Plan vs. Issues) ---
+
+test("renderFilterBar: labels the filter nav for the view and omits the meta when empty", () => {
+  const html = renderFilterBar({
+    showTabs: [],
+    allURL: "/plan",
+    allActive: true,
+    labels: [],
+  });
+  assert.match(html, /<nav class="c-tabs" aria-label="Plan filter">/);
+  assert.ok(!html.includes("c-view-meta"));
+});
+
+test("renderFilterBar: emits the view meta line when one is supplied", () => {
+  const html = renderFilterBar({
+    showTabs: [],
+    allURL: "/issues",
+    allActive: true,
+    labels: [],
+    filterLabel: "Issues filter",
+    meta: "3 open · 5 closed in 7d",
+  });
+  assert.match(html, /<nav class="c-tabs" aria-label="Issues filter">/);
+  assert.match(html, /<span class="c-view-meta" data-view-meta>3 open · 5 closed in 7d<\/span>/);
+});
+
+test("renderPlanSection: defaults to the Plan view's section attributes", () => {
+  const html = renderPlanSection([]);
+  assert.match(html, /aria-label="Plan"/);
+  assert.match(html, /data-plan-view="task"/);
+  assert.match(html, /data-plan-base="\/plan"/);
+  assert.match(html, /No active tasks\./);
+});
+
+test("renderPlanSection: takes the section attributes and empty text from the view", () => {
+  const html = renderPlanSection([], {
+    label: "Issues",
+    kind: "issue",
+    base: "/issues/abc12",
+    emptyText: "No open issues.",
+  });
+  assert.match(html, /aria-label="Issues"/);
+  assert.match(html, /data-plan-view="issue"/);
+  assert.match(html, /data-plan-base="\/issues\/abc12"/);
+  assert.match(html, /No open issues\./);
 });

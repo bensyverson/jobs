@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	job "github.com/bensyverson/jobs/internal/job"
 	"github.com/bensyverson/jobs/internal/web/broadcast"
 	"github.com/bensyverson/jobs/internal/web/initial"
 	"github.com/bensyverson/jobs/internal/web/templates"
@@ -51,8 +52,13 @@ func newChrome(ctx context.Context, deps Deps, activeTab string, now time.Time) 
 	if err != nil {
 		return templates.Chrome{}, err
 	}
+	issues, err := job.CountIssueTasks(deps.DB, now.Add(-metaWindow))
+	if err != nil {
+		return templates.Chrome{}, err
+	}
 	return templates.Chrome{
 		ActiveTab:        activeTab,
+		IssuesOpen:       issues.Open,
 		InitialFrameJSON: template.JS(raw),
 		Footer:           metrics,
 	}, nil

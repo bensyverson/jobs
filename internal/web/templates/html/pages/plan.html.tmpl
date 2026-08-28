@@ -1,17 +1,22 @@
-{{- /* Plan view — document-mode tree. Markup ports prototype/plan.html.
+{{- /* Plan view — document-mode tree, shared by /plan and /issues.
+     .View carries what differs between the two (section name, tree
+     kind, base path for filter URLs, empty-state copy); .Meta is the
+     optional period stat beside the archive tabs. Markup ports
+     prototype/plan.html.
      p4-ssr is SSR only: filter chrome (Active/Archived/All, Labels) is
      inert until p4-archive and p4-labels wire it up. Collapse state is
      emitted as data-collapsed="…" on branch rows; p4-collapse attaches
      the JS toggle. Notes are wrapped in <details> so they collapse
      without JS. */ -}}
-{{define "title"}}Plan · Jobs{{end}}
+{{define "title"}}{{.View.SectionName}} · Jobs{{end}}
 {{define "content"}}
-<div class="row row-gap-md" style="align-items: center">
-  <nav class="c-tabs" aria-label="Plan filter">
+<div class="row row-gap-md c-view-header">
+  <nav class="c-tabs" aria-label="{{.View.FilterName}}">
     {{range .ShowTabs}}<a href="{{.URL}}" class="c-tab{{if .Active}} c-tab--active{{end}}">{{.Label}}</a>{{end}}
   </nav>
+  {{if .Meta}}<span class="c-view-meta" data-view-meta>{{.Meta}}</span>{{end}}
 </div>
-<section class="c-filter-bar" aria-label="Plan filters">
+<section class="c-filter-bar" aria-label="{{.View.SectionName}} filters">
   <div class="c-filter-bar__group" role="group" aria-label="Labels">
     <span class="c-filter-bar__label">Labels</span>
     <a href="{{.AllURL}}" class="c-label-pill c-label-pill--all{{if .AllActive}} c-label-pill--active{{end}}">any</a>
@@ -19,14 +24,14 @@
   </div>
 </section>
 
-<section class="c-section" aria-label="Plan">
+<section class="c-section" aria-label="{{.View.SectionName}}" data-plan-view="{{.View.Kind}}" data-plan-base="{{.View.BasePath}}">
   {{if .HasTasks}}
   <div class="stack stack-gap-xs">
     {{range .Roots}}{{template "plan-node" .}}{{end}}
   </div>
   {{else}}
   <div class="c-plan-empty">
-    <span class="t-muted">No active tasks.</span>
+    <span class="t-muted">{{.View.EmptyText}}</span>
   </div>
   {{end}}
 </section>

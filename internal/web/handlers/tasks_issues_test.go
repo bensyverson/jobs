@@ -35,20 +35,11 @@ func mustSetFoundIn(t *testing.T, db *sql.DB, task, source string) {
 
 // mustAddIssueRoot creates a root task and converts it to an
 // issue-tree, returning its short id.
-func mustAddIssueRoot(t *testing.T, db *sql.DB, actor, title string) string {
-	t.Helper()
-	res, err := job.RunAddKind(db, "", title, "", "", nil, actor, job.KindIssue)
-	if err != nil {
-		t.Fatalf("RunAddKind(%q): %v", title, err)
-	}
-	return res.ShortID
-}
-
 func TestTask_FoundIn_RendersLinkAndSourceStatus(t *testing.T) {
 	db := setupLogTestDB(t)
 	leaf := mustAdd(t, db, "alice", "The leaf that surfaced it", nil, nil)
 	mustClaim(t, db, leaf, "alice")
-	issueRoot := mustAddIssueRoot(t, db, "alice", "Issues")
+	issueRoot := mustAddIssueRoot(t, db, "alice", "Issues", nil)
 	bug := mustAdd(t, db, "alice", "Panics on empty tree", &issueRoot, nil)
 	mustSetFoundIn(t, db, bug, leaf)
 
@@ -81,7 +72,7 @@ func TestTask_NoFoundIn_OmitsSection(t *testing.T) {
 func TestTask_Surfaced_RendersChecklistOfLinks(t *testing.T) {
 	db := setupLogTestDB(t)
 	leaf := mustAdd(t, db, "alice", "Working leaf", nil, nil)
-	issueRoot := mustAddIssueRoot(t, db, "alice", "Issues")
+	issueRoot := mustAddIssueRoot(t, db, "alice", "Issues", nil)
 	bugA := mustAdd(t, db, "alice", "First defect", &issueRoot, nil)
 	bugB := mustAdd(t, db, "alice", "Second defect", &issueRoot, nil)
 	mustSetFoundIn(t, db, bugA, leaf)
@@ -119,7 +110,7 @@ func TestTask_NoSurfaced_OmitsSection(t *testing.T) {
 
 func TestTask_UnderIssueRoot_CarriesIssueVariant(t *testing.T) {
 	db := setupLogTestDB(t)
-	issueRoot := mustAddIssueRoot(t, db, "alice", "Issues")
+	issueRoot := mustAddIssueRoot(t, db, "alice", "Issues", nil)
 	bug := mustAdd(t, db, "alice", "A defect", &issueRoot, nil)
 
 	deps := newLogDeps(t, db)
@@ -154,7 +145,7 @@ func TestTask_UnderTaskRoot_HasNoIssueVariant(t *testing.T) {
 func TestPeek_ShowsFoundInAndNotSurfaced(t *testing.T) {
 	db := setupLogTestDB(t)
 	leaf := mustAdd(t, db, "alice", "Working leaf", nil, nil)
-	issueRoot := mustAddIssueRoot(t, db, "alice", "Issues")
+	issueRoot := mustAddIssueRoot(t, db, "alice", "Issues", nil)
 	bug := mustAdd(t, db, "alice", "A defect", &issueRoot, nil)
 	mustSetFoundIn(t, db, bug, leaf)
 

@@ -370,6 +370,10 @@ Each column is the actor's own little world — the same task can appear in two 
 
 **Tabs (top nav).** `label-caps` typography. Active tab shows a 2px `primary` underline with a `full`-radius cap. Inactive tabs use `on-surface-muted` text; hover brings them to `on-surface`.
 
+**Tab count suffix (`c-tab__count`).** A number trailing a top-nav tab's label — today only Issues, carrying the open-issue count. Deliberately *not* a badge: no fill, no pill, no alert color. It is `on-surface-dim` and tabular-figured, lifting to `on-surface-muted` on the active or hovered tab, so it reads as the label continuing in a quieter voice. **Zero renders nothing at all** — a standing "0" is the always-on scoreboard the Don'ts warn against. Only a count that a reader would act on earns a suffix.
+
+**View meta (`c-view-meta`).** A one-line period stat sitting at the far right of a view's header row, opposite the Active/Archived/All tabs — the Issues view's `3 open · 5 closed in 7d`. `body-sm`, `on-surface-dim`, tabular figures. It is the view's own summary and reflects *now*, like the footer metric strip: the history scrubber reshapes the tree below it, not this line. One stat, one line, no card.
+
 ## Do's and Don'ts
 
 - **Do** layer depth tonally. Reserve shadows for Level 3.

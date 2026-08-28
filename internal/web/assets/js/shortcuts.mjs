@@ -1,7 +1,7 @@
 // Global keyboard shortcuts for the dashboard.
 //
 // Bindings:
-//   1 / 2 / 3 / 4   jump to Home / Plan / Actors / Log
+//   1 … 5         jump to Home / Plan / Issues / Actors / Log
 //   `               cycle to the next primary tab (wraps)
 //   ~ (shift-`)     cycle to the previous primary tab (wraps)
 //
@@ -15,9 +15,19 @@
 // global tab strip. Both layers share the same input-context guard,
 // so typing in the search box or any input never triggers either.
 
-export const TAB_PATHS = ["/", "/plan", "/actors", "/log"];
+// Header order, and the number keys follow it: Issues sits after Plan
+// (project/2026-08-28-issues-ux.md, decision 7), so it takes key 3 and
+// Actors / Log shift to 4 / 5. The header's title="… (press N)" hints
+// are generated from the same order.
+export const TAB_PATHS = ["/", "/plan", "/issues", "/actors", "/log"];
 
-const KEY_TO_PATH = { "1": "/", "2": "/plan", "3": "/actors", "4": "/log" };
+const KEY_TO_PATH = {
+  "1": "/",
+  "2": "/plan",
+  "3": "/issues",
+  "4": "/actors",
+  "5": "/log",
+};
 
 export function pathFromKey(key) {
   if (key == null) return null;

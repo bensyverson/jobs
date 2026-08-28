@@ -45,6 +45,8 @@ func NewMux(ctx context.Context, cfg Config) http.Handler {
 	mux.Handle("POST /home/graph", handlers.HomeGraph(deps))
 	mux.Handle("GET /plan", handlers.Plan(deps))
 	mux.Handle("GET /plan/{id}", handlers.Plan(deps))
+	mux.Handle("GET /issues", handlers.Issues(deps))
+	mux.Handle("GET /issues/{id}", handlers.Issues(deps))
 	mux.Handle("GET /actors", handlers.Actors(deps))
 	mux.Handle("GET /actors/{name}", handlers.ActorSingle(deps))
 	mux.Handle("GET /tasks/{id}", handlers.Task(deps))

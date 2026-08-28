@@ -2,8 +2,8 @@
   Pure-data layer for the Plan-view scrubber.
 
   Mirrors the Go logic in internal/web/handlers/plan.go (buildPlanNodes,
-  filterRootsByShow, filterForestByLabels, pickStripLabels, planURL,
-  DisplayStatus) and internal/web/render/relative_time.go (RelativeTime).
+  filterRootsByKind, filterRootsByShow, filterForestByLabels,
+  pickStripLabels, planURL, DisplayStatus) and internal/web/render/relative_time.go (RelativeTime).
   Same shapes, same defaults — when a user scrubs through history the
   Plan section reads identically to its SSR cousin at the cursor's
   event id, with notes and rel-times pinned to that moment.
@@ -79,6 +79,16 @@ export function isArchivedSubtree(node) {
     if (!isArchivedSubtree(c)) return false;
   }
   return true;
+}
+
+// filterRootsByKind keeps the roots belonging to one view: "issue"
+// keeps the issue trees, anything else keeps their complement. The
+// frame carries `kind` on roots only, and a root without one is a
+// task tree — same default as the Go side, so no root falls through
+// the gap between /plan and /issues.
+export function filterRootsByKind(roots, kind) {
+  const wantIssue = kind === "issue";
+  return roots.filter((r) => (r.task.kind === "issue") === wantIssue);
 }
 
 export function filterRootsByShow(roots, show) {
@@ -185,10 +195,11 @@ export function pickStripLabels(roots, selected, show, n) {
 export function buildPlanNodes(roots, frame, nowSec, opts = {}) {
   const selected = opts.selected ?? [];
   const show = opts.show ?? "active";
+  const base = opts.base ?? "/plan";
   const blockedBySetFor = (shortId) => frame.blocks.get(shortId) ?? new Set();
   const claimsByShortId = frame.claims;
   const titleOf = (shortId) => frame.tasks.get(shortId)?.title ?? "";
-  const labelURL = (name) => planURL(addLabel(selected, name), show);
+  const labelURL = (name) => planURL(addLabel(selected, name), show, base);
 
   const isOpen = (s) => s !== "done" && s !== "canceled";
 
@@ -290,10 +301,12 @@ export function addLabel(selected, name) {
   return out;
 }
 
-// planURL composes /plan?label=…&show=… exactly like plan.go's planURL:
-// labels are individually URL-encoded then joined with raw commas; the
-// default show ("active") is omitted; keys are emitted alphabetically.
-export function planURL(selected, show) {
+// planURL composes <base>?label=…&show=… exactly like plan.go's
+// planURL: labels are individually URL-encoded then joined with raw
+// commas; the default show ("active") is omitted; keys are emitted
+// alphabetically. base is "/plan", "/issues", or a scoped
+// "/issues/<root>"; it defaults to the Plan view.
+export function planURL(selected, show, base = "/plan") {
   const parts = [];
   if (selected && selected.length > 0) {
     const labelVal = selected.map((s) => encodeURIComponent(s)).join(",");
@@ -302,7 +315,7 @@ export function planURL(selected, show) {
   if (show && show !== "active") {
     parts.push(`show=${encodeURIComponent(show)}`);
   }
-  if (parts.length === 0) return "/plan";
+  if (parts.length === 0) return base;
   // Keys are already in alphabetical order: label < show.
-  return "/plan?" + parts.join("&");
+  return base + "?" + parts.join("&");
 }

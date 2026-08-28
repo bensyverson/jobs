@@ -15,6 +15,7 @@ import {
   buildForestFromFrame,
   isArchivedSubtree,
   filterRootsByShow,
+  filterRootsByKind,
   filterForestByLabels,
   labelFreqsByView,
   pickStripLabels,
@@ -363,4 +364,60 @@ test("toggleLabel: add absent, remove present, sorted output", () => {
 test("addLabel: add absent (sorted); no-op if present", () => {
   assert.deepStrictEqual(addLabel(["web"], "alpha"), ["alpha", "web"]);
   assert.deepStrictEqual(addLabel(["alpha", "web"], "alpha"), ["alpha", "web"]);
+});
+
+// --- kind filter (Plan vs. Issues) ---
+
+test("filterRootsByKind: 'issue' keeps only roots whose kind is issue", () => {
+  const f = frameWith({
+    tasks: [
+      { shortId: "P0001", title: "Plan", status: "available", sortOrder: 1, kind: "task" },
+      { shortId: "I0001", title: "Issues", status: "available", sortOrder: 2, kind: "issue" },
+      { shortId: "C0001", title: "Bug", status: "available", parentShortId: "I0001", sortOrder: 1 },
+    ],
+  });
+  const roots = buildForestFromFrame(f);
+  assert.deepStrictEqual(
+    filterRootsByKind(roots, "issue").map((n) => n.task.shortId),
+    ["I0001"],
+  );
+});
+
+test("filterRootsByKind: 'task' drops issue roots and keeps kind-less roots", () => {
+  // The frame carries kind on roots only; a root written before kinds
+  // existed (or a child surfaced as a root) has kind null and must
+  // read as a task tree, matching the Go-side default.
+  const f = frameWith({
+    tasks: [
+      { shortId: "P0001", title: "Plan", status: "available", sortOrder: 1, kind: "task" },
+      { shortId: "N0001", title: "No kind", status: "available", sortOrder: 2 },
+      { shortId: "I0001", title: "Issues", status: "available", sortOrder: 3, kind: "issue" },
+    ],
+  });
+  const roots = buildForestFromFrame(f);
+  assert.deepStrictEqual(
+    filterRootsByKind(roots, "task").map((n) => n.task.shortId),
+    ["P0001", "N0001"],
+  );
+});
+
+test("planURL: an explicit base composes /issues URLs with the same rules", () => {
+  assert.equal(planURL([], "active", "/issues"), "/issues");
+  assert.equal(planURL(["web"], "archived", "/issues"), "/issues?label=web&show=archived");
+  assert.equal(planURL([], "all", "/issues/abc12"), "/issues/abc12?show=all");
+});
+
+test("buildPlanNodes: inline label URLs follow opts.base", () => {
+  const f = frameWith({
+    tasks: [
+      { shortId: "I0001", title: "Issues", status: "available", sortOrder: 1, kind: "issue", labels: ["web"] },
+    ],
+  });
+  const roots = buildForestFromFrame(f);
+  const nodes = buildPlanNodes(roots, f, 1700000000, {
+    selected: [],
+    show: "active",
+    base: "/issues",
+  });
+  assert.equal(nodes[0].labels[0].url, "/issues?label=web");
 });

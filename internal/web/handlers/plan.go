@@ -27,6 +27,43 @@ type PlanPageData struct {
 	// ShowTabs carries the three Active/Archived/All tabs with their
 	// href + active state already computed; template just iterates.
 	ShowTabs []PlanShowTab
+	// View carries everything that differs between /plan and /issues:
+	// the section's accessible name, the kind marker the client-side
+	// modules read, the base path every filter URL composes against,
+	// and the empty-state copy.
+	View planView
+	// Meta is the view's one-line period stat, rendered beside the
+	// Active/Archived/All tabs. Empty on Plan; on Issues it reads
+	// "N open · M closed in 7d". Always reflects now, like the footer
+	// metrics — the history scrubber reshapes the tree below it, not
+	// this line.
+	Meta string
+}
+
+// planView is the per-view configuration the Plan page template and
+// the Plan client modules are parameterised by. One page skeleton,
+// two kinds: /plan renders task-tree roots, /issues renders issue-tree
+// roots (project/2026-08-28-issues-ux.md, decision 4 and 7).
+//
+// BasePath is the path every filter URL composes against, so the show
+// tabs and label pills of a scoped view stay inside that scope.
+type planView struct {
+	Kind        job.TreeKind
+	ActiveTab   string
+	BasePath    string
+	SectionName string
+	FilterName  string
+	EmptyText   string
+}
+
+// planTaskView is /plan: the planned work, issue roots excluded.
+var planTaskView = planView{
+	Kind:        job.KindTask,
+	ActiveTab:   "plan",
+	BasePath:    "/plan",
+	SectionName: "Plan",
+	FilterName:  "Plan filter",
+	EmptyText:   "No active tasks.",
 }
 
 // PlanShowTab is one of the Active/Archived/All tabs. URL preserves
@@ -121,13 +158,26 @@ type PlanBlockerRef struct {
 	Title   string
 }
 
-// Plan renders the document-mode tree view. See vision §3.2.
-// Live-update wiring still pending (p4-live); ?label= (multi-select)
-// and the disclosure JS (E2ffo) are wired.
-func Plan(deps Deps) http.Handler {
+// Plan renders the document-mode tree view over the task-tree roots.
+// Issue roots live at /issues; see planHandler.
+func Plan(deps Deps) http.Handler { return planHandler(deps, planTaskView) }
+
+// planHandler is the shared Plan/Issues view. view.Kind picks which
+// roots the forest is built from; everything below it — the archive
+// tabs, the label strip, the tree, the collapse state — is identical.
+//
+// A non-empty {id} path value scopes the view to that single root
+// (/plan/{id}, /issues/{root-id}); a root that doesn't exist, or whose
+// kind belongs to the other view, is a 404 rather than an empty page,
+// because the URL names something this view cannot show.
+func planHandler(deps Deps, view planView) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		selected := parseLabelParam(r.URL.Query().Get("label"))
 		show := parseShowParam(r.URL.Query().Get("show"))
+		scopeID := r.PathValue("id")
+		if scopeID != "" {
+			view.BasePath = view.BasePath + "/" + scopeID
+		}
 
 		// Load the unfiltered forest first so the labels strip reflects
 		// what's actually present in the document; the strip needs to
@@ -138,6 +188,14 @@ func Plan(deps Deps) http.Handler {
 		if err != nil {
 			InternalError(deps, w, "plan list", err)
 			return
+		}
+		roots = filterRootsByKind(roots, view.Kind)
+		if scopeID != "" {
+			roots = scopeRootsTo(roots, scopeID)
+			if len(roots) == 0 {
+				NotFound(deps).ServeHTTP(w, r)
+				return
+			}
 		}
 
 		ids := collectTaskIDs(roots)
@@ -178,25 +236,57 @@ func Plan(deps Deps) http.Handler {
 		}
 
 		now := time.Now()
-		addLabelURLs := buildAddLabelURLs(roots, labels, selected, show)
+		addLabelURLs := buildAddLabelURLs(view.BasePath, roots, labels, selected, show)
 		planRoots := buildPlanNodes(roots, labels, blockers, notes, actors, titlesByShortID, addLabelURLs, now, 0)
 
-		chrome, err := newChrome(r.Context(), deps, "plan", now)
+		chrome, err := newChrome(r.Context(), deps, view.ActiveTab, now)
 		if err != nil {
 			InternalError(deps, w, "plan initial frame", err)
+			return
+		}
+		meta, err := viewMeta(deps, view, now)
+		if err != nil {
+			InternalError(deps, w, "plan meta", err)
 			return
 		}
 		data := PlanPageData{
 			Chrome:    chrome,
 			Roots:     planRoots,
 			HasTasks:  len(planRoots) > 0,
-			Labels:    buildPlanLabelChips(stripNames, selected, show),
-			AllURL:    planURL(nil, show),
+			Labels:    buildPlanLabelChips(view.BasePath, stripNames, selected, show),
+			AllURL:    planURL(view.BasePath, nil, show),
 			AllActive: len(selected) == 0,
-			ShowTabs:  buildShowTabs(selected, show),
+			ShowTabs:  buildShowTabs(view.BasePath, selected, show),
+			View:      view,
+			Meta:      meta,
 		}
 		renderPage(deps, w, "plan", data)
 	})
+}
+
+// filterRootsByKind keeps the roots belonging to one view. A root
+// carries its kind; anything that isn't an issue tree is a task tree,
+// so the task view is the complement of the issue view and no root
+// falls through the gap.
+func filterRootsByKind(roots []*job.TaskNode, kind job.TreeKind) []*job.TaskNode {
+	out := make([]*job.TaskNode, 0, len(roots))
+	for _, r := range roots {
+		if r.Task.Kind.IsIssue() == kind.IsIssue() {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// scopeRootsTo narrows the forest to the single root with shortID,
+// or returns nil when this view holds no such root.
+func scopeRootsTo(roots []*job.TaskNode, shortID string) []*job.TaskNode {
+	for _, r := range roots {
+		if r.Task.ShortID == shortID {
+			return []*job.TaskNode{r}
+		}
+	}
+	return nil
 }
 
 // parseShowParam normalizes the ?show= value. Unknown or empty inputs
@@ -256,11 +346,11 @@ func filterRootsByShow(roots []*job.TaskNode, show string) []*job.TaskNode {
 // buildShowTabs returns the three Active/Archived/All tabs for the
 // filter row. Each tab's URL preserves the current label selection
 // so switching archive mode doesn't drop the user's label filter.
-func buildShowTabs(selected []string, show string) []PlanShowTab {
+func buildShowTabs(base string, selected []string, show string) []PlanShowTab {
 	return []PlanShowTab{
-		{Label: "Active", URL: planURL(selected, showActive), Active: show == showActive},
-		{Label: "Archived", URL: planURL(selected, showArchived), Active: show == showArchived},
-		{Label: "All", URL: planURL(selected, showAll), Active: show == showAll},
+		{Label: "Active", URL: planURL(base, selected, showActive), Active: show == showActive},
+		{Label: "Archived", URL: planURL(base, selected, showArchived), Active: show == showArchived},
+		{Label: "All", URL: planURL(base, selected, showAll), Active: show == showAll},
 	}
 }
 
@@ -400,7 +490,7 @@ func filterForestByLabels(nodes []*job.TaskNode, labels map[int64][]string, sele
 
 // buildPlanLabelChips renders the strip pills. URL toggles the label
 // in/out of the current selection and preserves the show mode.
-func buildPlanLabelChips(stripNames []string, selected []string, show string) []PlanLabelChip {
+func buildPlanLabelChips(base string, stripNames []string, selected []string, show string) []PlanLabelChip {
 	selSet := make(map[string]struct{}, len(selected))
 	for _, s := range selected {
 		selSet[s] = struct{}{}
@@ -410,7 +500,7 @@ func buildPlanLabelChips(stripNames []string, selected []string, show string) []
 		_, isSel := selSet[name]
 		out = append(out, PlanLabelChip{
 			Name:   name,
-			URL:    planURL(toggleLabel(selected, name), show),
+			URL:    planURL(base, toggleLabel(selected, name), show),
 			Active: isSel,
 			Color:  template.CSS(render.LabelColor(name)),
 		})
@@ -422,7 +512,7 @@ func buildPlanLabelChips(stripNames []string, selected []string, show string) []
 // its enable-URL — the URL that adds the label to the current
 // selection (no-op if already present). Preserves the show mode so
 // inline pill clicks don't reset the archive tab.
-func buildAddLabelURLs(roots []*job.TaskNode, labels map[int64][]string, selected []string, show string) map[string]string {
+func buildAddLabelURLs(base string, roots []*job.TaskNode, labels map[int64][]string, selected []string, show string) map[string]string {
 	out := make(map[string]string)
 	var walk func([]*job.TaskNode)
 	walk = func(ns []*job.TaskNode) {
@@ -431,7 +521,7 @@ func buildAddLabelURLs(roots []*job.TaskNode, labels map[int64][]string, selecte
 				if _, ok := out[name]; ok {
 					continue
 				}
-				out[name] = planURL(addLabel(selected, name), show)
+				out[name] = planURL(base, addLabel(selected, name), show)
 			}
 			walk(n.Children)
 		}
@@ -470,13 +560,14 @@ func addLabel(selected []string, name string) []string {
 	return out
 }
 
-// planURL composes the /plan URL for a given label selection and show
-// mode. Each label is QueryEscape'd individually so exotic label
-// names survive a round-trip, but the joining commas stay raw —
+// planURL composes a Plan-shaped URL against base ("/plan",
+// "/issues", or a scoped "/issues/<root>") for a given label selection
+// and show mode. Each label is QueryEscape'd individually so exotic
+// label names survive a round-trip, but the joining commas stay raw —
 // they're URL-safe in query values and a literal comma is what
 // parseLabelParam splits on. show=active is the default and is
 // omitted from the URL to keep the default view's URL clean.
-func planURL(selected []string, show string) string {
+func planURL(base string, selected []string, show string) string {
 	params := url.Values{}
 	if len(selected) > 0 {
 		parts := make([]string, len(selected))
@@ -490,11 +581,11 @@ func planURL(selected []string, show string) string {
 		params.Set("show", show)
 	}
 	if len(params) == 0 {
-		return "/plan"
+		return base
 	}
 	// Serialize manually so the pre-joined label value isn't re-escaped.
 	q := planURLParams(params)
-	return "/plan?" + q
+	return base + "?" + q
 }
 
 // planURLParams serializes url.Values with keys in alphabetical order

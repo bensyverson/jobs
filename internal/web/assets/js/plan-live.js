@@ -1,5 +1,5 @@
 /*
-  Plan view live updates. Subscribes to the <live-region>'s 'event'
+  Plan / Issues view live updates. Subscribes to the <live-region>'s 'event'
   custom event; on any incoming event, debounces and refetches the
   current /plan URL, then swaps the freshly-rendered <section> in
   place of the old one.
@@ -42,7 +42,9 @@
   }
 
   function findPlanSection() {
-    return document.querySelector("main .c-section[aria-label='Plan']");
+    // Both /plan and /issues render this section; the data attribute
+    // is the one selector that matches either view.
+    return document.querySelector("main .c-section[data-plan-view]");
   }
 
   async function refresh() {
@@ -56,7 +58,7 @@
       if (!res.ok) return;
       var html = await res.text();
       var doc = new DOMParser().parseFromString(html, "text/html");
-      var fresh = doc.querySelector("main .c-section[aria-label='Plan']");
+      var fresh = doc.querySelector("main .c-section[data-plan-view]");
       if (!fresh) return;
       // Capture the cursor row before the swap so the focus ring
       // persists through the live refetch — without this, the focused
@@ -67,6 +69,11 @@
           ? window.JobsPlanKeyboard.getActive()
           : "";
       section.replaceWith(fresh);
+      // Also refresh the view header — the Issues meta line's counts
+      // move as issues open and close, and it sits in the same chrome.
+      var freshHeader = doc.querySelector("main .c-view-header");
+      var oldHeader = document.querySelector("main .c-view-header");
+      if (freshHeader && oldHeader) oldHeader.replaceWith(freshHeader);
       // Also refresh the filter strip — label frequencies and the
       // top-N membership shift as tasks open and close. Same scope
       // (the chrome above the tree).

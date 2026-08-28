@@ -64,8 +64,12 @@ function statusLabel(status) {
 
 // renderFilterBar emits the Plan tabs and label-strip chrome above the
 // section. Inputs mirror plan.go's PlanShowTab / PlanLabelChip shapes
-// (camelCased: { showTabs, labels, allURL, allActive }).
-export function renderFilterBar({ showTabs, labels, allURL, allActive }) {
+// (camelCased: { showTabs, labels, allURL, allActive }), plus the two
+// per-view fields: filterLabel names the nav for screen readers
+// ("Plan filter" / "Issues filter"), sectionLabel names the filter bar
+// ("Plan filters" / "Issues filters"), and meta is the optional period
+// stat beside the tabs, carried through verbatim.
+export function renderFilterBar({ showTabs, labels, allURL, allActive, filterLabel, sectionLabel, meta }) {
   const tabs = (showTabs ?? [])
     .map(
       (t) =>
@@ -79,11 +83,17 @@ export function renderFilterBar({ showTabs, labels, allURL, allActive }) {
         `<a href="${escapeHTML(l.url)}" class="c-label-pill${l.active ? " c-label-pill--active" : ""}" data-label="${escapeHTML(l.name)}" style="--label-color: ${labelColorFor(l.name)}">${escapeHTML(l.name)}</a>`,
     )
     .join("");
+  const navName = filterLabel ?? "Plan filter";
+  const barName = sectionLabel ?? "Plan";
+  const metaSpan = meta
+    ? `<span class="c-view-meta" data-view-meta>${escapeHTML(meta)}</span>`
+    : "";
   return [
-    `<div class="row row-gap-md" style="align-items: center">`,
-    `<nav class="c-tabs" aria-label="Plan filter">${tabs}</nav>`,
+    `<div class="row row-gap-md c-view-header">`,
+    `<nav class="c-tabs" aria-label="${escapeHTML(navName)}">${tabs}</nav>`,
+    metaSpan,
     `</div>`,
-    `<section class="c-filter-bar" aria-label="Plan filters">`,
+    `<section class="c-filter-bar" aria-label="${escapeHTML(barName)} filters">`,
     `<div class="c-filter-bar__group" role="group" aria-label="Labels">`,
     `<span class="c-filter-bar__label">Labels</span>`,
     allPill,
@@ -190,10 +200,17 @@ function renderNode(node) {
 
 // renderPlanSection emits the Plan <section> the page currently shows.
 // The wrapping <main> stays put — the driver swaps just this section.
-export function renderPlanSection(planNodes) {
+// view carries the per-view attributes the SSR template emits, so the
+// scrubbed section stays findable by the same selectors: { label,
+// kind, base, emptyText }. Defaults are the Plan view's.
+export function renderPlanSection(planNodes, view = {}) {
+  const label = view.label ?? "Plan";
+  const kind = view.kind ?? "task";
+  const base = view.base ?? "/plan";
+  const emptyText = view.emptyText ?? "No active tasks.";
   const inner =
     planNodes && planNodes.length > 0
       ? `<div class="stack stack-gap-xs">${planNodes.map(renderNode).join("")}</div>`
-      : `<div class="c-plan-empty"><span class="t-muted">No active tasks.</div>`;
-  return `<section class="c-section" aria-label="Plan">${inner}</section>`;
+      : `<div class="c-plan-empty"><span class="t-muted">${escapeHTML(emptyText)}</span></div>`;
+  return `<section class="c-section" aria-label="${escapeHTML(label)}" data-plan-view="${escapeHTML(kind)}" data-plan-base="${escapeHTML(base)}">${inner}</section>`;
 }

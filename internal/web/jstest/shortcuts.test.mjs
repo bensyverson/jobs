@@ -1,6 +1,6 @@
 // Tests for internal/web/assets/js/shortcuts.mjs.
 //
-// Global keyboard shortcuts: 1-4 jump to the four primary tabs, "`"
+// Global keyboard shortcuts: 1-5 jump to the five primary tabs, "`"
 // cycles forward through them, "~" cycles backward. Pure helpers
 // (pathFromKey, cyclePath, shouldIgnoreShortcut) are exercised here;
 // bindShortcuts is also tested with a fake document/navigator so the
@@ -20,22 +20,25 @@ import {
 
 // --- TAB_PATHS ---
 
-test("TAB_PATHS lists the four primary tabs in header order", () => {
-  assert.deepEqual(TAB_PATHS, ["/", "/plan", "/actors", "/log"]);
+test("TAB_PATHS lists the five primary tabs in header order", () => {
+  // Issues sits after Plan in the header (2026-08-28-issues-ux.md,
+  // decision 7), so the number keys shift Actors and Log along.
+  assert.deepEqual(TAB_PATHS, ["/", "/plan", "/issues", "/actors", "/log"]);
 });
 
 // --- pathFromKey ---
 
-test("pathFromKey maps '1'..'4' to the four tab paths", () => {
+test("pathFromKey maps '1'..'5' to the five tab paths", () => {
   assert.equal(pathFromKey("1"), "/");
   assert.equal(pathFromKey("2"), "/plan");
-  assert.equal(pathFromKey("3"), "/actors");
-  assert.equal(pathFromKey("4"), "/log");
+  assert.equal(pathFromKey("3"), "/issues");
+  assert.equal(pathFromKey("4"), "/actors");
+  assert.equal(pathFromKey("5"), "/log");
 });
 
-test("pathFromKey returns null for keys outside 1-4", () => {
+test("pathFromKey returns null for keys outside 1-5", () => {
   assert.equal(pathFromKey("0"), null);
-  assert.equal(pathFromKey("5"), null);
+  assert.equal(pathFromKey("6"), null);
   assert.equal(pathFromKey("a"), null);
   assert.equal(pathFromKey(""), null);
   assert.equal(pathFromKey(undefined), null);
@@ -45,7 +48,8 @@ test("pathFromKey returns null for keys outside 1-4", () => {
 
 test("cyclePath forward advances one tab and wraps from last to first", () => {
   assert.equal(cyclePath("/", 1), "/plan");
-  assert.equal(cyclePath("/plan", 1), "/actors");
+  assert.equal(cyclePath("/plan", 1), "/issues");
+  assert.equal(cyclePath("/issues", 1), "/actors");
   assert.equal(cyclePath("/actors", 1), "/log");
   assert.equal(cyclePath("/log", 1), "/");
 });
@@ -54,6 +58,7 @@ test("cyclePath backward retreats one tab and wraps from first to last", () => {
   assert.equal(cyclePath("/plan", -1), "/");
   assert.equal(cyclePath("/", -1), "/log");
   assert.equal(cyclePath("/log", -1), "/actors");
+  assert.equal(cyclePath("/actors", -1), "/issues");
 });
 
 test("cyclePath from an unknown path lands on Home (forward) or Log (backward)", () => {
@@ -119,7 +124,13 @@ test("bindShortcuts: number keys navigate to the matching tab and preventDefault
   const calls = [];
   bindShortcuts({ document: doc, navigate: (u) => calls.push(u), getCurrentPath: () => "/tasks/abc" });
 
-  const cases = [["1", "/"], ["2", "/plan"], ["3", "/actors"], ["4", "/log"]];
+  const cases = [
+    ["1", "/"],
+    ["2", "/plan"],
+    ["3", "/issues"],
+    ["4", "/actors"],
+    ["5", "/log"],
+  ];
   for (const [key, want] of cases) {
     const e = ev({ key });
     doc.fire(e);
@@ -135,7 +146,7 @@ test("bindShortcuts: backtick cycles forward, tilde cycles backward", () => {
   bindShortcuts({ document: doc, navigate: (u) => { calls.push(u); path = u; }, getCurrentPath: () => path });
 
   doc.fire(ev({ key: "`" }));
-  assert.equal(calls.at(-1), "/actors");
+  assert.equal(calls.at(-1), "/issues");
 
   doc.fire(ev({ key: "~", shiftKey: true }));
   assert.equal(calls.at(-1), "/plan");
@@ -177,7 +188,7 @@ test("bindShortcuts: does not navigate or preventDefault for unrelated keys", ()
   const calls = [];
   bindShortcuts({ document: doc, navigate: (u) => calls.push(u), getCurrentPath: () => "/" });
 
-  for (const key of ["a", "5", "Enter", "Escape", "ArrowDown"]) {
+  for (const key of ["a", "6", "Enter", "Escape", "ArrowDown"]) {
     const e = ev({ key });
     doc.fire(e);
     assert.equal(e.prevented, false, `key ${key}`);

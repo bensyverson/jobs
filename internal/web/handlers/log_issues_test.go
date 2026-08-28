@@ -41,7 +41,7 @@ func TestLog_KindChangedRowReadsAsKindConversion(t *testing.T) {
 func TestLog_FoundInSetRowLinksTheSource(t *testing.T) {
 	db := setupLogTestDB(t)
 	leaf := mustAdd(t, db, "alice", "Working leaf", nil, nil)
-	issueRoot := mustAddIssueRoot(t, db, "alice", "Issues")
+	issueRoot := mustAddIssueRoot(t, db, "alice", "Issues", nil)
 	bug := mustAdd(t, db, "alice", "A defect", &issueRoot, nil)
 	mustSetFoundIn(t, db, bug, leaf)
 
@@ -56,7 +56,7 @@ func TestLog_FoundInSetRowLinksTheSource(t *testing.T) {
 func TestLog_FoundInClearedRowNamesThePriorSource(t *testing.T) {
 	db := setupLogTestDB(t)
 	leaf := mustAdd(t, db, "alice", "Working leaf", nil, nil)
-	issueRoot := mustAddIssueRoot(t, db, "alice", "Issues")
+	issueRoot := mustAddIssueRoot(t, db, "alice", "Issues", nil)
 	bug := mustAdd(t, db, "alice", "A defect", &issueRoot, nil)
 	mustSetFoundIn(t, db, bug, leaf)
 	if err := job.RunClearFoundIn(db, bug, "alice"); err != nil {
@@ -85,7 +85,7 @@ func TestLog_TypeChipsEnumerateKindAndFoundIn(t *testing.T) {
 func TestLog_TypeFilterSelectsFoundInAndKindRows(t *testing.T) {
 	db := setupLogTestDB(t)
 	leaf := mustAdd(t, db, "alice", "Working leaf", nil, nil)
-	issueRoot := mustAddIssueRoot(t, db, "alice", "Issues")
+	issueRoot := mustAddIssueRoot(t, db, "alice", "Issues", nil)
 	bug := mustAdd(t, db, "alice", "A defect", &issueRoot, nil)
 	mustSetFoundIn(t, db, bug, leaf)
 	if _, err := job.RunSetKind(db, issueRoot, job.KindTask, "alice"); err != nil {
