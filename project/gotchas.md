@@ -33,3 +33,9 @@ Three of four parallel agents lost time to the same two things. **The default sa
 **`git add -A` on the main checkout stages `.claude/worktrees/*` as embedded repos** and the pre-commit hook refuses the commit. The directory is now gitignored; if you see "adding embedded git repository", `git reset -- .claude/worktrees`.
 
 **`go fix ./...` rewrites unrelated files** (`slices.Backward`, `strings.Cut`, `errors.AsType` as of Go 1.24) and every parallel agent's diff carries the same three hunks. Harmless — they apply identically — but expect the first patch to bring them and the rest to conflict trivially on them.
+
+## 2026-08-28 — integration: `--all-passed`, stale agent claims, and `git apply --3way` stages
+
+**`job done` refuses a leaf whose criteria are unticked**, even when the integrator has just verified every one. Verify, then close with `job done <id> --all-passed`; don't tick rows one at a time. **Agents forget to `release`** — say "RELEASE when done" in the brief in capitals, and if `done` reports "claimed by agent-x", `job release <id> --as agent-x` first. **`git apply --3way` stages what it applies**, so review with `git diff --cached`, not `git diff`, or the diff looks empty. **Two dashboard agents will both append to `components.css`** and both define `mustAddIssueRoot`-style test helpers in package `handlers_test`; brief them to append delimited blocks (they merge with markers stripped) and expect one helper collision.
+
+**The Issues root auto-closed when its last child closed** (fixed in 8988033) — if an issue root ever shows `[x]` again, `job reopen <root>` and check the cascade; and an issue root is never a candidate for `next --issues`, so an exhausted issue tree is "nothing next", not the root.
