@@ -9,3 +9,7 @@ Work decided against, parked rather than dropped in silence. Nothing here is sch
 Format: one dated H2 per entry, a headline, then what it is, why it's parked, and the trigger that would revive it.
 
 ---
+
+## 2026-08-29 — `job status` reports whether `.jobs.db` is gitignored
+
+A line in `status` saying whether the database is ignored or tracked. Parked because it needs a `git` shell-out inside a read verb, and the hint `init` prints when the patterns are missing covers most of the need (see [2026-08-29-init-identity-and-gitignore.md](2026-08-29-init-identity-and-gitignore.md)). Un-parked if a shared (tracked) database becomes a supported mode, when knowing which mode a repo is in matters on every session.
