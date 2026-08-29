@@ -61,13 +61,16 @@ step() {
   echo "=== $1 ==="
 }
 
-step "1. job init --default-identity alice --gitignore"
-job --db "$db" init --default-identity alice --gitignore
+step "1. job init --as alice"
+job --db "$db" init --as alice
 
-step "2. job import plan.md --dry-run"
+step "2. job gitignore"
+job --db "$db" gitignore
+
+step "3. job import plan.md --dry-run"
 job --db "$db" import "$plan" --dry-run
 
-step "3. job import plan.md"
+step "4. job import plan.md"
 import_output="$(job --db "$db" import "$plan")"
 echo "$import_output"
 
@@ -77,21 +80,21 @@ echo "$import_output"
 handler_id="$(echo "$import_output" | sed -n '2p' | awk '{print $1}')"
 router_id="$(echo "$import_output" | sed -n '3p' | awk '{print $1}')"
 
-step "4. job status"
+step "5. job status"
 job --db "$db" status
 
-step "5. job claim --next"
+step "6. job claim --next"
 job --db "$db" claim --next
 
-step "6. job done $handler_id --all-passed --claim-next -m '...'"
+step "7. job done $handler_id --all-passed --claim-next -m '...'"
 job --db "$db" done "$handler_id" --all-passed --claim-next \
   -m 'Returns 200 OK with the expected JSON body.'
 
-step "7. job done $router_id -m '...'  (parent should auto-close)"
+step "8. job done $router_id -m '...'  (parent should auto-close)"
 job --db "$db" done "$router_id" \
   -m 'Mounted on the default router; smoke-tested via curl.'
 
-step "8. job status (final)"
+step "9. job status (final)"
 job --db "$db" status
 
 echo

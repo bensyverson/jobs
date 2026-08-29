@@ -45,12 +45,12 @@ If you find the agent is still triggering its built-in Plan mode or to-do list t
 
 ### Setup
 
-`job` will prompt the agent to initialize the database, or you can do it manually with `job init`. This will create a local SQLite database at `./jobs.db`.
+`job` will prompt the agent to initialize the database, or you can do it manually with `job init --as <name>`. This will create a local SQLite database at `./.jobs.db`, with `<name>` recorded as the default identity every unattributed write is credited to.
 
-By default, tasks will be attributed to your username. If you want to set your agent as the default actor, you can:
+Name the assistant, not the account it runs under — the coding agent's own name, not your username:
 
 ```sh
-$ job init --default-identity claude
+$ job init --as claude
 
 or after init:
 

@@ -13,21 +13,23 @@ When a write happens, the writer's name is resolved in this order — first matc
 2. The DB-level default identity, recorded at `init` time.
 3. Error: `identity required. Pass --as <name> before the verb.`
 
-There is **no** `$USER` fallback at write time. The only source of the default is whatever's recorded in the database. `init` may seed the default from `$USER` (the `(from $USER)` suffix in its output is your hint), but once the DB exists, that default is the durable answer — `$USER` is no longer consulted.
+There is **no** `$USER` fallback, at init or at write time. `init` requires `--as <name>` (or `--strict`) and records exactly what you pass; nothing is read from the environment.
 
 ```sh
-job init                                  # records $USER as default
+job init --as ben                         # records ben as default
 job add "Write docs"                      # → attributed to ben (the default)
 job --as alice add "Write tests"          # → attributed to alice (override)
 ```
 
 ## Default identity
 
-Set explicitly at init time:
+Set at init time — `--as` is required:
 
 ```sh
-job init --default-identity claude
+job init --as claude
 ```
+
+Use the name of whoever is running the command: a person's handle, or — for an automated assistant — the assistant's own name, not the account it runs under.
 
 After init, change it with:
 

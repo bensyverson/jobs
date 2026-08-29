@@ -5,7 +5,7 @@ weight: 3
 
 This page walks one task tree from author through completion: write a plan, import it, claim work, close work, watch the parent auto-close. Every command below is real and the output blocks are captured from a clean run — except for task IDs, which Jobs assigns randomly. **Your IDs will differ; the shapes won't.**
 
-> Prerequisite: `job init` has been run in the current directory (see [Initialize](../initialize/)). The walkthrough uses the default identity `alice` — substitute your own.
+> Prerequisite: `job init --as alice` has been run in the current directory (see [Initialize](../initialize/)). The walkthrough uses the default identity `alice` — substitute your own.
 
 ## 1. Author
 

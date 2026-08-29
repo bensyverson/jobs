@@ -37,8 +37,8 @@ and `go build` before every commit and aborts on any change.
 ## Get started
 
 ```sh
-# Create a task database in the current directory
-job init
+# Create a task database in the current directory, naming yourself as the default identity
+job init --as alice
 
 # Add tasks (uses default identity)
 job add "Ship v1"
@@ -80,24 +80,21 @@ Resolution chain, first match wins:
 3. error: `identity required. Pass --as <name> ...`
 
 ```sh
-# init records $USER as the default, so subsequent writes work unadorned:
-job init
-#   Default identity: ben (from $USER)
+# init requires --as; it records the name as the default:
+job init --as ben
+#   Default identity: ben
 job add "Write docs"                 # attributed to ben
 
 # Override the default any time with --as:
 job --as alice add "Write tests"     # attributed to alice
 
-# Pick the default explicitly at init time:
-job init --default-identity claude
-
-# Or opt out entirely and require --as on every write:
+# Or opt out of a default entirely and require --as on every write:
 job init --strict
 job add "x"                          # → identity required. Pass --as <name> ...
 job --as alice add "x"               # ok
 ```
 
-Change the default after the fact with `job identity set <name>` (itself a write — requires explicit `--as`). Toggle strict mode with `job identity strict on|off`; turning strict off after a strict init leaves the default unset until `identity set` is called explicitly. There is no hidden `$USER` fallback at write time — the only source of the default is whatever's in the database.
+Change the default after the fact with `job identity set <name>` (itself a write — requires explicit `--as`). Toggle strict mode with `job identity strict on|off`; turning strict off after a strict init leaves the default unset until `identity set` is called explicitly. There is no `$USER` fallback anywhere — the only source of the default is whatever's in the database, and the only way in is `--as`.
 
 Users are created lazily — the first time a new name writes, its row is added to the `users` table.
 
@@ -113,7 +110,9 @@ Multiple agents can work in the same directory simultaneously. Each passes its o
 
 | Command | Description |
 |---------|-------------|
-| `job init [--force] [--gitignore] [--default-identity <name>] [--strict]` | Create a `.jobs.db` in the current directory. `--force` overwrites an existing one. `init` always creates the database in the current directory even if an ancestor already has one — there is no silent no-op. `--gitignore` appends recommended entries (`.jobs.db`, `.jobs.db-shm`, `.jobs.db-wal`) to `./.gitignore`. `--default-identity <name>` records the writer identity (defaults to `$USER`); `--strict` opts out and requires `--as` on every write. See [Identity](#identity). |
+| `job init --as <name> [--force]` | Create a `.jobs.db` in the current directory and record `<name>` as the default writer identity. `--force` overwrites an existing one. `init` always creates the database in the current directory even if an ancestor already has one — there is no silent no-op. Requires `--as` or `--strict`; there is no `$USER` fallback. When the directory is a git repo and `.gitignore` is missing an entry Jobs needs, prints a copy-pasteable hint pointing at `job gitignore`. See [Identity](#identity). |
+| `job init --strict [--force]` | Create a `.jobs.db` with no default identity; every write must carry `--as <name>`. |
+| `job gitignore` | Append the missing entries (`.jobs.db`, `.jobs.db-shm`, `.jobs.db-wal`) to `.gitignore` in the database's directory, creating the file if absent. Idempotent; no `--as`; works before or after `init`. |
 | `job identity set <name>` | Change the default writer identity. Requires `--as <name>` on the call (bootstrap discipline — the change itself is attributed). |
 | `job identity strict on\|off` | Toggle strict mode. Requires `--as`. |
 | `job schema` | Print the JSON Schema for the `job import` grammar. Useful for feeding an agent the exact shape it should produce. |

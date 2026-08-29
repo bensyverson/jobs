@@ -67,13 +67,15 @@ Rendered by a `GitignoreHint(missing []string)` function in `internal/job/gitign
 ### `job gitignore`
 
 - Appends the missing patterns to `.gitignore` in the directory of the resolved database path (the same resolution `init` uses), creating the file if absent.
-- Prints `Wrote N entries to .gitignore: .jobs.db, …` or `.gitignore already includes .jobs.db, .jobs.db-shm and .jobs.db-wal`.
+- Prints `Wrote N entries to .gitignore: .jobs.db, …` or `.gitignore already includes .jobs.db, .jobs.db-shm, and .jobs.db-wal` (the Oxford comma is `humanJoin`'s; the first draft of this line lacked it).
 - No `--as` required; no event recorded.
 - Does not require the database to exist — the directory is what matters — so it works before or after `init`.
 
 ### Docs
 
 `docs/content/docs/getting-started/initialize.md`, `concepts/identity.md`, `reference/setup.md`, `DOCS.md`, `README.md`, `project/agents/jobs.md` and `scripts/verify-getting-started.sh` all show `job init` bare or with `--default-identity`; every one changes. `concepts/identity.md`'s `# records $USER as default` line becomes false the moment this lands and must go with it.
+
+> **Correction, 2026-08-29 (integration):** `project/agents/jobs.md` is a generated region and cannot be edited here; its "recorded at `job init`" line stays true anyway. The docs agent flagged this instead of editing it — the right call — and the shared-rule feedback went to `project/gotchas.md` as a `rule:` entry.
 
 ## Plan
 

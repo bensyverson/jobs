@@ -26,9 +26,9 @@ Format: one dated H2 per entry, a bold headline, then what happened and what to 
 
 **`web.md`'s "Public pages carry rich `<head>` metadata including schema.org data" has no meaning for this dashboard**, which is localhost-only, read-only, and not crawled. The head notes the exception, but every internal-tool repo that adopts `web` will need the same note — the module could scope the bullet to public-facing pages itself.
 
-## 2026-08-28 — agent briefs: the sandbox blocks Go and git; `events.go` is the reader
+## 2026-08-28 — agent briefs: `events.go` is the reader, not the recorder
 
-Three of four parallel agents lost time to the same two things. **The default sandbox blocks `~/.gitconfig`, the Go module cache and the build cache**, so every `go`/`git` command in a worktree needs the sandbox override (or `GIT_CONFIG_GLOBAL=/dev/null`); say so in the brief. And **`internal/job/events.go` reads events (`log`/`tail`); the recording helper is `recordEvent` in `internal/job/database.go`** — a brief that points at `events.go` "for the pattern" sends the agent to the wrong file.
+The sandbox facts that cost three of four parallel agents time now live in `project/agents/harness.md` — point briefs there. **`internal/job/events.go` reads events (`log`/`tail`); the recording helper is `recordEvent` in `internal/job/database.go`** — a brief that points at `events.go` "for the pattern" sends the agent to the wrong file.
 
 **`git add -A` on the main checkout stages `.claude/worktrees/*` as embedded repos** and the pre-commit hook refuses the commit. The directory is now gitignored; if you see "adding embedded git repository", `git reset -- .claude/worktrees`.
 
@@ -53,3 +53,7 @@ Also: sleepy renders offscreen with `document.visibilityState === "hidden"`, so 
 ## 2026-08-28 — every layout `<script>` runs on every page, so a loose self-guard silently claims another view's markup
 
 **`log-live.mjs` guarded itself with `document.querySelector(".c-log")` — and the single-actor page's Events list is also a `.c-log`.** Both it and `actors-live.js`'s private row renderer were therefore live on `/actors/{name}`, racing to prepend the same row; the loser's dedup check swallowed the duplicate, so nothing looked broken and the page had quietly been rendering *log-live's* markup, not the markup its own module wrote. Every module in `layout.html.tmpl` loads on every page, so a self-guard selector has to name the view it owns, not a class it happens to share: `log-live.mjs` now takes `.c-log:not([data-actor-events])` and `actor-single-live.mjs` owns the rest. If two modules can plausibly match the same node, say which one wins in a comment on both.
+
+## 2026-08-29 — rule: a docs pass cannot touch `project/agents/*.md`
+
+**Every file under `project/agents/` is a generated region**, so a docs leaf that lists one of them (as the init-identity plan did for `jobs.md`) cannot edit it; the fix goes through the shared-rule review. `jobs.md`'s "recorded at `job init`" line is still true after `init --as` became required, just no longer the whole story.
