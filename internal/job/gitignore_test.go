@@ -85,8 +85,8 @@ func TestWriteGitignoreEntries_Idempotent(t *testing.T) {
 	if len(written) != 0 {
 		t.Errorf("second run wrote entries, want none: %v", written)
 	}
-	if len(alreadyPresent) != len(jobGitignoreEntries) {
-		t.Errorf("second run alreadyPresent = %v, want all %d entries", alreadyPresent, len(jobGitignoreEntries))
+	if len(alreadyPresent) != len(gitignorePatterns()) {
+		t.Errorf("second run alreadyPresent = %v, want all %d entries", alreadyPresent, len(gitignorePatterns()))
 	}
 
 	second, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
@@ -123,5 +123,97 @@ func TestWriteGitignoreEntries_OldBrokenInlineCommentLineDoesNotSatisfyTheEntry(
 	}
 	if !containsBareLine(content, ".jobs.db-shm") {
 		t.Errorf("expected a new bare .jobs.db-shm line to be appended:\n%s", content)
+	}
+}
+
+// --- The hint (rendered from the same entry table the writer uses) ---
+
+func TestGitignoreHint_NoLineIsBothPatternAndComment(t *testing.T) {
+	for line := range strings.SplitSeq(GitignoreHint(), "\n") {
+		if trailingComment.MatchString(line) {
+			t.Errorf("hint line pairs a pattern with a trailing comment, which gitignore takes literally: %q\nfull hint:\n%s", line, GitignoreHint())
+		}
+	}
+}
+
+func TestGitignoreHint_LinesAreUnindented(t *testing.T) {
+	hint := GitignoreHint()
+	for line := range strings.SplitSeq(hint, "\n") {
+		if line != strings.TrimLeft(line, " \t") {
+			t.Errorf("hint line is indented and cannot be pasted as-is: %q\nfull hint:\n%s", line, hint)
+		}
+	}
+	for _, name := range []string{".jobs.db", ".jobs.db-shm", ".jobs.db-wal"} {
+		if !containsBareLine(hint, name) {
+			t.Errorf("hint missing a bare line for %q:\n%s", name, hint)
+		}
+	}
+}
+
+func TestGitignoreHint_MatchesTheDocumentedBlock(t *testing.T) {
+	want := strings.Join([]string{
+		"# Jobs event store — local by default; delete this line to share it",
+		".jobs.db",
+		"# SQLite WAL sidecars — always local",
+		".jobs.db-shm",
+		".jobs.db-wal",
+	}, "\n")
+	if GitignoreHint() != want {
+		t.Errorf("hint:\n  got:\n%s\n  want:\n%s", GitignoreHint(), want)
+	}
+}
+
+// The writer and the hint render from one table, so a file written by
+// `job gitignore` and a file pasted from the hint are the same lines.
+func TestGitignoreHint_AgreesWithTheWriterBlock(t *testing.T) {
+	dir := t.TempDir()
+	if _, _, err := WriteGitignoreEntries(dir); err != nil {
+		t.Fatalf("WriteGitignoreEntries: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	written := strings.TrimRight(string(data), "\n")
+	const header = "# job\n"
+	if !strings.HasPrefix(written, header) {
+		t.Fatalf("written file should open with the %q header:\n%s", strings.TrimSuffix(header, "\n"), written)
+	}
+	block := strings.TrimPrefix(written, header)
+	if block != GitignoreHint() {
+		t.Errorf("writer block and hint differ:\n  writer:\n%s\n  hint:\n%s", block, GitignoreHint())
+	}
+}
+
+func TestMissingGitignoreEntries(t *testing.T) {
+	dir := t.TempDir()
+	missing, err := MissingGitignoreEntries(dir)
+	if err != nil {
+		t.Fatalf("MissingGitignoreEntries on an empty dir: %v", err)
+	}
+	if strings.Join(missing, ",") != ".jobs.db,.jobs.db-shm,.jobs.db-wal" {
+		t.Errorf("no .gitignore at all: missing = %v, want every pattern", missing)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".jobs.db-shm\n"), 0o644); err != nil {
+		t.Fatalf("seed .gitignore: %v", err)
+	}
+	missing, err = MissingGitignoreEntries(dir)
+	if err != nil {
+		t.Fatalf("MissingGitignoreEntries: %v", err)
+	}
+	if strings.Join(missing, ",") != ".jobs.db,.jobs.db-wal" {
+		t.Errorf("one pattern present: missing = %v, want the other two", missing)
+	}
+
+	if _, _, err := WriteGitignoreEntries(dir); err != nil {
+		t.Fatalf("WriteGitignoreEntries: %v", err)
+	}
+	missing, err = MissingGitignoreEntries(dir)
+	if err != nil {
+		t.Fatalf("MissingGitignoreEntries: %v", err)
+	}
+	if len(missing) != 0 {
+		t.Errorf("after writing, missing = %v, want none", missing)
 	}
 }

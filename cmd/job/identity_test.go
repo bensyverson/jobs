@@ -11,8 +11,18 @@ import (
 )
 
 // initCLI drives a fresh `init` through the cobra layer in a temp dir.
-// Returns the db path and captured stdout.
+// Returns the db path and captured stdout, failing the test if init errors.
 func initCLI(t *testing.T, extra ...string) (dbFile, stdout string) {
+	t.Helper()
+	dbFile, stdout, err := tryInitCLI(t, extra...)
+	if err != nil {
+		t.Fatalf("init %v: %v", extra, err)
+	}
+	return dbFile, stdout
+}
+
+// tryInitCLI is initCLI for the cases where the error is the subject.
+func tryInitCLI(t *testing.T, extra ...string) (dbFile, stdout string, err error) {
 	t.Helper()
 	dir := t.TempDir()
 	dbFile = filepath.Join(dir, "test.db")
@@ -24,48 +34,109 @@ func initCLI(t *testing.T, extra ...string) (dbFile, stdout string) {
 	root.SetErr(&errBuf)
 	args := append([]string{"--db", dbFile, "init"}, extra...)
 	root.SetArgs(args)
-	if err := root.Execute(); err != nil {
-		t.Fatalf("init %v: %v\nstderr: %s", args, err, errBuf.String())
-	}
-	return dbFile, outBuf.String()
+	err = root.Execute()
+	return dbFile, outBuf.String() + errBuf.String(), err
 }
 
 // --- Default identity (P3) ---
 
-func TestInit_NoFlags_SetsDefaultFromUserEnv(t *testing.T) {
+// init no longer guesses: $USER is whoever launched the session, which for
+// the dominant caller — an agent — is the wrong name, and wrong silently.
+func TestInit_NoFlags_ErrorsAndCreatesNothing(t *testing.T) {
 	t.Setenv("USER", "envuser")
-	dbFile, stdout := initCLI(t)
+	dbFile, _, err := tryInitCLI(t)
+	if err == nil {
+		t.Fatal("init with neither --as nor --strict should fail")
+	}
+	if err.Error() != wantInitIdentityRequired {
+		t.Errorf("error:\n  got:  %q\n  want: %q", err.Error(), wantInitIdentityRequired)
+	}
+	if _, statErr := os.Stat(dbFile); statErr == nil {
+		t.Errorf("init should create no database when it refuses: %s exists", dbFile)
+	}
+}
+
+// The check runs before CreateDB, so a refused init leaves nothing behind
+// to --force over — including when the flags are otherwise valid.
+func TestInit_NoIdentity_DoesNotCreateDatabaseEvenWithForce(t *testing.T) {
+	dbFile, _, err := tryInitCLI(t, "--force")
+	if err == nil {
+		t.Fatal("init --force without an identity should fail")
+	}
+	if _, statErr := os.Stat(dbFile); statErr == nil {
+		t.Errorf("init should create no database when it refuses: %s exists", dbFile)
+	}
+}
+
+func TestInit_As_SetsDefaultIdentity(t *testing.T) {
+	t.Setenv("USER", "envuser")
+	dbFile, stdout := initCLI(t, "--as", "claude")
 
 	db := openTestDB(t, dbFile)
 	got, err := job.GetDefaultIdentity(db)
 	if err != nil {
 		t.Fatalf("GetDefaultIdentity: %v", err)
 	}
-	if got != "envuser" {
-		t.Errorf("default identity = %q, want %q", got, "envuser")
-	}
-	if !strings.Contains(stdout, "Default identity: envuser") {
-		t.Errorf("init output should announce default identity:\n%s", stdout)
-	}
-	if !strings.Contains(stdout, "from $USER") {
-		t.Errorf("init output should name source ($USER):\n%s", stdout)
-	}
-}
-
-func TestInit_WithDefaultIdentityFlag_OverridesEnv(t *testing.T) {
-	t.Setenv("USER", "envuser")
-	dbFile, stdout := initCLI(t, "--default-identity", "claude")
-
-	db := openTestDB(t, dbFile)
-	got, _ := job.GetDefaultIdentity(db)
 	if got != "claude" {
 		t.Errorf("default identity = %q, want claude", got)
 	}
-	if !strings.Contains(stdout, "Default identity: claude") {
+	if !strings.Contains(stdout, "Default identity: claude\n") {
 		t.Errorf("output should announce 'Default identity: claude':\n%s", stdout)
 	}
-	if strings.Contains(stdout, "$USER") {
-		t.Errorf("explicit flag should not cite $USER as source:\n%s", stdout)
+	// There is one source now, so there is no source to cite.
+	if strings.Contains(stdout, "(from") || strings.Contains(stdout, "$USER") {
+		t.Errorf("output should not cite a source:\n%s", stdout)
+	}
+}
+
+func TestInit_DefaultIdentityFlag_IsUnknownFlag(t *testing.T) {
+	_, _, err := tryInitCLI(t, "--default-identity", "claude")
+	if err == nil {
+		t.Fatal("--default-identity should be an unknown-flag error")
+	}
+}
+
+// --strict wins over --as: it is the stronger statement, and it is what the
+// database records.
+func TestInit_StrictWithAs_StaysStrict(t *testing.T) {
+	dbFile, stdout := initCLI(t, "--as", "claude", "--strict")
+
+	db := openTestDB(t, dbFile)
+	if got, _ := job.GetDefaultIdentity(db); got != "" {
+		t.Errorf("--strict should leave default unset; got %q", got)
+	}
+	if strict, _ := job.IsStrict(db); !strict {
+		t.Errorf("--strict should enable strict mode")
+	}
+	if strings.Contains(stdout, "Default identity:") {
+		t.Errorf("--strict should not print a default-identity note:\n%s", stdout)
+	}
+}
+
+// Decision 3: the help must steer an agent to its own name without naming
+// any vendor or product.
+func TestInit_Help_NamesNoVendorAndPointsAtTheAlternatives(t *testing.T) {
+	resetFlags()
+	t.Cleanup(resetFlags)
+	root := newRootCmd()
+	var outBuf bytes.Buffer
+	root.SetOut(&outBuf)
+	root.SetErr(&outBuf)
+	root.SetArgs([]string{"init", "--help"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init --help: %v", err)
+	}
+	out := outBuf.String()
+	lower := strings.ToLower(out)
+	for _, vendor := range []string{"anthropic", "claude", "openai", "gpt", "gemini", "copilot", "cursor"} {
+		if strings.Contains(lower, vendor) {
+			t.Errorf("init help names a vendor or product (%q):\n%s", vendor, out)
+		}
+	}
+	for _, want := range []string{"--as", "--strict", "job gitignore", "$USER"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("init help should mention %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -90,8 +161,7 @@ func TestInit_Strict_LeavesDefaultUnset(t *testing.T) {
 // --- Write resolution (P3) ---
 
 func TestWrite_NoAs_UsesDefaultIdentity(t *testing.T) {
-	t.Setenv("USER", "alice")
-	dbFile, _ := initCLI(t)
+	dbFile, _ := initCLI(t, "--as", "alice")
 
 	// No --as on the add call.
 	stdout, stderr, err := runCLI(t, dbFile, "add", "hello")
@@ -134,8 +204,7 @@ func TestWrite_NoAs_Strict_Errors(t *testing.T) {
 }
 
 func TestWrite_AsFlag_OverridesDefaultIdentity(t *testing.T) {
-	t.Setenv("USER", "alice")
-	dbFile, _ := initCLI(t)
+	dbFile, _ := initCLI(t, "--as", "alice")
 
 	_, _, err := runCLI(t, dbFile, "--as", "bob", "add", "hi")
 	if err != nil {
@@ -153,8 +222,7 @@ func TestWrite_AsFlag_OverridesDefaultIdentity(t *testing.T) {
 // --- identity verb (P3) ---
 
 func TestIdentity_Set_RequiresAs(t *testing.T) {
-	t.Setenv("USER", "alice")
-	dbFile, _ := initCLI(t)
+	dbFile, _ := initCLI(t, "--as", "alice")
 
 	// No --as on identity set — bootstrap discipline: still require it.
 	_, stderr, err := runCLI(t, dbFile, "identity", "set", "bob")
@@ -167,8 +235,7 @@ func TestIdentity_Set_RequiresAs(t *testing.T) {
 }
 
 func TestIdentity_Set_UpdatesDefault(t *testing.T) {
-	t.Setenv("USER", "alice")
-	dbFile, _ := initCLI(t)
+	dbFile, _ := initCLI(t, "--as", "alice")
 
 	_, _, err := runCLI(t, dbFile, "--as", "alice", "identity", "set", "claude")
 	if err != nil {
@@ -182,8 +249,7 @@ func TestIdentity_Set_UpdatesDefault(t *testing.T) {
 }
 
 func TestIdentity_Strict_On_DisablesDefault(t *testing.T) {
-	t.Setenv("USER", "alice")
-	dbFile, _ := initCLI(t)
+	dbFile, _ := initCLI(t, "--as", "alice")
 
 	// Turn strict on.
 	_, _, err := runCLI(t, dbFile, "--as", "alice", "identity", "strict", "on")

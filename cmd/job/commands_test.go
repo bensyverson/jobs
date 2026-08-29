@@ -7,7 +7,6 @@ import (
 	"fmt"
 	job "github.com/bensyverson/jobs/internal/job"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -70,6 +69,10 @@ func openTestDB(t *testing.T, path string) *sql.DB {
 }
 
 const wantIdentityRequired = "identity required. Pass --as <name> before the verb."
+
+// init's refusal is its own message: it has to explain what the name it is
+// asking for will be used for, and name the way out.
+const wantInitIdentityRequired = "identity required. Pass --as <name> (writes without --as are attributed to it), or --strict to require --as on every write."
 
 func TestWriteRequiresAs(t *testing.T) {
 	dbFile := setupCLI(t)
@@ -721,7 +724,7 @@ func TestInit_StillUsesCwd_EvenUnderAncestor(t *testing.T) {
 	var outBuf, errBuf bytes.Buffer
 	root2.SetOut(&outBuf)
 	root2.SetErr(&errBuf)
-	root2.SetArgs([]string{"init"})
+	root2.SetArgs([]string{"init", "--as", "alice"})
 	if err := root2.Execute(); err != nil {
 		t.Fatalf("init: %v (stderr=%s)", err, errBuf.String())
 	}
@@ -938,8 +941,10 @@ func TestNext_Empty_WordingUpdated(t *testing.T) {
 	}
 }
 
-func TestInit_DefaultOutput_IncludesGitignoreHint(t *testing.T) {
-	dir := t.TempDir()
+// initInDir runs `job init --as alice` with dir as the working directory
+// and returns everything it printed.
+func initInDir(t *testing.T, dir string) string {
+	t.Helper()
 	t.Chdir(dir)
 	t.Setenv("JOBS_DB", "")
 	resetFlags()
@@ -949,200 +954,60 @@ func TestInit_DefaultOutput_IncludesGitignoreHint(t *testing.T) {
 	var outBuf bytes.Buffer
 	root.SetOut(&outBuf)
 	root.SetErr(&outBuf)
-	root.SetArgs([]string{"init"})
+	root.SetArgs([]string{"init", "--as", "alice"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	out := outBuf.String()
-	if !strings.Contains(out, "Recommended .gitignore entries") {
-		t.Errorf("expected hint:\n%s", out)
-	}
-	if !strings.Contains(out, ".jobs.db-shm") {
-		t.Errorf("expected shm entry:\n%s", out)
+	return outBuf.String()
+}
+
+const gitignoreHintLead = "Add to .gitignore (or run: job gitignore):"
+
+// The hint is advice about a .gitignore, so it is only printed where a
+// .gitignore would mean something.
+func TestInit_GitignoreHint_OnlyInsideAGitRepo(t *testing.T) {
+	dir := t.TempDir()
+	out := initInDir(t, dir)
+	if strings.Contains(out, gitignoreHintLead) || strings.Contains(out, ".jobs.db-shm") {
+		t.Errorf("no .git: init should print no gitignore hint:\n%s", out)
 	}
 }
 
-func TestInit_GitignoreFlag_CreatesFile(t *testing.T) {
+func TestInit_GitignoreHint_PrintedWhenAPatternIsMissing(t *testing.T) {
 	dir := t.TempDir()
-	t.Chdir(dir)
-	t.Setenv("JOBS_DB", "")
-	resetFlags()
-	t.Cleanup(resetFlags)
-
-	root := newRootCmd()
-	var outBuf bytes.Buffer
-	root.SetOut(&outBuf)
-	root.SetErr(&outBuf)
-	root.SetArgs([]string{"init", "--gitignore"})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("init: %v", err)
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	// One of the three already ignored: the hint still prints, and prints
+	// the whole block rather than the remainder.
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".jobs.db-shm\n"), 0o644); err != nil {
+		t.Fatalf("seed .gitignore: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
-	if err != nil {
-		t.Fatalf("read .gitignore: %v", err)
+	out := initInDir(t, dir)
+	if !strings.Contains(out, "\n"+gitignoreHintLead+"\n") {
+		t.Errorf("expected the hint lead:\n%s", out)
 	}
-	content := string(data)
-	if !strings.Contains(content, ".jobs.db-shm") {
-		t.Errorf(".gitignore missing -shm entry:\n%s", content)
+	if strings.Contains(out, "init --gitignore") {
+		t.Errorf("the lead should point at `job gitignore`, not the retired flag:\n%s", out)
 	}
-	if !strings.Contains(content, ".jobs.db-wal") {
-		t.Errorf(".gitignore missing -wal entry:\n%s", content)
-	}
-	// .jobs.db itself is a recommended entry too: every project using Jobs
-	// ends up ignoring it, and the agent-worktree workflow assumes it isn't
-	// checked in.
-	if !strings.Contains(content, "\n.jobs.db\n") {
-		t.Errorf(".gitignore should include .jobs.db itself:\n%s", content)
-	}
-	out := outBuf.String()
-	if !strings.Contains(out, "Wrote 3 entries to .gitignore") {
-		t.Errorf("missing success output:\n%s", out)
+	if !strings.Contains(out, "\n\n"+job.GitignoreHint()+"\n") {
+		t.Errorf("expected the full rendered block after a blank line:\n%s", out)
 	}
 }
 
-func TestInit_GitignoreFlag_AppendsExisting(t *testing.T) {
+func TestInit_GitignoreHint_SuppressedWhenEveryPatternIsPresent(t *testing.T) {
 	dir := t.TempDir()
-	t.Chdir(dir)
-	t.Setenv("JOBS_DB", "")
-	resetFlags()
-	t.Cleanup(resetFlags)
-
-	existing := "node_modules/\n.env\n"
-	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(existing), 0o644); err != nil {
-		t.Fatalf("write .gitignore: %v", err)
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	if _, _, err := job.WriteGitignoreEntries(dir); err != nil {
+		t.Fatalf("WriteGitignoreEntries: %v", err)
 	}
 
-	root := newRootCmd()
-	var outBuf bytes.Buffer
-	root.SetOut(&outBuf)
-	root.SetErr(&outBuf)
-	root.SetArgs([]string{"init", "--gitignore"})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("init: %v", err)
-	}
-	data, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
-	content := string(data)
-	if !strings.HasPrefix(content, existing) {
-		t.Errorf("original content clobbered:\n%s", content)
-	}
-	if !strings.Contains(content, ".jobs.db-shm") {
-		t.Errorf("missing appended entry:\n%s", content)
-	}
-	if !strings.Contains(content, "# job\n") {
-		t.Errorf("missing section header:\n%s", content)
-	}
-}
-
-func TestInit_GitignoreFlag_Idempotent(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	t.Setenv("JOBS_DB", "")
-	resetFlags()
-	t.Cleanup(resetFlags)
-
-	// First run
-	root1 := newRootCmd()
-	root1.SetOut(&bytes.Buffer{})
-	root1.SetErr(&bytes.Buffer{})
-	root1.SetArgs([]string{"init", "--gitignore"})
-	if err := root1.Execute(); err != nil {
-		t.Fatalf("init 1: %v", err)
-	}
-	first, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
-
-	// Second run: overwrite db, gitignore should be unchanged.
-	resetFlags()
-	root2 := newRootCmd()
-	var outBuf bytes.Buffer
-	root2.SetOut(&outBuf)
-	root2.SetErr(&outBuf)
-	root2.SetArgs([]string{"init", "--force", "--gitignore"})
-	if err := root2.Execute(); err != nil {
-		t.Fatalf("init 2: %v", err)
-	}
-	second, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
-	if string(first) != string(second) {
-		t.Errorf("gitignore changed on second run:\nfirst:\n%s\nsecond:\n%s", first, second)
-	}
-	if !strings.Contains(outBuf.String(), "already includes") {
-		t.Errorf("expected 'already includes':\n%s", outBuf.String())
-	}
-}
-
-func TestInit_GitignoreFlag_PartialPresent(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	t.Setenv("JOBS_DB", "")
-	resetFlags()
-	t.Cleanup(resetFlags)
-
-	existing := ".jobs.db-shm\n"
-	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(existing), 0o644); err != nil {
-		t.Fatalf("write .gitignore: %v", err)
-	}
-
-	root := newRootCmd()
-	var outBuf bytes.Buffer
-	root.SetOut(&outBuf)
-	root.SetErr(&outBuf)
-	root.SetArgs([]string{"init", "--gitignore"})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("init: %v", err)
-	}
-	data, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
-	content := string(data)
-	if !strings.Contains(content, ".jobs.db-wal") {
-		t.Errorf("missing -wal append:\n%s", content)
-	}
-	if !strings.Contains(content, "\n.jobs.db\n") {
-		t.Errorf("missing .jobs.db append:\n%s", content)
-	}
-	// Only one -shm entry (not duplicated).
-	if strings.Count(content, ".jobs.db-shm") != 1 {
-		t.Errorf("duplicated -shm entry:\n%s", content)
-	}
-	out := outBuf.String()
-	if !strings.Contains(out, "Wrote 2 entries") {
-		t.Errorf("missing wrote message:\n%s", out)
-	}
-}
-
-// TestInit_GitignoreFlag_GitActuallyIgnoresTheEntries drives real `git` on a
-// real repo: the earlier tests only inspect the .gitignore text, which
-// missed that a trailing inline comment makes git treat the whole line as
-// one literal (never-matching) pattern. Skips if git isn't on PATH.
-func TestInit_GitignoreFlag_GitActuallyIgnoresTheEntries(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not available")
-	}
-
-	dir := t.TempDir()
-	t.Chdir(dir)
-	t.Setenv("JOBS_DB", "")
-	resetFlags()
-	t.Cleanup(resetFlags)
-
-	gitInit := exec.Command("git", "init", "-q")
-	gitInit.Dir = dir
-	if out, err := gitInit.CombinedOutput(); err != nil {
-		t.Skipf("git init failed, skipping: %v\n%s", err, out)
-	}
-
-	root := newRootCmd()
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
-	root.SetArgs([]string{"init", "--gitignore"})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("init: %v", err)
-	}
-
-	for _, name := range []string{".jobs.db", ".jobs.db-shm", ".jobs.db-wal"} {
-		check := exec.Command("git", "check-ignore", "-q", name)
-		check.Dir = dir
-		if err := check.Run(); err != nil {
-			t.Errorf("git check-ignore -q %s: not ignored (%v)", name, err)
-		}
+	out := initInDir(t, dir)
+	if strings.Contains(out, gitignoreHintLead) || strings.Contains(out, ".jobs.db-shm") {
+		t.Errorf("every pattern already present: init should print no hint:\n%s", out)
 	}
 }
 
@@ -1167,7 +1032,7 @@ func TestHelp_MentionsCurrentVerbs(t *testing.T) {
 	// `unblock` is a hidden deprecated alias for `block remove`; it still
 	// works but is intentionally absent from help output.
 	wantVerbs := []string{
-		"init", "schema", "add", "import", "edit", "block",
+		"init", "gitignore", "schema", "add", "import", "edit", "block",
 		"move", "claim", "release", "note", "done", "reopen",
 		"cancel", "ls", "show", "log", "status", "next", "tail",
 		"heartbeat", "label",

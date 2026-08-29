@@ -174,6 +174,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&dbPath, "db", "", "path to job database (default: .jobs.db)")
 	cmd.PersistentFlags().StringVar(&asFlag, "as", "", "identity to use for writes (e.g. --as alice)")
 	cmd.AddCommand(newInitCmd())
+	cmd.AddCommand(newGitignoreCmd())
 	cmd.AddCommand(newAddCmd())
 	cmd.AddCommand(newIssueCmd())
 	cmd.AddCommand(newListCmd())
@@ -213,8 +214,8 @@ Tasks form a tree. Every write is attributed to a named identity and recorded as
 
 QUICKSTART
 
-  1. Initialize:  job init
-     Records your $USER as the default identity; subsequent writes need no --as.
+  1. Initialize:  job init --as <name>
+     Records <name> as the default identity; subsequent writes need no --as.
 
   2. Open with orient:  job orient
      Run at the start of every session — it picks the next available leaf and renders its tree.
@@ -250,7 +251,7 @@ IDENTITY
 
   Every write is attributed. Resolution order, first match wins:
     1. --as <name> on the call
-    2. A DB-level default identity (set at init — defaults to $USER)
+    2. A DB-level default identity (recorded from --as at init)
     3. Otherwise: error
 
     job identity set <name>         change the default (itself requires --as)
@@ -260,7 +261,7 @@ IDENTITY
 
 VERBS (grouped by role)
 
-  Setup:        init, identity, schema
+  Setup:        init, gitignore, identity, schema
   Planning:     add, import, edit, block, move, label
     Reserved label:  "decision" → surfaces as "Decision:" in status until done/canceled
   Execution:    claim, claim --next, release/unclaim, note, done, reopen, cancel, heartbeat
@@ -347,7 +348,7 @@ func requireAs(db *sql.DB) (string, error) {
 		return "", err
 	}
 	if name == "" {
-		return "", fmt.Errorf("identity required. Pass --as <name> before the verb.")
+		return "", fmt.Errorf("%s", identityRequiredMsg)
 	}
 	if _, err := job.EnsureUser(db, name); err != nil {
 		return "", err

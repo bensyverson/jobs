@@ -7,41 +7,108 @@ import (
 	"strings"
 )
 
-const GitignoreHint = `Recommended .gitignore entries:
-  .jobs.db          # Jobs event store (local by default; remove this line to share it)
-  .jobs.db-shm      # SQLite WAL index (always local)
-  .jobs.db-wal      # SQLite WAL journal (always local)
-
-Run: job init --gitignore  to write these for you.`
-
+// gitignoreEntry is one comment and the patterns it describes. The comment
+// prints on its own line above them: gitignore has no trailing-comment
+// syntax, so "pattern # comment" is a single literal pattern that matches
+// nothing. Grouping lets related patterns — the WAL sidecars — share one
+// comment instead of repeating a near-identical line.
 type gitignoreEntry struct {
-	name    string
-	comment string
+	comment  string
+	patterns []string
 }
 
 var jobGitignoreEntries = []gitignoreEntry{
-	{".jobs.db", "Jobs event store (local by default; remove this line to share it)"},
-	{".jobs.db-shm", "SQLite WAL index (always local)"},
-	{".jobs.db-wal", "SQLite WAL journal (always local)"},
+	{"Jobs event store — local by default; delete this line to share it", []string{".jobs.db"}},
+	{"SQLite WAL sidecars — always local", []string{".jobs.db-shm", ".jobs.db-wal"}},
+}
+
+// GitignoreHint renders the recommended entries as a block that pastes into
+// a .gitignore unchanged. It is rendered from the same table the writer
+// uses, so what a reader pastes is what `job gitignore` would have written.
+func GitignoreHint() string {
+	return strings.TrimRight(gitignoreBlock(jobGitignoreEntries), "\n")
+}
+
+func gitignoreBlock(entries []gitignoreEntry) string {
+	var buf strings.Builder
+	for _, e := range entries {
+		if len(e.patterns) == 0 {
+			continue
+		}
+		buf.WriteString("# ")
+		buf.WriteString(e.comment)
+		buf.WriteString("\n")
+		for _, p := range e.patterns {
+			buf.WriteString(p)
+			buf.WriteString("\n")
+		}
+	}
+	return buf.String()
+}
+
+// gitignorePatterns flattens the entry table to the bare pattern list, in
+// the order they are written.
+func gitignorePatterns() []string {
+	var names []string
+	for _, e := range jobGitignoreEntries {
+		names = append(names, e.patterns...)
+	}
+	return names
+}
+
+// missingGitignoreEntries partitions the entry table against the content of
+// an existing .gitignore, keeping the group structure so a comment still
+// prints above whichever of its patterns are absent.
+func missingGitignoreEntries(existing string) (missing []gitignoreEntry, absent, present []string) {
+	for _, e := range jobGitignoreEntries {
+		var gap []string
+		for _, p := range e.patterns {
+			if gitignoreHasEntry(existing, p) {
+				present = append(present, p)
+			} else {
+				gap = append(gap, p)
+			}
+		}
+		if len(gap) > 0 {
+			missing = append(missing, gitignoreEntry{comment: e.comment, patterns: gap})
+			absent = append(absent, gap...)
+		}
+	}
+	return missing, absent, present
+}
+
+// MissingGitignoreEntries lists the recommended patterns that dir's
+// .gitignore does not already carry, so a caller can stay quiet when there
+// is nothing to suggest. A missing .gitignore is simply one that carries
+// nothing.
+func MissingGitignoreEntries(dir string) ([]string, error) {
+	existing, err := readGitignore(dir)
+	if err != nil {
+		return nil, err
+	}
+	_, absent, _ := missingGitignoreEntries(existing)
+	return absent, nil
+}
+
+func readGitignore(dir string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return string(data), nil
 }
 
 func WriteGitignoreEntries(dir string) (written []string, alreadyPresent []string, err error) {
 	path := filepath.Join(dir, ".gitignore")
-	existing := ""
-	if data, readErr := os.ReadFile(path); readErr == nil {
-		existing = string(data)
-	} else if !os.IsNotExist(readErr) {
-		return nil, nil, readErr
+	existing, err := readGitignore(dir)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	for _, e := range jobGitignoreEntries {
-		if gitignoreHasEntry(existing, e.name) {
-			alreadyPresent = append(alreadyPresent, e.name)
-		} else {
-			written = append(written, e.name)
-		}
-	}
-
+	missing, written, alreadyPresent := missingGitignoreEntries(existing)
 	if len(written) == 0 {
 		return written, alreadyPresent, nil
 	}
@@ -55,16 +122,7 @@ func WriteGitignoreEntries(dir string) (written []string, alreadyPresent []strin
 		buf.WriteString("\n")
 	}
 	buf.WriteString("# job\n")
-	for _, e := range jobGitignoreEntries {
-		if gitignoreHasEntry(existing, e.name) {
-			continue
-		}
-		buf.WriteString("# ")
-		buf.WriteString(e.comment)
-		buf.WriteString("\n")
-		buf.WriteString(e.name)
-		buf.WriteString("\n")
-	}
+	buf.WriteString(gitignoreBlock(missing))
 
 	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 		return nil, nil, err

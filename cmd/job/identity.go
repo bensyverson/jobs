@@ -23,12 +23,20 @@ func newIdentityCmd() *cobra.Command {
 	return cmd
 }
 
+// The two identity-required refusals, each spelled once. Verbs share the
+// first; `init` needs its own because it is also explaining what the name
+// will be used for and naming the way out.
+const (
+	identityRequiredMsg     = "identity required. Pass --as <name> before the verb."
+	initIdentityRequiredMsg = "identity required. Pass --as <name> (writes without --as are attributed to it), or --strict to require --as on every write."
+)
+
 // identity verbs require --as explicitly — they change who "the default"
 // means, so the bootstrap discipline is: the change itself must be
 // attributed, no fall-through to the current default.
 func requireAsStrict() (string, error) {
 	if asFlag == "" {
-		return "", fmt.Errorf("identity required. Pass --as <name> before the verb.")
+		return "", fmt.Errorf("%s", identityRequiredMsg)
 	}
 	return asFlag, nil
 }
