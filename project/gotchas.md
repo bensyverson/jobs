@@ -53,7 +53,3 @@ Also: sleepy renders offscreen with `document.visibilityState === "hidden"`, so 
 ## 2026-08-28 — every layout `<script>` runs on every page, so a loose self-guard silently claims another view's markup
 
 **`log-live.mjs` guarded itself with `document.querySelector(".c-log")` — and the single-actor page's Events list is also a `.c-log`.** Both it and `actors-live.js`'s private row renderer were therefore live on `/actors/{name}`, racing to prepend the same row; the loser's dedup check swallowed the duplicate, so nothing looked broken and the page had quietly been rendering *log-live's* markup, not the markup its own module wrote. Every module in `layout.html.tmpl` loads on every page, so a self-guard selector has to name the view it owns, not a class it happens to share: `log-live.mjs` now takes `.c-log:not([data-actor-events])` and `actor-single-live.mjs` owns the rest. If two modules can plausibly match the same node, say which one wins in a comment on both.
-
-## 2026-08-29 — rule: a docs pass cannot touch `project/agents/*.md`
-
-**Every file under `project/agents/` is a generated region**, so a docs leaf that lists one of them (as the init-identity plan did for `jobs.md`) cannot edit it; the fix goes through the shared-rule review. `jobs.md`'s "recorded at `job init`" line is still true after `init --as` became required, just no longer the whole story.
