@@ -53,3 +53,11 @@ Also: sleepy renders offscreen with `document.visibilityState === "hidden"`, so 
 ## 2026-08-28 — every layout `<script>` runs on every page, so a loose self-guard silently claims another view's markup
 
 **`log-live.mjs` guarded itself with `document.querySelector(".c-log")` — and the single-actor page's Events list is also a `.c-log`.** Both it and `actors-live.js`'s private row renderer were therefore live on `/actors/{name}`, racing to prepend the same row; the loser's dedup check swallowed the duplicate, so nothing looked broken and the page had quietly been rendering *log-live's* markup, not the markup its own module wrote. Every module in `layout.html.tmpl` loads on every page, so a self-guard selector has to name the view it owns, not a class it happens to share: `log-live.mjs` now takes `.c-log:not([data-actor-events])` and `actor-single-live.mjs` owns the rest. If two modules can plausibly match the same node, say which one wins in a comment on both.
+
+## woodcase under the Claude Code sandbox (2026-08-30)
+
+- `~/.woodcase` and `~/Library/Caches/woodcase` are allow-listed in `~/.claude/settings.json` (added 2026-08-30), so every read/write verb, the activity log and `shot` run sandboxed. Only `woodcase serve` needs the sandbox off — it binds a port, which no allow-list grants; the same is true of `job serve`. In practice the human runs `serve`.
+- rule: the harness note "never invent cache or `HOME` redirects to make a toolchain work in-sandbox" was right and cost time when ignored — redirecting `WOODCASE_HOME` hid the file from the user's own `serve`, which lists files from the activity log. Re-run the one failing call unsandboxed, or allow-list the tool's own state directory.
+- `which woodcase` reported "not found" inside the sandbox while the binary ran, because `~/.swiftpm/bin` was unreadable; it is allow-listed now. Don't conclude a working command is a shell function.
+- In zsh a bare word starting with `=` (`echo =====`) is `=cmd` expansion and errors as "not found"; quote separators.
+- Lucide's check icon is `circle-check`; `check-circle-2` renders nothing, silently — read the PNG.
