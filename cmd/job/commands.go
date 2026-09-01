@@ -201,6 +201,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newLogCmd())
 	cmd.AddCommand(newTailCmd())
 	cmd.AddCommand(newImportCmd())
+	cmd.AddCommand(newMergeCmd())
 	cmd.AddCommand(newSchemaCmd())
 	cmd.AddCommand(newStatusCmd())
 	cmd.AddCommand(newOrientCmd())
@@ -262,7 +263,7 @@ IDENTITY
 
 VERBS (grouped by role)
 
-  Setup:        init, gitignore, identity, schema
+  Setup:        init, gitignore, identity, schema, merge
   Planning:     add, import, edit, block, move, label
     Reserved label:  "decision" → surfaces as "Decision:" in status until done/canceled
   Execution:    claim, claim --next, release/unclaim, note, done, reopen, cancel, heartbeat
