@@ -75,8 +75,8 @@ func TestRunAdd_RootTask(t *testing.T) {
 		t.Fatalf("RunAdd: %v", err)
 	}
 	id := res.ShortID
-	if len(id) != 5 {
-		t.Fatalf("expected 5-char ID, got %q", id)
+	if len(id) != 6 {
+		t.Fatalf("expected 6-char ID, got %q", id)
 	}
 
 	task := MustGet(t, db, id)

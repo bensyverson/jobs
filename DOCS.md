@@ -479,7 +479,7 @@ Query parameters (all optional, AND-composed):
 | `since` | Only events with `id > since`. Integer (event id).                        |
 | `limit` | JSON mode only; caps the returned array. Default 500, no upper clamp.     |
 | `actor` | Match on `actor` field exactly.                                           |
-| `task`  | Match on the task's 5-char short id. Matches events on that task only.    |
+| `task`  | Match on the task's short id. Matches events on that task only.           |
 | `label` | Match if the event's task carries this label.                             |
 | `type`  | Match on `event_type` exactly (e.g. `created`, `claimed`, `done`).        |
 
@@ -513,7 +513,7 @@ curl 'http://127.0.0.1:7823/events?actor=alice&type=done&limit=50'
 
 ## Task IDs
 
-IDs are 5-character, case-sensitive, alphanumeric strings (e.g. `aM8eT`). A mismatch is an error, not a fuzzy match.
+IDs are case-sensitive alphanumeric strings of six characters (five for tasks created before 2026-09-01), e.g. `aM8eTq`. A mismatch is an error, not a fuzzy match.
 
 ## For contributors
 

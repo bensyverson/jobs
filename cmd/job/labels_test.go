@@ -20,8 +20,8 @@ func TestAddCLI_WithOneLabel(t *testing.T) {
 		t.Fatalf("add with label: %v", err)
 	}
 	id := strings.TrimSpace(stdout)
-	if len(id) != 5 {
-		t.Fatalf("expected 5-char ID in output, got %q", stdout)
+	if len(id) != 6 {
+		t.Fatalf("expected 6-char ID in output, got %q", stdout)
 	}
 
 	db2 := openTestDB(t, dbFile)
@@ -74,8 +74,8 @@ func TestAddCLI_NoLabel_NoRegression(t *testing.T) {
 		t.Fatalf("add without label: %v", err)
 	}
 	id := strings.TrimSpace(stdout)
-	if len(id) != 5 {
-		t.Fatalf("expected 5-char ID, got %q", id)
+	if len(id) != 6 {
+		t.Fatalf("expected 6-char ID, got %q", id)
 	}
 }
 

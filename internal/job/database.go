@@ -19,6 +19,15 @@ var CurrentNowFunc = time.Now
 const defaultDBName = ".jobs.db"
 const base62Chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
+// Short id widths. Tasks mint six characters because two replicas mint
+// apart and a collision cannot be remapped once the id is in notes and
+// commits; criteria mint three, unique within their task
+// (project/2026-09-01-git-native-event-log.md, decision 1).
+const (
+	shortIDLen          = 6
+	criterionShortIDLen = 3
+)
+
 type dbtx interface {
 	Exec(query string, args ...any) (sql.Result, error)
 	Query(query string, args ...any) (*sql.Rows, error)
@@ -96,9 +105,10 @@ func CreateDB(path string) (*sql.DB, error) {
 	return OpenDB(path)
 }
 
+// generateShortID mints a base62 task id unused in this database.
 func generateShortID(tx dbtx) (string, error) {
 	for {
-		id := make([]byte, 5)
+		id := make([]byte, shortIDLen)
 		for i := range id {
 			n, err := rand.Int(rand.Reader, big.NewInt(62))
 			if err != nil {
@@ -117,14 +127,13 @@ func generateShortID(tx dbtx) (string, error) {
 	}
 }
 
-// generateCriterionShortID mints a 3-char base62 short ID unique across
-// task_criteria. Criteria are far less numerous than tasks (one task can
-// carry a handful), and the report's example pinned 3-char shape; 62^3
-// (≈238k) leaves enough headroom that collisions are negligible, and the
-// rejection-sample loop stays predictable when they happen.
-func generateCriterionShortID(tx dbtx) (string, error) {
+// generateCriterionShortID mints a 3-char base62 short ID unique among the
+// criteria of one task. Every lookup and every event carries the task, so
+// the id never needs to be unique beyond it, and a per-task scope keeps
+// two replicas minting apart from colliding.
+func generateCriterionShortID(tx dbtx, taskID int64) (string, error) {
 	for {
-		id := make([]byte, 3)
+		id := make([]byte, criterionShortIDLen)
 		for i := range id {
 			n, err := rand.Int(rand.Reader, big.NewInt(62))
 			if err != nil {
@@ -134,7 +143,7 @@ func generateCriterionShortID(tx dbtx) (string, error) {
 		}
 		sid := string(id)
 		var exists bool
-		if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM task_criteria WHERE short_id = ?)", sid).Scan(&exists); err != nil {
+		if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM task_criteria WHERE task_id = ? AND short_id = ?)", taskID, sid).Scan(&exists); err != nil {
 			return "", err
 		}
 		if !exists {
@@ -149,21 +158,22 @@ func generateCriterionShortID(tx dbtx) (string, error) {
 // which mints inline; this only fills the snapshot present on disk at
 // migration time.
 func backfillCriteriaShortIDs(db *sql.DB) error {
-	rows, err := db.Query("SELECT id FROM task_criteria WHERE short_id IS NULL")
+	rows, err := db.Query("SELECT id, task_id FROM task_criteria WHERE short_id IS NULL")
 	if err != nil {
 		return fmt.Errorf("backfill criteria short_ids: query: %w", err)
 	}
-	var ids []int64
+	type row struct{ id, taskID int64 }
+	var pending []row
 	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var r row
+		if err := rows.Scan(&r.id, &r.taskID); err != nil {
 			rows.Close()
 			return err
 		}
-		ids = append(ids, id)
+		pending = append(pending, r)
 	}
 	rows.Close()
-	if len(ids) == 0 {
+	if len(pending) == 0 {
 		return nil
 	}
 	tx, err := db.Begin()
@@ -171,12 +181,12 @@ func backfillCriteriaShortIDs(db *sql.DB) error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, id := range ids {
-		sid, err := generateCriterionShortID(tx)
+	for _, r := range pending {
+		sid, err := generateCriterionShortID(tx, r.taskID)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec("UPDATE task_criteria SET short_id = ? WHERE id = ?", sid, id); err != nil {
+		if _, err := tx.Exec("UPDATE task_criteria SET short_id = ? WHERE id = ?", sid, r.id); err != nil {
 			return err
 		}
 	}

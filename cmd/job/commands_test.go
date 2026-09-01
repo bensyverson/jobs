@@ -1354,3 +1354,16 @@ func TestList_AllPositional_StillWorks(t *testing.T) {
 		t.Errorf("positional 'all' should still work:\n%s", stdout)
 	}
 }
+
+func TestLooksLikeShortID_AcceptsFiveAndSixCharacters(t *testing.T) {
+	for _, ok := range []string{"aM8eT", "aM8eTq"} {
+		if !looksLikeShortID(ok) {
+			t.Errorf("%q rejected", ok)
+		}
+	}
+	for _, bad := range []string{"aM8e", "aM8eTqZ", "aM8e-", "fix the thing"} {
+		if looksLikeShortID(bad) {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

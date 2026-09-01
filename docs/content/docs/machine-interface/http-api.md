@@ -48,7 +48,7 @@ The same object is used for SSE `data:` payloads and for entries in the JSON rep
 Field notes:
 
 - **`id`** is the monotonically increasing event-log id. Use it for `since=` to resume cleanly across reconnects.
-- **`task_id`** is the public **short id** (the same five-character handle the CLI uses). Internal numeric ids are not exposed.
+- **`task_id`** is the public **short id** (the same short handle the CLI uses). Internal numeric ids are not exposed.
 - **`task_title`** is denormalized onto every event so a thin client can render a row without a second lookup.
 - **`detail`** is an **opaque JSON string** — its inner shape varies per `event_type` and matches the `detail` payload from `job log --format=json`. Parse it on demand.
 - **`created_at`** is RFC3339 in UTC.

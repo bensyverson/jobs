@@ -70,7 +70,7 @@ MZHd1  Write the handler
 kTuMb  Wire it into the router
 ```
 
-The five-character ids are stable and case-sensitive. Use them anywhere a verb takes `<id>`.
+The six-character ids are stable and case-sensitive. Use them anywhere a verb takes `<id>`.
 
 ## 4. Status
 

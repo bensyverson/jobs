@@ -18,10 +18,11 @@ var (
 )
 
 // looksLikeShortID returns true if s has the shape of a job short-ID:
-// exactly 5 characters, each in [a-zA-Z0-9]. Used to detect when a user
-// passed prose where an ID was expected.
+// five or six characters (ids minted before 2026-09-01 are five, newer
+// ones six), each in [a-zA-Z0-9]. Used to detect when a user passed
+// prose where an ID was expected.
 func looksLikeShortID(s string) bool {
-	if len(s) != 5 {
+	if len(s) != 5 && len(s) != 6 {
 		return false
 	}
 	for i := 0; i < len(s); i++ {

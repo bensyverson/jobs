@@ -45,7 +45,7 @@ Tip: pass --claim-next to atomically close this task and claim the next availabl
 			// suggestion, before job.RunDone emits a generic "task not found".
 			for i, a := range args {
 				if !looksLikeShortID(a) {
-					return fmt.Errorf("done: %q does not look like a task ID (5-char alphanumeric). Did you mean `-m %q`? (positional arg #%d)",
+					return fmt.Errorf("done: %q does not look like a task ID (5-6 alphanumeric characters). Did you mean `-m %q`? (positional arg #%d)",
 						a, a, i+1)
 				}
 			}

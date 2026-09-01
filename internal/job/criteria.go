@@ -81,7 +81,7 @@ func insertCriteria(tx dbtx, taskID int64, items []Criterion) ([]Criterion, erro
 		if _, err := ValidateCriterionState(string(state)); err != nil {
 			return nil, err
 		}
-		shortID, err := generateCriterionShortID(tx)
+		shortID, err := generateCriterionShortID(tx, taskID)
 		if err != nil {
 			return nil, err
 		}

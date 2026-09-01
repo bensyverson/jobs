@@ -18,7 +18,7 @@ Every event has at minimum:
 
 - `id` — monotonic integer, unique across the database.
 - `task_id` — internal numeric task id.
-- `short_id` — the 5-char public id of the task it concerns.
+- `short_id` — the public short id of the task it concerns.
 - `event_type` — see the catalogue below.
 - `actor` — the writer's identity at the time.
 - `created_at` — Unix epoch seconds in `--format=json`; rendered as local time `[YYYY-MM-DD HH:MM]` in plain output.
