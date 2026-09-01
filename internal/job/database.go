@@ -193,7 +193,7 @@ func backfillCriteriaShortIDs(db *sql.DB) error {
 	return tx.Commit()
 }
 
-func recordEvent(tx dbtx, taskID int64, eventType, actor string, detail any) error {
+func recordEvent(tx dbtx, taskID int64, eventType EventType, actor string, detail any) error {
 	var detailJSON string
 	if detail != nil {
 		b, err := json.Marshal(detail)
@@ -204,7 +204,7 @@ func recordEvent(tx dbtx, taskID int64, eventType, actor string, detail any) err
 	}
 	_, err := tx.Exec(
 		"INSERT INTO events (task_id, event_type, actor, detail, created_at) VALUES (?, ?, ?, ?, ?)",
-		taskID, eventType, actor, detailJSON, CurrentNowFunc().Unix(),
+		taskID, string(eventType), actor, detailJSON, CurrentNowFunc().Unix(),
 	)
 	return err
 }
@@ -212,7 +212,7 @@ func recordEvent(tx dbtx, taskID int64, eventType, actor string, detail any) err
 // recordOrphanEvent records an event with task_id = NULL. Used for events that
 // outlive their subject task (e.g. a `purged` event on a root task whose row
 // is being erased in the same transaction).
-func recordOrphanEvent(tx dbtx, eventType, actor string, detail any) error {
+func recordOrphanEvent(tx dbtx, eventType EventType, actor string, detail any) error {
 	var detailJSON string
 	if detail != nil {
 		b, err := json.Marshal(detail)
@@ -223,7 +223,7 @@ func recordOrphanEvent(tx dbtx, eventType, actor string, detail any) error {
 	}
 	_, err := tx.Exec(
 		"INSERT INTO events (task_id, event_type, actor, detail, created_at) VALUES (NULL, ?, ?, ?, ?)",
-		eventType, actor, detailJSON, CurrentNowFunc().Unix(),
+		string(eventType), actor, detailJSON, CurrentNowFunc().Unix(),
 	)
 	return err
 }

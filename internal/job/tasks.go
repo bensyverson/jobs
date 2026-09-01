@@ -132,16 +132,16 @@ func RunAddKind(db *sql.DB, parentShortID, title, desc, beforeShortID string, la
 	if parentShortID != "" {
 		eventParentID = parentShortID
 	}
-	createdDetail := map[string]any{
-		"parent_id":   eventParentID,
-		"title":       title,
-		"description": desc,
-		"sort_order":  sortOrder,
+	createdPayload := CreatedPayload{
+		ParentID:    eventParentID,
+		Title:       title,
+		Description: desc,
+		SortOrder:   int64(sortOrder),
 	}
 	if kind.IsIssue() {
-		createdDetail["kind"] = string(kind)
+		createdPayload.Kind = string(kind)
 	}
-	if err := recordEvent(tx, taskID, "created", actor, createdDetail); err != nil {
+	if err := recordEvent(tx, taskID, EventCreated, actor, createdPayload); err != nil {
 		return nil, err
 	}
 
@@ -153,9 +153,9 @@ func RunAddKind(db *sql.DB, parentShortID, title, desc, beforeShortID string, la
 		if _, _, err := insertLabels(tx, taskID, normalized); err != nil {
 			return nil, err
 		}
-		if err := recordEvent(tx, taskID, "labeled", actor, map[string]any{
-			"names":    normalized,
-			"existing": []string{},
+		if err := recordEvent(tx, taskID, EventLabeled, actor, LabeledPayload{
+			Names:    normalized,
+			Existing: []string{},
 		}); err != nil {
 			return nil, err
 		}
@@ -181,11 +181,11 @@ func RunAddKind(db *sql.DB, parentShortID, title, desc, beforeShortID string, la
 		); err != nil {
 			return nil, err
 		}
-		if err := recordEvent(tx, parent.ID, "released", actor, map[string]any{
-			"auto_released":      true,
-			"triggered_by_child": shortID,
-			"was_claimed_by":     prior,
-			"was_expires_at":     priorExpires,
+		if err := recordEvent(tx, parent.ID, EventReleased, actor, ReleasedPayload{
+			AutoReleased:     true,
+			TriggeredByChild: shortID,
+			WasClaimedBy:     prior,
+			WasExpiresAt:     priorExpires,
 		}); err != nil {
 			return nil, err
 		}
@@ -510,32 +510,46 @@ func cascadeAutoCloseAncestors(tx dbtx, taskID int64, triggerShortID, triggerKin
 		// the status landed on. detail carries both trigger_kind and
 		// cascade_status so consumers can tell apart done-triggered vs
 		// cancel-triggered cascades without inspecting sibling history.
-		eventDetail := map[string]any{
-			"auto_closed":    true,
-			"trigger_kind":   triggerKind,
-			"triggered_by":   triggerShortID,
-			"cascade_status": destination,
-			"was_status":     wasStatus,
-		}
+		var wasClaimedBy string
+		var wasExpiresAt int64
 		// Auto-closed parents are typically not claimed (adding any open
 		// child auto-releases a parent's claim), but record the
 		// breadcrumbs anyway in case some path skipped that release.
 		if wasStatus == "claimed" {
 			if p.ClaimedBy != nil {
-				eventDetail["was_claimed_by"] = *p.ClaimedBy
+				wasClaimedBy = *p.ClaimedBy
 			}
 			if p.ClaimExpiresAt != nil {
-				eventDetail["was_expires_at"] = *p.ClaimExpiresAt
+				wasExpiresAt = *p.ClaimExpiresAt
 			}
 		}
-		if err := recordEvent(tx, p.ID, destination, actor, eventDetail); err != nil {
-			return nil, err
-		}
 		if destination == "done" {
+			if err := recordEvent(tx, p.ID, EventDone, actor, DonePayload{
+				AutoClosed:    true,
+				TriggerKind:   triggerKind,
+				TriggeredBy:   triggerShortID,
+				CascadeStatus: destination,
+				WasStatus:     wasStatus,
+				WasClaimedBy:  wasClaimedBy,
+				WasExpiresAt:  wasExpiresAt,
+			}); err != nil {
+				return nil, err
+			}
 			if err := recordBlocksUnblockedOn(tx, p.ID, p.ShortID, actor); err != nil {
 				return nil, err
 			}
 		} else {
+			if err := recordEvent(tx, p.ID, EventCanceled, actor, CanceledPayload{
+				AutoClosed:    true,
+				TriggerKind:   triggerKind,
+				TriggeredBy:   triggerShortID,
+				CascadeStatus: destination,
+				WasStatus:     wasStatus,
+				WasClaimedBy:  wasClaimedBy,
+				WasExpiresAt:  wasExpiresAt,
+			}); err != nil {
+				return nil, err
+			}
 			if err := recordBlocksUnblockedOnCancel(tx, p.ID, p.ShortID, actor); err != nil {
 				return nil, err
 			}
@@ -727,17 +741,17 @@ func RunDone(db *sql.DB, ids []string, cascade bool, note string, result json.Ra
 	for _, p := range plans {
 		// Close cascaded descendants first.
 		for _, child := range p.cascadeTasks {
-			childDetail := map[string]any{
-				"cascade":                  true,
-				"cascade_closed_by_parent": p.target.shortID,
-				"was_status":               child.Status,
+			childPayload := DonePayload{
+				Cascade:               new(true),
+				CascadeClosedByParent: p.target.shortID,
+				WasStatus:             child.Status,
 			}
 			if child.Status == "claimed" {
 				if child.ClaimedBy != nil {
-					childDetail["was_claimed_by"] = *child.ClaimedBy
+					childPayload.WasClaimedBy = *child.ClaimedBy
 				}
 				if child.ClaimExpiresAt != nil {
-					childDetail["was_expires_at"] = *child.ClaimExpiresAt
+					childPayload.WasExpiresAt = *child.ClaimExpiresAt
 				}
 			}
 			if _, err := tx.Exec(
@@ -746,7 +760,7 @@ func RunDone(db *sql.DB, ids []string, cascade bool, note string, result json.Ra
 			); err != nil {
 				return nil, nil, err
 			}
-			if err := recordEvent(tx, child.ID, "done", actor, childDetail); err != nil {
+			if err := recordEvent(tx, child.ID, EventDone, actor, childPayload); err != nil {
 				return nil, nil, err
 			}
 			if err := recordBlocksUnblockedOn(tx, child.ID, child.ShortID, actor); err != nil {
@@ -763,30 +777,31 @@ func RunDone(db *sql.DB, ids []string, cascade bool, note string, result json.Ra
 		); err != nil {
 			return nil, nil, err
 		}
-		detail := map[string]any{
-			"note":           noteVal,
-			"cascade":        cascade,
-			"cascade_closed": p.cascadeShorts,
-			"was_status":     wasStatus,
+		note, _ := noteVal.(string)
+		payload := DonePayload{
+			Note:          note,
+			Cascade:       new(cascade),
+			CascadeClosed: p.cascadeShorts,
+			WasStatus:     wasStatus,
 		}
 		if wasStatus == "claimed" {
 			if targetTask.ClaimedBy != nil {
-				detail["was_claimed_by"] = *targetTask.ClaimedBy
+				payload.WasClaimedBy = *targetTask.ClaimedBy
 			}
 			if targetTask.ClaimExpiresAt != nil {
-				detail["was_expires_at"] = *targetTask.ClaimExpiresAt
+				payload.WasExpiresAt = *targetTask.ClaimExpiresAt
 			}
 		}
 		if resultVal != nil {
-			detail["result"] = resultVal
+			payload.Result = resultVal
 		}
 		if waived := pendingByTarget[p.target.shortID]; len(waived) > 0 {
-			detail["criteria_waived"] = waived
+			payload.CriteriaWaived = waived
 		}
 		if bulkCriteriaState != "" {
-			detail["criteria_bulk_state"] = bulkCriteriaState
+			payload.CriteriaBulkState = bulkCriteriaState
 		}
-		if err := recordEvent(tx, targetTask.ID, "done", actor, detail); err != nil {
+		if err := recordEvent(tx, targetTask.ID, EventDone, actor, payload); err != nil {
 			return nil, nil, err
 		}
 		if err := recordBlocksUnblockedOn(tx, p.target.task.ID, p.target.shortID, actor); err != nil {
@@ -848,10 +863,10 @@ func recordBlocksUnblockedOn(tx dbtx, blockerID int64, blockerShortID, actor str
 		if err := tx.QueryRow("SELECT short_id FROM tasks WHERE id = ?", id).Scan(&blockedShortID); err != nil {
 			return err
 		}
-		if err := recordEvent(tx, id, "unblocked", actor, map[string]any{
-			"blocked_id": blockedShortID,
-			"blocker_id": blockerShortID,
-			"reason":     "blocker_done",
+		if err := recordEvent(tx, id, EventUnblocked, actor, UnblockedPayload{
+			BlockedID: blockedShortID,
+			BlockerID: blockerShortID,
+			Reason:    "blocker_done",
 		}); err != nil {
 			return err
 		}
@@ -900,10 +915,10 @@ func RunReopen(db *sql.DB, shortID string, cascade bool, actor string) ([]string
 			); err != nil {
 				return nil, err
 			}
-			if err := recordEvent(tx, d.ID, "reopened", actor, map[string]any{
-				"cascade":           false,
-				"reopened_children": []string{},
-				"from_status":       d.Status,
+			if err := recordEvent(tx, d.ID, EventReopened, actor, ReopenedPayload{
+				Cascade:          false,
+				ReopenedChildren: []string{},
+				FromStatus:       d.Status,
 			}); err != nil {
 				return nil, err
 			}
@@ -918,10 +933,10 @@ func RunReopen(db *sql.DB, shortID string, cascade bool, actor string) ([]string
 		return nil, err
 	}
 
-	if err := recordEvent(tx, task.ID, "reopened", actor, map[string]any{
-		"cascade":           cascade,
-		"reopened_children": reopenedChildren,
-		"from_status":       fromStatus,
+	if err := recordEvent(tx, task.ID, EventReopened, actor, ReopenedPayload{
+		Cascade:          cascade,
+		ReopenedChildren: reopenedChildren,
+		FromStatus:       fromStatus,
 	}); err != nil {
 		return nil, err
 	}
@@ -956,7 +971,7 @@ func RunEdit(db *sql.DB, shortID string, newTitle, newDesc *string, actor string
 	}
 
 	now := CurrentNowFunc().Unix()
-	detail := map[string]any{}
+	payload := EditedPayload{}
 
 	if newTitle != nil && *newTitle != task.Title {
 		if _, err := tx.Exec(
@@ -965,11 +980,11 @@ func RunEdit(db *sql.DB, shortID string, newTitle, newDesc *string, actor string
 		); err != nil {
 			return err
 		}
-		detail["old_title"] = task.Title
-		detail["new_title"] = *newTitle
+		payload.OldTitle = new(task.Title)
+		payload.NewTitle = newTitle
 	} else if newTitle != nil {
-		detail["old_title"] = task.Title
-		detail["new_title"] = *newTitle
+		payload.OldTitle = new(task.Title)
+		payload.NewTitle = newTitle
 	}
 
 	if newDesc != nil {
@@ -979,11 +994,11 @@ func RunEdit(db *sql.DB, shortID string, newTitle, newDesc *string, actor string
 		); err != nil {
 			return err
 		}
-		detail["old_desc"] = task.Description
-		detail["new_desc"] = *newDesc
+		payload.OldDesc = new(task.Description)
+		payload.NewDesc = newDesc
 	}
 
-	if err := recordEvent(tx, task.ID, "edited", actor, detail); err != nil {
+	if err := recordEvent(tx, task.ID, EventEdited, actor, payload); err != nil {
 		return err
 	}
 
@@ -1037,11 +1052,11 @@ func RunNote(db *sql.DB, shortID, text string, result json.RawMessage, actor str
 		return err
 	}
 
-	detail := map[string]any{"text": text}
+	payload := NotedPayload{Text: text}
 	if resultVal != nil {
-		detail["result"] = resultVal
+		payload.Result = resultVal
 	}
-	if err := recordEvent(tx, task.ID, "noted", actor, detail); err != nil {
+	if err := recordEvent(tx, task.ID, EventNoted, actor, payload); err != nil {
 		return err
 	}
 
@@ -1138,11 +1153,11 @@ func RunMove(db *sql.DB, shortID, direction, relativeToShortID, actor string) er
 		return err
 	}
 
-	if err := recordEvent(tx, task.ID, "moved", actor, map[string]any{
-		"direction":      direction,
-		"relative_to":    relativeToShortID,
-		"old_sort_order": oldSortOrder,
-		"new_sort_order": newSortOrder,
+	if err := recordEvent(tx, task.ID, EventMoved, actor, MovedPayload{
+		Direction:    direction,
+		RelativeTo:   relativeToShortID,
+		OldSortOrder: oldSortOrder,
+		NewSortOrder: newSortOrder,
 	}); err != nil {
 		return err
 	}
@@ -1348,17 +1363,17 @@ func RunReparent(db *sql.DB, shortID, newParentShortID, direction, relativeToSho
 		return err
 	}
 
-	detail := map[string]any{
-		"prior_parent_id": priorParentShort,
-		"new_parent_id":   newParentShortOut,
-		"old_sort_order":  task.SortOrder,
-		"new_sort_order":  newSortOrder,
+	payload := ReparentedPayload{
+		PriorParentID: priorParentShort,
+		NewParentID:   newParentShortOut,
+		OldSortOrder:  task.SortOrder,
+		NewSortOrder:  newSortOrder,
 	}
 	if direction != "" {
-		detail["direction"] = direction
-		detail["relative_to"] = relativeToShortID
+		payload.Direction = direction
+		payload.RelativeTo = relativeToShortID
 	}
-	if err := recordEvent(tx, task.ID, "reparented", actor, detail); err != nil {
+	if err := recordEvent(tx, task.ID, EventReparented, actor, payload); err != nil {
 		return err
 	}
 
@@ -1382,11 +1397,11 @@ func RunReparent(db *sql.DB, shortID, newParentShortID, direction, relativeToSho
 			); err != nil {
 				return err
 			}
-			if err := recordEvent(tx, newParent.ID, "released", actor, map[string]any{
-				"auto_released":      true,
-				"triggered_by_child": task.ShortID,
-				"was_claimed_by":     prior,
-				"was_expires_at":     priorExpires,
+			if err := recordEvent(tx, newParent.ID, EventReleased, actor, ReleasedPayload{
+				AutoReleased:     true,
+				TriggeredByChild: task.ShortID,
+				WasClaimedBy:     prior,
+				WasExpiresAt:     priorExpires,
 			}); err != nil {
 				return err
 			}

@@ -86,9 +86,9 @@ func RunBlockMany(db *sql.DB, blockedShortID string, blockerShortIDs []string, a
 			return err
 		}
 
-		if err := recordEvent(tx, blocked.ID, "blocked", actor, map[string]any{
-			"blocked_id": blockedShortID,
-			"blocker_id": b.shortID,
+		if err := recordEvent(tx, blocked.ID, EventBlocked, actor, BlockedPayload{
+			BlockedID: blockedShortID,
+			BlockerID: b.shortID,
 		}); err != nil {
 			return err
 		}
@@ -185,10 +185,10 @@ func RunUnblockMany(db *sql.DB, blockedShortID string, blockerShortIDs []string,
 			return fmt.Errorf("%s is not blocked by %s", blockedShortID, sid)
 		}
 
-		if err := recordEvent(tx, blocked.ID, "unblocked", actor, map[string]any{
-			"blocked_id": blockedShortID,
-			"blocker_id": sid,
-			"reason":     "manual",
+		if err := recordEvent(tx, blocked.ID, EventUnblocked, actor, UnblockedPayload{
+			BlockedID: blockedShortID,
+			BlockerID: sid,
+			Reason:    "manual",
 		}); err != nil {
 			return err
 		}

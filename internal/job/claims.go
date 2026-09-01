@@ -226,9 +226,9 @@ func expireStaleClaimsInTx(tx dbtx, actor string) error {
 		if e.claimedBy != nil {
 			wasClaimedBy = *e.claimedBy
 		}
-		if err := recordEvent(tx, e.id, "claim_expired", actor, map[string]any{
-			"was_claimed_by": wasClaimedBy,
-			"was_expires_at": e.expiresAt,
+		if err := recordEvent(tx, e.id, EventClaimExpired, actor, ClaimExpiredPayload{
+			WasClaimedBy: wasClaimedBy,
+			WasExpiresAt: e.expiresAt,
 		}); err != nil {
 			return err
 		}
@@ -379,7 +379,7 @@ func RunClaim(db *sql.DB, shortID, duration, note, actor string, force bool) err
 	// Note lands BEFORE the claim event so the starting context anchors
 	// the lifecycle at its head. Atomic with the claim — both or neither.
 	if note != "" {
-		if err := recordEvent(tx, task.ID, "noted", actor, map[string]any{"text": note}); err != nil {
+		if err := recordEvent(tx, task.ID, EventNoted, actor, NotedPayload{Text: note}); err != nil {
 			return err
 		}
 	}
@@ -391,15 +391,15 @@ func RunClaim(db *sql.DB, shortID, duration, note, actor string, force bool) err
 		return err
 	}
 
-	detail := map[string]any{
-		"duration":   duration,
-		"expires_at": expiresAt,
+	payload := ClaimedPayload{
+		Duration:  duration,
+		ExpiresAt: expiresAt,
 	}
 	if overrode {
-		detail["was_claimed_by"] = overriddenBy
-		detail["was_expires_at"] = overriddenExpires
+		payload.WasClaimedBy = overriddenBy
+		payload.WasExpiresAt = overriddenExpires
 	}
-	if err := recordEvent(tx, task.ID, "claimed", actor, detail); err != nil {
+	if err := recordEvent(tx, task.ID, EventClaimed, actor, payload); err != nil {
 		return err
 	}
 
@@ -447,7 +447,7 @@ func RunRelease(db *sql.DB, shortID, note, actor string) error {
 	}
 
 	if note != "" {
-		if err := recordEvent(tx, task.ID, "noted", actor, map[string]any{"text": note}); err != nil {
+		if err := recordEvent(tx, task.ID, EventNoted, actor, NotedPayload{Text: note}); err != nil {
 			return err
 		}
 	}
@@ -468,9 +468,9 @@ func RunRelease(db *sql.DB, shortID, note, actor string) error {
 		return err
 	}
 
-	if err := recordEvent(tx, task.ID, "released", actor, map[string]any{
-		"was_claimed_by": wasClaimedBy,
-		"was_expires_at": wasExpiresAt,
+	if err := recordEvent(tx, task.ID, EventReleased, actor, ReleasedPayload{
+		WasClaimedBy: wasClaimedBy,
+		WasExpiresAt: wasExpiresAt,
 	}); err != nil {
 		return err
 	}

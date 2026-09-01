@@ -145,18 +145,18 @@ func executeCancel(
 		// Cancel cascaded descendants first.
 		for _, child := range p.cascadeTasks {
 			wasStatus := child.Status
-			childDetail := map[string]any{
-				"reason":                   reason,
-				"cascade":                  true,
-				"cascade_closed_by_parent": p.target.shortID,
-				"was_status":               wasStatus,
+			childPayload := CanceledPayload{
+				Reason:                reason,
+				Cascade:               new(true),
+				CascadeClosedByParent: p.target.shortID,
+				WasStatus:             wasStatus,
 			}
 			if wasStatus == "claimed" {
 				if child.ClaimedBy != nil {
-					childDetail["was_claimed_by"] = *child.ClaimedBy
+					childPayload.WasClaimedBy = *child.ClaimedBy
 				}
 				if child.ClaimExpiresAt != nil {
-					childDetail["was_expires_at"] = *child.ClaimExpiresAt
+					childPayload.WasExpiresAt = *child.ClaimExpiresAt
 				}
 			}
 			if _, err := tx.Exec(
@@ -165,7 +165,7 @@ func executeCancel(
 			); err != nil {
 				return nil, nil, err
 			}
-			if err := recordEvent(tx, child.ID, "canceled", actor, childDetail); err != nil {
+			if err := recordEvent(tx, child.ID, EventCanceled, actor, childPayload); err != nil {
 				return nil, nil, err
 			}
 			if err := recordBlocksUnblockedOnCancel(tx, child.ID, child.ShortID, actor); err != nil {
@@ -175,18 +175,18 @@ func executeCancel(
 
 		targetTask := p.target.task
 		wasStatus := targetTask.Status
-		targetDetail := map[string]any{
-			"reason":         reason,
-			"cascade":        cascade,
-			"cascade_closed": p.cascadeShorts,
-			"was_status":     wasStatus,
+		targetPayload := CanceledPayload{
+			Reason:        reason,
+			Cascade:       new(cascade),
+			CascadeClosed: p.cascadeShorts,
+			WasStatus:     wasStatus,
 		}
 		if wasStatus == "claimed" {
 			if targetTask.ClaimedBy != nil {
-				targetDetail["was_claimed_by"] = *targetTask.ClaimedBy
+				targetPayload.WasClaimedBy = *targetTask.ClaimedBy
 			}
 			if targetTask.ClaimExpiresAt != nil {
-				targetDetail["was_expires_at"] = *targetTask.ClaimExpiresAt
+				targetPayload.WasExpiresAt = *targetTask.ClaimExpiresAt
 			}
 		}
 		if _, err := tx.Exec(
@@ -195,7 +195,7 @@ func executeCancel(
 		); err != nil {
 			return nil, nil, err
 		}
-		if err := recordEvent(tx, targetTask.ID, "canceled", actor, targetDetail); err != nil {
+		if err := recordEvent(tx, targetTask.ID, EventCanceled, actor, targetPayload); err != nil {
 			return nil, nil, err
 		}
 		// Canceling a root ends that tree: release focus visibly.
@@ -257,10 +257,10 @@ func recordBlocksUnblockedOnCancel(tx dbtx, blockerID int64, blockerShortID, act
 		if err := tx.QueryRow("SELECT short_id FROM tasks WHERE id = ?", id).Scan(&blockedShortID); err != nil {
 			return err
 		}
-		if err := recordEvent(tx, id, "unblocked", actor, map[string]any{
-			"blocked_id": blockedShortID,
-			"blocker_id": blockerShortID,
-			"reason":     "blocker_canceled",
+		if err := recordEvent(tx, id, EventUnblocked, actor, UnblockedPayload{
+			BlockedID: blockedShortID,
+			BlockerID: blockerShortID,
+			Reason:    "blocker_canceled",
 		}); err != nil {
 			return err
 		}
@@ -345,22 +345,22 @@ func executePurge(
 
 		// Record the audit event before deletion. Stored on the parent or as
 		// an orphan event when the purged task is a root.
-		detail := map[string]any{
-			"reason":         reason,
-			"purged_id":      tg.shortID,
-			"purged_title":   tg.task.Title,
-			"cascade":        cascade,
-			"cascade_purged": tg.descShortIDs,
+		payload := PurgedPayload{
+			Reason:        reason,
+			PurgedID:      tg.shortID,
+			PurgedTitle:   tg.task.Title,
+			Cascade:       cascade,
+			CascadePurged: tg.descShortIDs,
 		}
-		if tg.descShortIDs == nil {
-			detail["cascade_purged"] = []string{}
+		if payload.CascadePurged == nil {
+			payload.CascadePurged = []string{}
 		}
 		if tg.task.ParentID != nil {
-			if err := recordEvent(tx, *tg.task.ParentID, "purged", actor, detail); err != nil {
+			if err := recordEvent(tx, *tg.task.ParentID, EventPurged, actor, payload); err != nil {
 				return nil, err
 			}
 		} else {
-			if err := recordOrphanEvent(tx, "purged", actor, detail); err != nil {
+			if err := recordOrphanEvent(tx, EventPurged, actor, payload); err != nil {
 				return nil, err
 			}
 		}

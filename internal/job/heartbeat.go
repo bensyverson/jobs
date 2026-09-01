@@ -112,8 +112,8 @@ func RunHeartbeat(db *sql.DB, ids []string, actor string) ([]*HeartbeatResult, e
 		); err != nil {
 			return nil, err
 		}
-		if err := recordEvent(tx, tg.task.ID, "heartbeat", actor, map[string]any{
-			"new_expires_at": newExpiresAt,
+		if err := recordEvent(tx, tg.task.ID, EventHeartbeat, actor, HeartbeatPayload{
+			NewExpiresAt: newExpiresAt,
 		}); err != nil {
 			return nil, err
 		}

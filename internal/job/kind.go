@@ -24,10 +24,6 @@ const (
 	KindIssue TreeKind = "issue"
 )
 
-// eventKindChanged is the event type recorded by RunSetKind. The event stream
-// is the audit log, so a conversion in either direction is replayable.
-const eventKindChanged = "kind_changed"
-
 // ParseTreeKind converts CLI input to a TreeKind, case- and space-insensitively.
 func ParseTreeKind(s string) (TreeKind, error) {
 	switch TreeKind(strings.ToLower(strings.TrimSpace(s))) {
@@ -108,9 +104,9 @@ func RunSetKind(db *sql.DB, shortID string, kind TreeKind, actor string) (*KindR
 	); err != nil {
 		return nil, err
 	}
-	if err := recordEvent(tx, task.ID, eventKindChanged, actor, map[string]any{
-		"from": string(task.Kind),
-		"to":   string(kind),
+	if err := recordEvent(tx, task.ID, EventKindChanged, actor, KindChangedPayload{
+		From: string(task.Kind),
+		To:   string(kind),
 	}); err != nil {
 		return nil, err
 	}

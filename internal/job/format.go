@@ -803,7 +803,7 @@ func FormatEventDescription(eventType, detailJSON string) string {
 			base = fmt.Sprintf("%s (%s %s)", base, direction, relativeTo)
 		}
 		return base
-	case eventKindChanged:
+	case string(EventKindChanged):
 		from, _ := detail["from"].(string)
 		to, _ := detail["to"].(string)
 		if from == "" || to == "" {

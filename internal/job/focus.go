@@ -20,11 +20,6 @@ import (
 // without needing a tombstone event — which is also how auto-release on root
 // completion falls out for free.
 
-const (
-	eventFocusSet      = "focus_set"
-	eventFocusReleased = "focus_released"
-)
-
 // focusKindExpr reads the kind slot a focus event belongs to. Events written
 // before focus became per-kind carry no kind and belong to the task slot,
 // which is what the single focus meant.
@@ -65,8 +60,8 @@ func SetFocus(db *sql.DB, shortID, actor string) (*Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := recordEvent(tx, root.ID, eventFocusSet, actor, map[string]any{
-		"root": root.ShortID, "title": root.Title, "kind": string(focusKindOf(root)),
+	if err := recordEvent(tx, root.ID, EventFocusSet, actor, FocusSetPayload{
+		Root: root.ShortID, Title: root.Title, Kind: string(focusKindOf(root)),
 	}); err != nil {
 		return nil, err
 	}
@@ -93,8 +88,8 @@ func ReleaseFocusKind(db *sql.DB, actor string, kind TreeKind) (*Task, error) {
 		return nil, err
 	}
 	defer tx.Rollback()
-	if err := recordEvent(tx, current.ID, eventFocusReleased, actor, map[string]any{
-		"root": current.ShortID, "kind": string(kind),
+	if err := recordEvent(tx, current.ID, EventFocusReleased, actor, FocusReleasedPayload{
+		Root: current.ShortID, Kind: string(kind),
 	}); err != nil {
 		return nil, err
 	}
@@ -133,9 +128,9 @@ func flipFocusOnClaim(tx dbtx, task *Task, actor string) error {
 	if current != nil && current.ID == root.ID {
 		return nil
 	}
-	return recordEvent(tx, root.ID, eventFocusSet, actor, map[string]any{
-		"root": root.ShortID, "title": root.Title, "kind": string(kind),
-		"via": "claim", "claimed": task.ShortID,
+	return recordEvent(tx, root.ID, EventFocusSet, actor, FocusSetPayload{
+		Root: root.ShortID, Title: root.Title, Kind: string(kind),
+		Via: "claim", Claimed: task.ShortID,
 	})
 }
 
@@ -151,7 +146,7 @@ func releaseFocusOnRootClose(tx dbtx, root *Task) error {
 		FROM events
 		WHERE event_type IN (?, ?)
 		ORDER BY created_at, id
-	`, eventFocusSet, eventFocusReleased)
+	`, string(EventFocusSet), string(EventFocusReleased))
 	if err != nil {
 		return err
 	}
@@ -185,11 +180,11 @@ func releaseFocusOnRootClose(tx dbtx, root *Task) error {
 
 	for _, s := range order {
 		state := latest[s]
-		if state.eventType != eventFocusSet || !state.taskID.Valid || state.taskID.Int64 != root.ID {
+		if state.eventType != string(EventFocusSet) || !state.taskID.Valid || state.taskID.Int64 != root.ID {
 			continue
 		}
-		if err := recordEvent(tx, root.ID, eventFocusReleased, s.actor, map[string]any{
-			"root": root.ShortID, "kind": s.kind, "via": "root_closed",
+		if err := recordEvent(tx, root.ID, EventFocusReleased, s.actor, FocusReleasedPayload{
+			Root: root.ShortID, Kind: s.kind, Via: "root_closed",
 		}); err != nil {
 			return err
 		}
@@ -217,7 +212,7 @@ func GetFocusKind(db dbtx, actor string, kind TreeKind) (*Task, error) {
 		WHERE actor = ? AND event_type IN (?, ?) AND `+focusKindExpr+` = ?
 		ORDER BY created_at DESC, id DESC
 		LIMIT 1
-	`, actor, eventFocusSet, eventFocusReleased, string(kind))
+	`, actor, string(EventFocusSet), string(EventFocusReleased), string(kind))
 	var eventType string
 	var taskID sql.NullInt64
 	if err := row.Scan(&eventType, &taskID); err != nil {
@@ -226,7 +221,7 @@ func GetFocusKind(db dbtx, actor string, kind TreeKind) (*Task, error) {
 		}
 		return nil, err
 	}
-	if eventType != eventFocusSet || !taskID.Valid {
+	if eventType != string(EventFocusSet) || !taskID.Valid {
 		return nil, nil
 	}
 

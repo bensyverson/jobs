@@ -72,14 +72,14 @@ func setFoundInTx(tx dbtx, task, source *Task, taskShortID, sourceShortID, actor
 		return err
 	}
 
-	detail := map[string]any{
-		"task_id":   taskShortID,
-		"source_id": sourceShortID,
+	payload := FoundInSetPayload{
+		TaskID:   taskShortID,
+		SourceID: sourceShortID,
 	}
 	if previous != nil && previous.ID != source.ID {
-		detail["previous_source_id"] = previous.ShortID
+		payload.PreviousSourceID = previous.ShortID
 	}
-	return recordEvent(tx, task.ID, "found_in_set", actor, detail)
+	return recordEvent(tx, task.ID, EventFoundInSet, actor, payload)
 }
 
 // RunClearFoundIn removes a task's found-in reference. Clearing a task that
@@ -111,9 +111,9 @@ func RunClearFoundIn(db *sql.DB, taskShortID, actor string) error {
 	if _, err := tx.Exec("DELETE FROM found_in WHERE task_id = ?", task.ID); err != nil {
 		return err
 	}
-	if err := recordEvent(tx, task.ID, "found_in_cleared", actor, map[string]any{
-		"task_id":   taskShortID,
-		"source_id": previous.ShortID,
+	if err := recordEvent(tx, task.ID, EventFoundInCleared, actor, FoundInClearedPayload{
+		TaskID:   taskShortID,
+		SourceID: previous.ShortID,
 	}); err != nil {
 		return err
 	}

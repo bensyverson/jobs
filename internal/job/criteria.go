@@ -183,17 +183,14 @@ func SetCriterionState(tx dbtx, taskID int64, ref string, state CriterionState) 
 // can establish the criterion's stable identity at criteria_added time and
 // then match subsequent criterion_state events by short_id rather than by
 // label.
-func criteriaEventDetail(items []Criterion) []map[string]any {
-	out := make([]map[string]any, 0, len(items))
+func criteriaEventDetail(items []Criterion) []CriterionEntry {
+	out := make([]CriterionEntry, 0, len(items))
 	for _, c := range items {
-		entry := map[string]any{
-			"label": c.Label,
-			"state": string(c.State),
-		}
-		if c.ShortID != "" {
-			entry["short_id"] = c.ShortID
-		}
-		out = append(out, entry)
+		out = append(out, CriterionEntry{
+			Label:   c.Label,
+			State:   string(c.State),
+			ShortID: c.ShortID,
+		})
 	}
 	return out
 }
@@ -225,8 +222,8 @@ func RunAddCriteria(db *sql.DB, shortID string, items []Criterion, actor string)
 	if err != nil {
 		return nil, err
 	}
-	if err := recordEvent(tx, task.ID, "criteria_added", actor, map[string]any{
-		"criteria": criteriaEventDetail(inserted),
+	if err := recordEvent(tx, task.ID, EventCriteriaAdded, actor, CriteriaAddedPayload{
+		Criteria: criteriaEventDetail(inserted),
 	}); err != nil {
 		return nil, err
 	}
@@ -266,15 +263,15 @@ func RunSetCriterion(db *sql.DB, taskShortID, ref string, state CriterionState, 
 	if err != nil {
 		return "", err
 	}
-	detail := map[string]any{
-		"label": resolved.Label,
-		"state": string(state),
-		"prior": string(prior),
+	payload := CriterionStatePayload{
+		Label: resolved.Label,
+		State: string(state),
+		Prior: string(prior),
 	}
 	if resolved.ShortID != "" {
-		detail["short_id"] = resolved.ShortID
+		payload.ShortID = resolved.ShortID
 	}
-	if err := recordEvent(tx, task.ID, "criterion_state", actor, detail); err != nil {
+	if err := recordEvent(tx, task.ID, EventCriterionState, actor, payload); err != nil {
 		return "", err
 	}
 	if err := maybeExtendClaim(tx, task.ID, actor); err != nil {

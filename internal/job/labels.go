@@ -185,11 +185,10 @@ func RunLabelAdd(db *sql.DB, shortID string, names []string, actor string) (*Lab
 	}
 
 	if len(added) > 0 {
-		detail := map[string]any{
-			"names":    normalized,
-			"existing": ensureStringSlice(existing),
-		}
-		if err := recordEvent(tx, task.ID, "labeled", actor, detail); err != nil {
+		if err := recordEvent(tx, task.ID, EventLabeled, actor, LabeledPayload{
+			Names:    normalized,
+			Existing: ensureStringSlice(existing),
+		}); err != nil {
 			return nil, err
 		}
 	}
@@ -241,11 +240,10 @@ func RunLabelRemove(db *sql.DB, shortID string, names []string, actor string) (*
 	}
 
 	if len(removed) > 0 {
-		detail := map[string]any{
-			"names":  normalized,
-			"absent": ensureStringSlice(absent),
-		}
-		if err := recordEvent(tx, task.ID, "unlabeled", actor, detail); err != nil {
+		if err := recordEvent(tx, task.ID, EventUnlabeled, actor, UnlabeledPayload{
+			Names:  normalized,
+			Absent: ensureStringSlice(absent),
+		}); err != nil {
 			return nil, err
 		}
 	}

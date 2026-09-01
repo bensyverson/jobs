@@ -468,18 +468,18 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 		shortIDByParsed[node] = sid
 		dbIDByParsed[node] = id
 
-		createdDetail := map[string]any{
-			"parent_id":   parentShort,
-			"title":       node.Title,
-			"description": node.Desc,
-			"sort_order":  sortOrder,
+		createdPayload := CreatedPayload{
+			ParentID:    parentShort,
+			Title:       node.Title,
+			Description: node.Desc,
+			SortOrder:   sortOrder,
 		}
 		// Mirrors `add --kind issue`: the default is silent, so a plain plan's
 		// event stream is byte-for-byte what it was.
 		if node.Kind.IsIssue() {
-			createdDetail["kind"] = string(node.Kind)
+			createdPayload.Kind = string(node.Kind)
 		}
-		if err := recordEvent(tx, id, "created", actor, createdDetail); err != nil {
+		if err := recordEvent(tx, id, EventCreated, actor, createdPayload); err != nil {
 			return err
 		}
 
@@ -489,9 +489,9 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 				return err
 			}
 			if len(added) > 0 {
-				if err := recordEvent(tx, id, "labeled", actor, map[string]any{
-					"names":    added,
-					"existing": []string{},
+				if err := recordEvent(tx, id, EventLabeled, actor, LabeledPayload{
+					Names:    added,
+					Existing: []string{},
 				}); err != nil {
 					return err
 				}
@@ -503,10 +503,9 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 			if err != nil {
 				return err
 			}
-			detail := map[string]any{
-				"criteria": criteriaEventDetail(inserted),
-			}
-			if err := recordEvent(tx, id, "criteria_added", actor, detail); err != nil {
+			if err := recordEvent(tx, id, EventCriteriaAdded, actor, CriteriaAddedPayload{
+				Criteria: criteriaEventDetail(inserted),
+			}); err != nil {
 				return err
 			}
 		}
@@ -574,9 +573,9 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 			} else {
 				blockerShort = r.dbTask.ShortID
 			}
-			if err := recordEvent(tx, blockedDBID, "blocked", actor, map[string]any{
-				"blocked_id": blockedShort,
-				"blocker_id": blockerShort,
+			if err := recordEvent(tx, blockedDBID, EventBlocked, actor, BlockedPayload{
+				BlockedID: blockedShort,
+				BlockerID: blockerShort,
 			}); err != nil {
 				return nil, err
 			}

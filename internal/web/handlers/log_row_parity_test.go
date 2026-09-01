@@ -367,8 +367,12 @@ var dynamicEventTypeArgs = map[string]string{
 }
 
 var (
-	recordDeclRe   = regexp.MustCompile(`(?m)^func record(?:Orphan)?Event\(.*$`)
-	eventConstRe   = regexp.MustCompile(`(?m)^\s*(?:const\s+)?(event[A-Za-z]+)\s*=\s*"([a-z_]+)"`)
+	recordDeclRe = regexp.MustCompile(`(?m)^func record(?:Orphan)?Event\(.*$`)
+	// eventConstRe resolves the EventType vocabulary declared in
+	// event_payloads.go: one `const ( Name EventType = "value" )` block,
+	// no per-line "const" keyword, with a type name between the
+	// identifier and the "=". Every constant is named EventXxx.
+	eventConstRe   = regexp.MustCompile(`(?m)^\s*(Event[A-Za-z]+)\s+EventType\s*=\s*"([a-z_]+)"`)
 	recordEventRe  = regexp.MustCompile(`\brecordEvent\([^,()]+,[^,()]+,\s*("[a-z_]+"|[A-Za-z][A-Za-z0-9]*)\s*,`)
 	recordOrphanRe = regexp.MustCompile(`\brecordOrphanEvent\([^,()]+,\s*("[a-z_]+"|[A-Za-z][A-Za-z0-9]*)\s*,`)
 )

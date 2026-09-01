@@ -25,7 +25,7 @@ func kindEvents(t *testing.T, db *sql.DB, shortID string) []EventEntry {
 	}
 	var out []EventEntry
 	for _, e := range all {
-		if e.EventType == eventKindChanged {
+		if e.EventType == string(EventKindChanged) {
 			out = append(out, e)
 		}
 	}
@@ -483,12 +483,12 @@ func TestInfoRendersKindOnIssueRootsOnly(t *testing.T) {
 }
 
 func TestKindChangedEventDescription(t *testing.T) {
-	got := FormatEventDescription(eventKindChanged, `{"from":"task","to":"issue"}`)
+	got := FormatEventDescription(string(EventKindChanged), `{"from":"task","to":"issue"}`)
 	if !strings.Contains(got, "issue") || !strings.Contains(got, "task") {
 		t.Errorf("FormatEventDescription(kind_changed) = %q, want both kinds named", got)
 	}
-	if got == eventKindChanged {
-		t.Errorf("FormatEventDescription fell through to the default for %q", eventKindChanged)
+	if got == string(EventKindChanged) {
+		t.Errorf("FormatEventDescription fell through to the default for %q", string(EventKindChanged))
 	}
 }
 
