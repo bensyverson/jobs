@@ -39,7 +39,7 @@ Claiming a parent that has open children **is refused**. The lock has no referen
 
 ## TTL and auto-extend
 
-A claim's TTL is a liveness signal, not a deadline. Any write to a claimed task by its holder auto-extends the TTL by 30 minutes — `note`, `edit`, `label add/remove`, and `criterion` operations all count. So while you're working, your claim stays fresh without explicit heartbeats.
+A claim's TTL is a liveness signal, not a deadline. Any write to a claimed task by its holder auto-extends the TTL by 30 minutes — `note`, `edit`, `label add/remove`, and `criterion` operations all count. So while you're working, your claim stays fresh without explicit heartbeats. An auto-extend records a `heartbeat` event of its own, so `job log` shows the claim being held open alongside the write that held it.
 
 `heartbeat` exists for the "thinking, not writing" case: a long pause where you genuinely have nothing to commit:
 

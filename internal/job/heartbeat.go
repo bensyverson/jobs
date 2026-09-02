@@ -19,12 +19,20 @@ func RunHeartbeat(db *sql.DB, ids []string, actor string) ([]*HeartbeatResult, e
 		return nil, fmt.Errorf("heartbeat requires at least one task id")
 	}
 
-	tx, err := db.Begin()
+	var results []*HeartbeatResult
+	err := commit(db, func(tx dbtx, b *eventBatch) error {
+		results = nil
+		return heartbeatInTx(tx, b, ids, actor, &results)
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	return results, nil
+}
 
+// heartbeatInTx validates every id and emits one heartbeat per live claim the
+// caller holds. Split out so RunHeartbeat's body reads as one batch.
+func heartbeatInTx(tx dbtx, b *eventBatch, ids []string, actor string, out *[]*HeartbeatResult) error {
 	// Snapshot pre-expire holders so we can distinguish "my claim expired
 	// and was flipped to available" from "never claimed" after
 	// expireStaleClaimsInTx runs.
@@ -32,7 +40,7 @@ func RunHeartbeat(db *sql.DB, ids []string, actor string) ([]*HeartbeatResult, e
 	for _, id := range ids {
 		t, err := GetTaskByShortID(tx, id)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if t == nil {
 			continue
@@ -42,8 +50,8 @@ func RunHeartbeat(db *sql.DB, ids []string, actor string) ([]*HeartbeatResult, e
 		}
 	}
 
-	if err := expireStaleClaimsInTx(tx, actor); err != nil {
-		return nil, err
+	if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
+		return err
 	}
 
 	type target struct {
@@ -54,19 +62,19 @@ func RunHeartbeat(db *sql.DB, ids []string, actor string) ([]*HeartbeatResult, e
 	for _, id := range ids {
 		t, err := GetTaskByShortID(tx, id)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if t == nil {
-			return nil, fmt.Errorf("task %q not found", id)
+			return fmt.Errorf("task %q not found", id)
 		}
 		switch t.Status {
 		case "done", "canceled":
-			return nil, fmt.Errorf("task %s is %s; heartbeat refreshes only live claims.", id, t.Status)
+			return fmt.Errorf("task %s is %s; heartbeat refreshes only live claims.", id, t.Status)
 		case "available":
 			if priorHolder[id] == actor {
-				return nil, fmt.Errorf("your claim on %s expired; reclaim with 'job claim %s'", id, id)
+				return fmt.Errorf("your claim on %s expired; reclaim with 'job claim %s'", id, id)
 			}
-			return nil, fmt.Errorf("task %s is not claimed (status: %s); heartbeat refreshes a live claim.", id, t.Status)
+			return fmt.Errorf("task %s is not claimed (status: %s); heartbeat refreshes a live claim.", id, t.Status)
 		case "claimed":
 			if t.ClaimedBy != nil && *t.ClaimedBy == actor {
 				targets = append(targets, target{shortID: id, task: t})
@@ -83,48 +91,38 @@ func RunHeartbeat(db *sql.DB, ids []string, actor string) ([]*HeartbeatResult, e
 					WHERE task_id = ? AND event_type = 'claimed' AND actor = ?
 				)`, t.ID, actor,
 			).Scan(&callerOnceHeld); err != nil {
-				return nil, err
+				return err
 			}
 			if callerOnceHeld {
 				if err := checkClaimOwnership(tx, id, actor); err != nil {
-					return nil, err
+					return err
 				}
 			}
 			holder := ""
 			if t.ClaimedBy != nil {
 				holder = *t.ClaimedBy
 			}
-			return nil, fmt.Errorf("task %s is claimed by %s, not you. 'heartbeat' refreshes only your own claims.",
+			return fmt.Errorf("task %s is claimed by %s, not you. 'heartbeat' refreshes only your own claims.",
 				id, holder)
 		default:
-			return nil, fmt.Errorf("task %s is %s; heartbeat refreshes only live claims.", id, t.Status)
+			return fmt.Errorf("task %s is %s; heartbeat refreshes only live claims.", id, t.Status)
 		}
 	}
 
-	now := CurrentNowFunc().Unix()
-	newExpiresAt := now + DefaultClaimTTLSeconds
+	// One deadline for the whole batch, resolved here and carried absolute
+	// in every payload — apply never turns a TTL into a time.
+	newExpiresAt := CurrentNowFunc().Unix() + DefaultClaimTTLSeconds
 
-	var results []*HeartbeatResult
 	for _, tg := range targets {
-		if _, err := tx.Exec(
-			"UPDATE tasks SET claim_expires_at = ?, updated_at = ? WHERE id = ?",
-			newExpiresAt, now, tg.task.ID,
-		); err != nil {
-			return nil, err
-		}
-		if err := recordEvent(tx, tg.task.ID, EventHeartbeat, actor, HeartbeatPayload{
+		if err := b.emit(tx, EventHeartbeat, tg.shortID, actor, HeartbeatPayload{
 			NewExpiresAt: newExpiresAt,
 		}); err != nil {
-			return nil, err
+			return err
 		}
-		results = append(results, &HeartbeatResult{
+		*out = append(*out, &HeartbeatResult{
 			ShortID:   tg.shortID,
 			ExpiresAt: newExpiresAt,
 		})
 	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return results, nil
+	return nil
 }

@@ -209,7 +209,15 @@ func RunAddCriteria(db *sql.DB, shortID string, items []Criterion, actor string)
 	}
 	defer tx.Rollback()
 
-	if err := expireStaleClaimsInTx(tx, actor); err != nil {
+	// TODO(relations leaf): this handler still opens its own transaction and
+	// records its own event with recordEvent. The claims family's expiry and
+	// auto-extend are on apply, so they need a real batch on this
+	// transaction; fold the whole handler into commit() and this goes away.
+	b, err := batchInTx(tx)
+	if err != nil {
+		return nil, err
+	}
+	if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
 		return nil, err
 	}
 	task, err := GetTaskByShortID(tx, shortID)
@@ -229,10 +237,13 @@ func RunAddCriteria(db *sql.DB, shortID string, items []Criterion, actor string)
 	}); err != nil {
 		return nil, err
 	}
-	if err := maybeExtendClaim(tx, task.ID, actor); err != nil {
+	if err := maybeExtendClaim(tx, b, task.ShortID, actor); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	if err := b.persist(); err != nil {
 		return nil, err
 	}
 	return inserted, nil
@@ -251,7 +262,15 @@ func RunSetCriterion(db *sql.DB, taskShortID, ref string, state CriterionState, 
 	}
 	defer tx.Rollback()
 
-	if err := expireStaleClaimsInTx(tx, actor); err != nil {
+	// TODO(relations leaf): this handler still opens its own transaction and
+	// records its own event with recordEvent. The claims family's expiry and
+	// auto-extend are on apply, so they need a real batch on this
+	// transaction; fold the whole handler into commit() and this goes away.
+	b, err := batchInTx(tx)
+	if err != nil {
+		return "", err
+	}
+	if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
 		return "", err
 	}
 	task, err := GetTaskByShortID(tx, taskShortID)
@@ -276,10 +295,13 @@ func RunSetCriterion(db *sql.DB, taskShortID, ref string, state CriterionState, 
 	if err := recordEvent(tx, task.ID, EventCriterionState, actor, payload); err != nil {
 		return "", err
 	}
-	if err := maybeExtendClaim(tx, task.ID, actor); err != nil {
+	if err := maybeExtendClaim(tx, b, task.ShortID, actor); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	if err := b.persist(); err != nil {
 		return "", err
 	}
 	return prior, nil

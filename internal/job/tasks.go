@@ -390,7 +390,7 @@ func RunEdit(db *sql.DB, shortID string, newTitle, newDesc *string, actor string
 	}
 
 	return commit(db, func(tx dbtx, b *eventBatch) error {
-		if err := expireStaleClaimsInTx(tx, actor); err != nil {
+		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
 			return err
 		}
 		if err := checkClaimOwnership(tx, shortID, actor); err != nil {
@@ -418,7 +418,7 @@ func RunEdit(db *sql.DB, shortID string, newTitle, newDesc *string, actor string
 		if err := b.emit(tx, EventEdited, shortID, actor, payload); err != nil {
 			return err
 		}
-		return maybeExtendClaim(tx, task.ID, actor)
+		return maybeExtendClaim(tx, b, shortID, actor)
 	})
 }
 
@@ -437,7 +437,7 @@ func RunNote(db *sql.DB, shortID, text string, result json.RawMessage, actor str
 	}
 
 	return commit(db, func(tx dbtx, b *eventBatch) error {
-		if err := expireStaleClaimsInTx(tx, actor); err != nil {
+		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
 			return err
 		}
 		if err := checkClaimOwnership(tx, shortID, actor); err != nil {
@@ -459,13 +459,13 @@ func RunNote(db *sql.DB, shortID, text string, result json.RawMessage, actor str
 		if err := b.emit(tx, EventNoted, shortID, actor, payload); err != nil {
 			return err
 		}
-		return maybeExtendClaim(tx, task.ID, actor)
+		return maybeExtendClaim(tx, b, shortID, actor)
 	})
 }
 
 func RunMove(db *sql.DB, shortID, direction, relativeToShortID, actor string) error {
 	return commit(db, func(tx dbtx, b *eventBatch) error {
-		if err := expireStaleClaimsInTx(tx, actor); err != nil {
+		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
 			return err
 		}
 		if err := checkClaimOwnership(tx, shortID, actor); err != nil {
@@ -573,7 +573,7 @@ func RunSplit(db *sql.DB, parentShortID string, titles []string, actor string) (
 // new parent; otherwise it is appended at the end.
 func RunReparent(db *sql.DB, shortID, newParentShortID, direction, relativeToShortID, actor string) error {
 	return commit(db, func(tx dbtx, b *eventBatch) error {
-		if err := expireStaleClaimsInTx(tx, actor); err != nil {
+		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
 			return err
 		}
 		if err := checkClaimOwnership(tx, shortID, actor); err != nil {

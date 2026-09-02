@@ -140,14 +140,16 @@ func checkClaimOwnership(tx dbtx, shortID, caller string) error {
 //   - Only extend when the caller IS the current claim holder.
 //   - Only extend; never shorten. If the existing claim_expires_at is
 //     further in the future than now + DefaultClaimTTLSeconds, leave it.
-//   - No event is recorded — the write's own event (noted/edited/labeled)
-//     already signals activity; the TTL bump is a silent side effect.
-func maybeExtendClaim(tx dbtx, taskID int64, actor string) error {
+//   - The TTL bump is a state change, so it is an event: a `heartbeat`
+//     carrying the new absolute expiry, emitted through the caller's batch.
+//     It used to move the column silently, which made it a change no rebuild
+//     could reproduce.
+func maybeExtendClaim(tx dbtx, b *eventBatch, shortID, actor string) error {
 	var claimedBy sql.NullString
 	var claimExpiresAt sql.NullInt64
 	err := tx.QueryRow(
-		"SELECT claimed_by, claim_expires_at FROM tasks WHERE id = ?",
-		taskID,
+		"SELECT claimed_by, claim_expires_at FROM tasks WHERE short_id = ?",
+		shortID,
 	).Scan(&claimedBy, &claimExpiresAt)
 	if err != nil {
 		return err
@@ -159,38 +161,50 @@ func maybeExtendClaim(tx dbtx, taskID int64, actor string) error {
 	if newExpiry <= claimExpiresAt.Int64 {
 		return nil
 	}
-	_, err = tx.Exec(
-		"UPDATE tasks SET claim_expires_at = ? WHERE id = ?",
-		newExpiry, taskID,
-	)
-	return err
+	return b.emit(tx, EventHeartbeat, shortID, actor, HeartbeatPayload{NewExpiresAt: newExpiry})
 }
 
+// expireStaleClaims sweeps expired claims from a read verb.
+//
+// A read that writes is a wart, but it is the behavior the tracker has: there
+// is no daemon, so a claim only lapses when someone looks. What is new is
+// that the sweep is a real batch of `claim_expired` events, so a rebuild
+// reproduces it — which is why the common case is guarded by a cheap
+// existence check first. With nothing stale, a read verb still writes
+// nothing at all.
 func expireStaleClaims(db *sql.DB, actor string) error {
-	tx, err := db.Begin()
-	if err != nil {
+	var stale bool
+	if err := db.QueryRow(
+		`SELECT EXISTS(
+			SELECT 1 FROM tasks
+			WHERE status = 'claimed' AND claim_expires_at < ? AND deleted_at IS NULL)`,
+		CurrentNowFunc().Unix(),
+	).Scan(&stale); err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	if err := expireStaleClaimsInTx(tx, actor); err != nil {
-		return err
+	if !stale {
+		return nil
 	}
-	return tx.Commit()
+	return commit(db, func(tx dbtx, b *eventBatch) error {
+		return expireStaleClaimsInTx(tx, b, actor)
+	})
 }
 
-func expireStaleClaimsInTx(tx dbtx, actor string) error {
-	now := CurrentNowFunc().Unix()
+// expireStaleClaimsInTx records a claim_expired for every claim whose
+// deadline has passed. The actor on the event is whoever's command noticed —
+// the claim's holder is in the payload.
+func expireStaleClaimsInTx(tx dbtx, b *eventBatch, actor string) error {
 	rows, err := tx.Query(
-		"SELECT id, claimed_by, claim_expires_at FROM tasks WHERE status = 'claimed' AND claim_expires_at < ? AND deleted_at IS NULL",
-		now,
+		"SELECT short_id, claimed_by, claim_expires_at FROM tasks WHERE status = 'claimed' AND claim_expires_at < ? AND deleted_at IS NULL",
+		CurrentNowFunc().Unix(),
 	)
 	if err != nil {
 		return err
 	}
 
 	type expired struct {
-		id        int64
-		claimedBy *string
+		shortID   string
+		claimedBy string
 		expiresAt int64
 	}
 	var expiredClaims []expired
@@ -198,17 +212,12 @@ func expireStaleClaimsInTx(tx dbtx, actor string) error {
 		var e expired
 		var claimedBy sql.NullString
 		var expiresAt sql.NullInt64
-		if err := rows.Scan(&e.id, &claimedBy, &expiresAt); err != nil {
+		if err := rows.Scan(&e.shortID, &claimedBy, &expiresAt); err != nil {
 			rows.Close()
 			return err
 		}
-		if claimedBy.Valid {
-			cb := claimedBy.String
-			e.claimedBy = &cb
-		}
-		if expiresAt.Valid {
-			e.expiresAt = expiresAt.Int64
-		}
+		e.claimedBy = claimedBy.String
+		e.expiresAt = expiresAt.Int64
 		expiredClaims = append(expiredClaims, e)
 	}
 	rows.Close()
@@ -217,18 +226,8 @@ func expireStaleClaimsInTx(tx dbtx, actor string) error {
 	}
 
 	for _, e := range expiredClaims {
-		if _, err := tx.Exec(
-			"UPDATE tasks SET status = 'available', claimed_by = NULL, claim_expires_at = NULL, updated_at = ? WHERE id = ?",
-			now, e.id,
-		); err != nil {
-			return err
-		}
-		var wasClaimedBy string
-		if e.claimedBy != nil {
-			wasClaimedBy = *e.claimedBy
-		}
-		if err := recordEvent(tx, e.id, EventClaimExpired, actor, ClaimExpiredPayload{
-			WasClaimedBy: wasClaimedBy,
+		if err := b.emit(tx, EventClaimExpired, e.shortID, actor, ClaimExpiredPayload{
+			WasClaimedBy: e.claimedBy,
 			WasExpiresAt: e.expiresAt,
 		}); err != nil {
 			return err
@@ -298,113 +297,103 @@ func GetTaskByID(db *sql.DB, id int64) (*Task, error) {
 // context anchors the work rather than trailing it. The pattern mirrors
 // RunRelease's note-then-event ordering — same tx, same atomicity contract.
 func RunClaim(db *sql.DB, shortID, duration, note, actor string, force bool) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if err := expireStaleClaimsInTx(tx, actor); err != nil {
-		return err
-	}
-
-	task, err := GetTaskByShortID(tx, shortID)
-	if err != nil {
-		return err
-	}
-	if task == nil {
-		return fmt.Errorf("task %q not found", shortID)
-	}
-	if task.Status == "done" {
-		return fmt.Errorf("task %s is done", shortID)
-	}
-	openChildren, err := countOpenChildren(tx, task.ID)
-	if err != nil {
-		return err
-	}
-	if openChildren > 0 {
-		leaves, lerr := openLeavesUnder(tx, task.ID, 5)
-		if lerr == nil && len(leaves) > 0 {
-			return fmt.Errorf(
-				"task %s has %d open children; claim a leaf instead. Open leaves: %s. (Run 'next %s all' for the full frontier.)",
-				shortID, openChildren, strings.Join(leaves, ", "), shortID,
-			)
-		}
-		return fmt.Errorf(
-			"task %s has %d open children; claim a leaf instead, or run 'next %s all' to see them",
-			shortID, openChildren, shortID,
-		)
-	}
-	if task.Status == "claimed" && !force {
-		holder := ""
-		if task.ClaimedBy != nil {
-			holder = *task.ClaimedBy
-		}
-		if holder == actor {
-			return fmt.Errorf("task %s is already claimed by you. Use 'heartbeat' to refresh, or 'release' to stop.", shortID)
-		}
-		expires := "0s"
-		if task.ClaimExpiresAt != nil {
-			left := *task.ClaimExpiresAt - CurrentNowFunc().Unix()
-			if left > 0 {
-				expires = FormatDuration(left)
-			}
-		}
-		return fmt.Errorf("task %s is claimed by %s (expires in %s). Wait for expiry, or ask %s to release.",
-			shortID, holder, expires, holder)
-	}
-
-	seconds, err := ParseDuration(duration)
-	if err != nil {
-		return err
-	}
-
-	now := CurrentNowFunc().Unix()
-	expiresAt := now + seconds
-
-	// Capture override breadcrumbs before mutating: when --force takes
-	// over an active claim, was_claimed_by / was_expires_at let
-	// consumers reverse-fold to the prior holder.
-	overrode := task.Status == "claimed" && force
-	var overriddenBy string
-	var overriddenExpires int64
-	if overrode {
-		if task.ClaimedBy != nil {
-			overriddenBy = *task.ClaimedBy
-		}
-		if task.ClaimExpiresAt != nil {
-			overriddenExpires = *task.ClaimExpiresAt
-		}
-	}
-
-	// Note lands BEFORE the claim event so the starting context anchors
-	// the lifecycle at its head. Atomic with the claim — both or neither.
-	if note != "" {
-		if err := recordEvent(tx, task.ID, EventNoted, actor, NotedPayload{Text: note}); err != nil {
+	var task *Task
+	err := commit(db, func(tx dbtx, b *eventBatch) error {
+		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
 			return err
 		}
-	}
 
-	if _, err := tx.Exec(
-		"UPDATE tasks SET status = 'claimed', claimed_by = ?, claim_expires_at = ?, updated_at = ? WHERE id = ?",
-		actor, expiresAt, now, task.ID,
-	); err != nil {
-		return err
-	}
+		var err error
+		task, err = GetTaskByShortID(tx, shortID)
+		if err != nil {
+			return err
+		}
+		if task == nil {
+			return fmt.Errorf("task %q not found", shortID)
+		}
+		if task.Status == "done" {
+			return fmt.Errorf("task %s is done", shortID)
+		}
+		openChildren, err := countOpenChildren(tx, task.ID)
+		if err != nil {
+			return err
+		}
+		if openChildren > 0 {
+			leaves, lerr := openLeavesUnder(tx, task.ID, 5)
+			if lerr == nil && len(leaves) > 0 {
+				return fmt.Errorf(
+					"task %s has %d open children; claim a leaf instead. Open leaves: %s. (Run 'next %s all' for the full frontier.)",
+					shortID, openChildren, strings.Join(leaves, ", "), shortID,
+				)
+			}
+			return fmt.Errorf(
+				"task %s has %d open children; claim a leaf instead, or run 'next %s all' to see them",
+				shortID, openChildren, shortID,
+			)
+		}
+		if task.Status == "claimed" && !force {
+			holder := ""
+			if task.ClaimedBy != nil {
+				holder = *task.ClaimedBy
+			}
+			if holder == actor {
+				return fmt.Errorf("task %s is already claimed by you. Use 'heartbeat' to refresh, or 'release' to stop.", shortID)
+			}
+			expires := "0s"
+			if task.ClaimExpiresAt != nil {
+				left := *task.ClaimExpiresAt - CurrentNowFunc().Unix()
+				if left > 0 {
+					expires = FormatDuration(left)
+				}
+			}
+			return fmt.Errorf("task %s is claimed by %s (expires in %s). Wait for expiry, or ask %s to release.",
+				shortID, holder, expires, holder)
+		}
 
-	payload := ClaimedPayload{
-		Duration:  duration,
-		ExpiresAt: expiresAt,
-	}
-	if overrode {
-		payload.WasClaimedBy = overriddenBy
-		payload.WasExpiresAt = overriddenExpires
-	}
-	if err := recordEvent(tx, task.ID, EventClaimed, actor, payload); err != nil {
-		return err
-	}
+		seconds, err := ParseDuration(duration)
+		if err != nil {
+			return err
+		}
 
-	if err := tx.Commit(); err != nil {
+		// The deadline is resolved here, once, and travels in the payload as
+		// an absolute second. Apply must never re-derive it from a duration:
+		// a replay would then move the deadline to whenever the replay ran.
+		expiresAt := CurrentNowFunc().Unix() + seconds
+
+		// Capture override breadcrumbs before mutating: when --force takes
+		// over an active claim, was_claimed_by / was_expires_at let
+		// consumers reverse-fold to the prior holder.
+		overrode := task.Status == "claimed" && force
+		var overriddenBy string
+		var overriddenExpires int64
+		if overrode {
+			if task.ClaimedBy != nil {
+				overriddenBy = *task.ClaimedBy
+			}
+			if task.ClaimExpiresAt != nil {
+				overriddenExpires = *task.ClaimExpiresAt
+			}
+		}
+
+		// Note lands BEFORE the claim event so the starting context anchors
+		// the lifecycle at its head. Atomic with the claim — both or neither.
+		if note != "" {
+			if err := b.emit(tx, EventNoted, shortID, actor, NotedPayload{Text: note}); err != nil {
+				return err
+			}
+		}
+
+		payload := ClaimedPayload{
+			Duration:  duration,
+			ExpiresAt: expiresAt,
+		}
+		if overrode {
+			payload.WasClaimedBy = overriddenBy
+			payload.WasExpiresAt = overriddenExpires
+		}
+		return b.emit(tx, EventClaimed, shortID, actor, payload)
+	})
+	if err != nil {
 		return err
 	}
 
@@ -424,65 +413,45 @@ func RunClaim(db *sql.DB, shortID, duration, note, actor string, force bool) err
 // noted event is recorded in the same transaction so a release-with-note is
 // atomic — either both land or neither does.
 func RunRelease(db *sql.DB, shortID, note, actor string) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if err := expireStaleClaimsInTx(tx, actor); err != nil {
-		return err
-	}
-
-	task, err := GetTaskByShortID(tx, shortID)
-	if err != nil {
-		return err
-	}
-	if task == nil {
-		return fmt.Errorf("task %q not found", shortID)
-	}
-	if task.Status != "claimed" {
-		return fmt.Errorf("task %s is not claimed (status: %s)", shortID, task.Status)
-	}
-	if task.ClaimedBy == nil || *task.ClaimedBy != actor {
-		holder := ""
-		if task.ClaimedBy != nil {
-			holder = *task.ClaimedBy
-		}
-		return fmt.Errorf("task %s is claimed by %s, not you. 'release' operates only on your own claims.",
-			shortID, holder)
-	}
-
-	if note != "" {
-		if err := recordEvent(tx, task.ID, EventNoted, actor, NotedPayload{Text: note}); err != nil {
+	return commit(db, func(tx dbtx, b *eventBatch) error {
+		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
 			return err
 		}
-	}
 
-	now := CurrentNowFunc().Unix()
-	var wasClaimedBy string
-	if task.ClaimedBy != nil {
-		wasClaimedBy = *task.ClaimedBy
-	}
-	var wasExpiresAt int64
-	if task.ClaimExpiresAt != nil {
-		wasExpiresAt = *task.ClaimExpiresAt
-	}
-	if _, err := tx.Exec(
-		"UPDATE tasks SET status = 'available', claimed_by = NULL, claim_expires_at = NULL, updated_at = ? WHERE id = ?",
-		now, task.ID,
-	); err != nil {
-		return err
-	}
+		task, err := GetTaskByShortID(tx, shortID)
+		if err != nil {
+			return err
+		}
+		if task == nil {
+			return fmt.Errorf("task %q not found", shortID)
+		}
+		if task.Status != "claimed" {
+			return fmt.Errorf("task %s is not claimed (status: %s)", shortID, task.Status)
+		}
+		if task.ClaimedBy == nil || *task.ClaimedBy != actor {
+			holder := ""
+			if task.ClaimedBy != nil {
+				holder = *task.ClaimedBy
+			}
+			return fmt.Errorf("task %s is claimed by %s, not you. 'release' operates only on your own claims.",
+				shortID, holder)
+		}
 
-	if err := recordEvent(tx, task.ID, EventReleased, actor, ReleasedPayload{
-		WasClaimedBy: wasClaimedBy,
-		WasExpiresAt: wasExpiresAt,
-	}); err != nil {
-		return err
-	}
+		if note != "" {
+			if err := b.emit(tx, EventNoted, shortID, actor, NotedPayload{Text: note}); err != nil {
+				return err
+			}
+		}
 
-	return tx.Commit()
+		var wasExpiresAt int64
+		if task.ClaimExpiresAt != nil {
+			wasExpiresAt = *task.ClaimExpiresAt
+		}
+		return b.emit(tx, EventReleased, shortID, actor, ReleasedPayload{
+			WasClaimedBy: *task.ClaimedBy,
+			WasExpiresAt: wasExpiresAt,
+		})
+	})
 }
 
 // queryAvailableTasks returns the available, unblocked, unclaimed tasks under

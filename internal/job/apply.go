@@ -41,12 +41,15 @@ var applyTable = map[EventType]func(tx dbtx, e eventlog.Envelope) error{
 	EventPurged:     applyPurged,
 	EventMoved:      applyMoved,
 	EventReparented: applyReparented,
-	// released is the claims family's, and apply_claims.go will take it. It
-	// lives here because the task family emits it: adding an open child to a
-	// claimed parent, or reparenting one under it, releases the claim. Its
-	// state write has to travel with those events or a rebuild of them would
-	// leave a claim the original had dropped.
-	EventReleased: applyReleased,
+	// The claims family (apply_claims.go). `released` is theirs even though
+	// the task family emits it too: adding an open child to a claimed parent,
+	// or reparenting one under it, releases the claim, and that state write
+	// has to travel with those events or a rebuild of them would leave a
+	// claim the original had dropped.
+	EventClaimed:      applyClaimed,
+	EventReleased:     applyReleased,
+	EventClaimExpired: applyClaimExpired,
+	EventHeartbeat:    applyHeartbeat,
 }
 
 // apply writes the state e means, then records e in the events table.

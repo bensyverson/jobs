@@ -9,8 +9,8 @@ import (
 )
 
 // The task family's state writes: created, edited, noted, done, reopened,
-// canceled, purged, moved, reparented — plus the auto-release the add and
-// reparent handlers emit.
+// canceled, purged, moved, reparented. The auto-release the add and reparent
+// handlers emit is the claims family's applyReleased, in apply_claims.go.
 //
 // Every function here is reached only through apply, takes everything it
 // needs from the envelope, and stamps every timestamp from the event's ts.
@@ -167,17 +167,6 @@ func applyReparented(tx dbtx, e eventlog.Envelope) error {
 		"UPDATE tasks SET parent_id = ?, sort_key = ?, updated_at = ? WHERE short_id = ?",
 		parentID, p.SortKey, eventSeconds(e), e.Task,
 	)
-	return err
-}
-
-// applyReleased drops a claim. It is unconditional rather than guarded on the
-// current status: a guard would make the write a no-op on a replay where the
-// matching `claimed` has not been applied, and the row's updated_at would
-// then differ between the original and the rebuild.
-func applyReleased(tx dbtx, e eventlog.Envelope) error {
-	_, err := tx.Exec(`
-		UPDATE tasks SET status = 'available', claimed_by = NULL, claim_expires_at = NULL, updated_at = ?
-		WHERE short_id = ?`, eventSeconds(e), e.Task)
 	return err
 }
 

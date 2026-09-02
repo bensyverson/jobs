@@ -215,7 +215,7 @@ func RunDone(db *sql.DB, ids []string, cascade bool, note string, result json.Ra
 
 	err = commit(db, func(tx dbtx, b *eventBatch) error {
 		closed, alreadyDone = nil, nil
-		if err := expireStaleClaimsInTx(tx, actor); err != nil {
+		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
 			return err
 		}
 
@@ -442,7 +442,7 @@ func RunReopen(db *sql.DB, shortID string, cascade bool, actor string) ([]string
 	var reopenedChildren []string
 	err := commit(db, func(tx dbtx, b *eventBatch) error {
 		reopenedChildren = nil
-		if err := expireStaleClaimsInTx(tx, actor); err != nil {
+		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
 			return err
 		}
 		if err := checkClaimOwnership(tx, shortID, actor); err != nil {

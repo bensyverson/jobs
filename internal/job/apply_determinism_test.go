@@ -414,3 +414,121 @@ func TestApplyDeterminism_PurgeLeavesSeqUniqueAndIncreasing(t *testing.T) {
 		t.Fatalf("expected the purge to erase rows: highest seq %d, %d rows", last, len(events))
 	}
 }
+
+// driveClaimsFamily runs one realistic claim lifecycle through the handlers:
+// claim with a note, an explicit heartbeat, a write by the holder that
+// auto-extends, release, a --force takeover, a read-time expiry once the TTL
+// has passed, and a reclaim. It leaves two live claims behind so the dump
+// carries claimed_by and claim_expires_at as well as their cleared shapes.
+func driveClaimsFamily(t *testing.T, db *sql.DB) {
+	t.Helper()
+	const holder = "agent-holder"
+	const rival = "agent-rival"
+
+	orig := CurrentNowFunc
+	t.Cleanup(func() { CurrentNowFunc = orig })
+	base := time.Now()
+	// The hybrid clock never runs backwards, so the sequence only ever moves
+	// time forward.
+	at := func(d time.Duration) { CurrentNowFunc = func() time.Time { return base.Add(d) } }
+
+	at(0)
+	root := MustAdd(t, db, "", "Claims root")
+	one := MustAdd(t, db, root, "Claimed, worked and released")
+	two := MustAdd(t, db, root, "Stolen, expired and reclaimed")
+	three := MustAdd(t, db, root, "Claimed and left alone")
+
+	if err := RunClaim(db, one, "10m", "starting on it", holder, false); err != nil {
+		t.Fatal(err)
+	}
+	at(2 * time.Minute)
+	if _, err := RunHeartbeat(db, []string{one}, holder); err != nil {
+		t.Fatal(err)
+	}
+	// A note by the holder auto-extends, which is now a heartbeat event.
+	at(4 * time.Minute)
+	if err := RunNote(db, one, "progress", nil, holder); err != nil {
+		t.Fatal(err)
+	}
+	at(6 * time.Minute)
+	if err := RunRelease(db, one, "handing it back", holder); err != nil {
+		t.Fatal(err)
+	}
+
+	// --force takes over a live claim.
+	at(8 * time.Minute)
+	if err := RunClaim(db, two, "10m", "", holder, false); err != nil {
+		t.Fatal(err)
+	}
+	at(9 * time.Minute)
+	if err := RunClaim(db, two, "10m", "", rival, true); err != nil {
+		t.Fatal(err)
+	}
+
+	// Past the TTL, a read verb sweeps the stale claim and records the
+	// claim_expired that says so.
+	at(30 * time.Minute)
+	if _, err := RunListFiltered(db, ListFilter{Actor: "reader"}); err != nil {
+		t.Fatal(err)
+	}
+
+	at(31 * time.Minute)
+	if err := RunClaim(db, two, "1h", "", holder, false); err != nil {
+		t.Fatal(err)
+	}
+	at(32 * time.Minute)
+	if err := RunClaim(db, three, "2h", "", rival, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The claims family's criterion: a claim, a heartbeat, an expiry and a
+// release replay to the same tables from a shuffled log. This is what catches
+// an apply that reads the clock for the expiry instead of the payload's
+// absolute `until` — the rebuild runs a year later, so a clock-derived expiry
+// lands a year off.
+func TestApplyDeterminism_ClaimSequenceRebuildsIdentically(t *testing.T) {
+	source := SetupTestDB(t)
+	driveTaskFamily(t, source)
+	driveClaimsFamily(t, source)
+
+	events, err := cachedEnvelopes(source)
+	if err != nil {
+		t.Fatalf("read envelopes: %v", err)
+	}
+	seen := map[EventType]bool{}
+	for _, e := range events {
+		if e.Rep == "" || e.Seq == 0 || e.TS == 0 {
+			t.Fatalf("envelope %+v is missing its position", e)
+		}
+		seen[EventType(e.Type)] = true
+	}
+	for _, typ := range []EventType{EventClaimed, EventReleased, EventClaimExpired, EventHeartbeat} {
+		if !seen[typ] {
+			t.Fatalf("the claim sequence produced no replayable %s event", typ)
+		}
+	}
+
+	rng := rand.New(rand.NewSource(20260902))
+	shuffled := append([]eventlog.Envelope(nil), events...)
+	rng.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+
+	restore := CurrentNowFunc
+	t.Cleanup(func() { CurrentNowFunc = restore })
+	CurrentNowFunc = func() time.Time { return time.Now().AddDate(1, 0, 0) }
+
+	rebuilt, err := CreateDB(filepath.Join(t.TempDir(), "rebuilt.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rebuilt.Close()
+	if err := rebuildFrom(rebuilt, shuffled); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	want := applyDump(t, source)
+	got := applyDump(t, rebuilt)
+	if want != got {
+		t.Errorf("rebuild from a shuffled claim log differs.\n--- original ---\n%s\n--- rebuilt ---\n%s", want, got)
+	}
+}

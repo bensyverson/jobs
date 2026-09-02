@@ -44,7 +44,7 @@ func RunCancel(
 
 	err = commit(db, func(tx dbtx, b *eventBatch) error {
 		canceled, alreadyCanceled, purged = nil, nil, nil
-		if err := expireStaleClaimsInTx(tx, actor); err != nil {
+		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
 			return err
 		}
 		if purge {

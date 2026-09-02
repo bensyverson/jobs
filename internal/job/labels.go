@@ -167,7 +167,15 @@ func RunLabelAdd(db *sql.DB, shortID string, names []string, actor string) (*Lab
 	}
 	defer tx.Rollback()
 
-	if err := expireStaleClaimsInTx(tx, actor); err != nil {
+	// TODO(relations leaf): this handler still opens its own transaction and
+	// records its own event with recordEvent. The claims family's expiry and
+	// auto-extend are on apply, so they need a real batch on this
+	// transaction; fold the whole handler into commit() and this goes away.
+	b, err := batchInTx(tx)
+	if err != nil {
+		return nil, err
+	}
+	if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
 		return nil, err
 	}
 
@@ -193,11 +201,14 @@ func RunLabelAdd(db *sql.DB, shortID string, names []string, actor string) (*Lab
 		}
 	}
 
-	if err := maybeExtendClaim(tx, task.ID, actor); err != nil {
+	if err := maybeExtendClaim(tx, b, task.ShortID, actor); err != nil {
 		return nil, err
 	}
 
 	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	if err := b.persist(); err != nil {
 		return nil, err
 	}
 	return &LabelResult{
@@ -222,7 +233,15 @@ func RunLabelRemove(db *sql.DB, shortID string, names []string, actor string) (*
 	}
 	defer tx.Rollback()
 
-	if err := expireStaleClaimsInTx(tx, actor); err != nil {
+	// TODO(relations leaf): this handler still opens its own transaction and
+	// records its own event with recordEvent. The claims family's expiry and
+	// auto-extend are on apply, so they need a real batch on this
+	// transaction; fold the whole handler into commit() and this goes away.
+	b, err := batchInTx(tx)
+	if err != nil {
+		return nil, err
+	}
+	if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
 		return nil, err
 	}
 
@@ -248,11 +267,14 @@ func RunLabelRemove(db *sql.DB, shortID string, names []string, actor string) (*
 		}
 	}
 
-	if err := maybeExtendClaim(tx, task.ID, actor); err != nil {
+	if err := maybeExtendClaim(tx, b, task.ShortID, actor); err != nil {
 		return nil, err
 	}
 
 	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	if err := b.persist(); err != nil {
 		return nil, err
 	}
 	return &UnlabelResult{
