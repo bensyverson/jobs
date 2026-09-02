@@ -89,8 +89,8 @@ func TestRunAdd_RootTask(t *testing.T) {
 	if task.Status != "available" {
 		t.Errorf("status: got %q, want %q", task.Status, "available")
 	}
-	if task.SortOrder != 0 {
-		t.Errorf("sort_order: got %d, want 0", task.SortOrder)
+	if task.SortKey == "" {
+		t.Error("sort_key: got empty, want a generated key")
 	}
 }
 
@@ -122,7 +122,7 @@ func TestRunAdd_WithDescription(t *testing.T) {
 	}
 }
 
-func TestRunAdd_SortOrder(t *testing.T) {
+func TestRunAdd_SortKey(t *testing.T) {
 	db := SetupTestDB(t)
 	id1 := MustAdd(t, db, "", "First")
 	id2 := MustAdd(t, db, "", "Second")
@@ -132,11 +132,11 @@ func TestRunAdd_SortOrder(t *testing.T) {
 	t2 := MustGet(t, db, id2)
 	t3 := MustGet(t, db, id3)
 
-	if t1.SortOrder >= t2.SortOrder {
-		t.Errorf("First sort_order %d >= Second %d", t1.SortOrder, t2.SortOrder)
+	if t1.SortKey >= t2.SortKey {
+		t.Errorf("First sort_key %q >= Second %q", t1.SortKey, t2.SortKey)
 	}
-	if t2.SortOrder >= t3.SortOrder {
-		t.Errorf("Second sort_order %d >= Third %d", t2.SortOrder, t3.SortOrder)
+	if t2.SortKey >= t3.SortKey {
+		t.Errorf("Second sort_key %q >= Third %q", t2.SortKey, t3.SortKey)
 	}
 }
 
@@ -154,11 +154,11 @@ func TestRunAdd_Before(t *testing.T) {
 	t2 := MustGet(t, db, id2)
 	t3 := MustGet(t, db, id3)
 
-	if t3.SortOrder >= t2.SortOrder {
-		t.Errorf("Middle sort_order %d should be < Last %d", t3.SortOrder, t2.SortOrder)
+	if t3.SortKey >= t2.SortKey {
+		t.Errorf("Middle sort_key %q should be < Last %q", t3.SortKey, t2.SortKey)
 	}
-	if t1.SortOrder >= t3.SortOrder {
-		t.Errorf("First sort_order %d should be < Middle %d", t1.SortOrder, t3.SortOrder)
+	if t1.SortKey >= t3.SortKey {
+		t.Errorf("First sort_key %q should be < Middle %q", t1.SortKey, t3.SortKey)
 	}
 }
 
@@ -825,8 +825,8 @@ func TestRunMove_Before(t *testing.T) {
 
 	t1 := MustGet(t, db, id1)
 	t2 := MustGet(t, db, id2)
-	if t2.SortOrder >= t1.SortOrder {
-		t.Errorf("Second (sort %d) should be before First (sort %d)", t2.SortOrder, t1.SortOrder)
+	if t2.SortKey >= t1.SortKey {
+		t.Errorf("Second (sort %q) should be before First (sort %q)", t2.SortKey, t1.SortKey)
 	}
 }
 
@@ -841,8 +841,8 @@ func TestRunMove_After(t *testing.T) {
 
 	t1 := MustGet(t, db, id1)
 	t2 := MustGet(t, db, id2)
-	if t1.SortOrder <= t2.SortOrder {
-		t.Errorf("First (sort %d) should be after Second (sort %d)", t1.SortOrder, t2.SortOrder)
+	if t1.SortKey <= t2.SortKey {
+		t.Errorf("First (sort %q) should be after Second (sort %q)", t1.SortKey, t2.SortKey)
 	}
 }
 
@@ -927,9 +927,9 @@ func TestRunReparent_PlacesAtEndOfNewParent(t *testing.T) {
 	got := MustGet(t, db, movee)
 	t1 := MustGet(t, db, first)
 	t2 := MustGet(t, db, second)
-	if got.SortOrder <= t1.SortOrder || got.SortOrder <= t2.SortOrder {
-		t.Errorf("movee sort_order = %d; should be > first(%d) and second(%d)",
-			got.SortOrder, t1.SortOrder, t2.SortOrder)
+	if got.SortKey <= t1.SortKey || got.SortKey <= t2.SortKey {
+		t.Errorf("movee sort_key = %q; should be > first(%q) and second(%q)",
+			got.SortKey, t1.SortKey, t2.SortKey)
 	}
 }
 
@@ -963,9 +963,9 @@ func TestRunReparent_BeforeSiblingInNewParent(t *testing.T) {
 	got := MustGet(t, db, movee)
 	tFirst := MustGet(t, db, first)
 	tSecond := MustGet(t, db, second)
-	if !(got.SortOrder > tFirst.SortOrder && got.SortOrder < tSecond.SortOrder) {
-		t.Errorf("movee sort_order = %d; expected between first(%d) and second(%d)",
-			got.SortOrder, tFirst.SortOrder, tSecond.SortOrder)
+	if !(got.SortKey > tFirst.SortKey && got.SortKey < tSecond.SortKey) {
+		t.Errorf("movee sort_key = %q; expected between first(%q) and second(%q)",
+			got.SortKey, tFirst.SortKey, tSecond.SortKey)
 	}
 }
 
@@ -984,9 +984,9 @@ func TestRunReparent_AfterSiblingInNewParent(t *testing.T) {
 	got := MustGet(t, db, movee)
 	tFirst := MustGet(t, db, first)
 	tSecond := MustGet(t, db, second)
-	if !(got.SortOrder > tFirst.SortOrder && got.SortOrder < tSecond.SortOrder) {
-		t.Errorf("movee sort_order = %d; expected between first(%d) and second(%d)",
-			got.SortOrder, tFirst.SortOrder, tSecond.SortOrder)
+	if !(got.SortKey > tFirst.SortKey && got.SortKey < tSecond.SortKey) {
+		t.Errorf("movee sort_key = %q; expected between first(%q) and second(%q)",
+			got.SortKey, tFirst.SortKey, tSecond.SortKey)
 	}
 }
 
@@ -1111,8 +1111,8 @@ func TestRunSplit_OrdersChildrenInInputOrder(t *testing.T) {
 	first := MustGet(t, db, res.ChildShortIDs[0])
 	second := MustGet(t, db, res.ChildShortIDs[1])
 	third := MustGet(t, db, res.ChildShortIDs[2])
-	if !(first.SortOrder < second.SortOrder && second.SortOrder < third.SortOrder) {
-		t.Errorf("sort order not preserved: %d %d %d", first.SortOrder, second.SortOrder, third.SortOrder)
+	if !(first.SortKey < second.SortKey && second.SortKey < third.SortKey) {
+		t.Errorf("sort order not preserved: %q %q %q", first.SortKey, second.SortKey, third.SortKey)
 	}
 	if first.Title != "First" || second.Title != "Second" || third.Title != "Third" {
 		t.Errorf("titles mismatch: %q %q %q", first.Title, second.Title, third.Title)
@@ -1797,7 +1797,7 @@ func TestRunNext_WithParent(t *testing.T) {
 		t.Fatalf("RunNext: %v", err)
 	}
 	if task.ShortID != cid1 {
-		t.Errorf("got %s, want %s (lowest sort_order)", task.ShortID, cid1)
+		t.Errorf("got %s, want %s (lowest sort_key)", task.ShortID, cid1)
 	}
 }
 

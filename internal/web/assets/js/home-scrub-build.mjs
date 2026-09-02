@@ -301,9 +301,9 @@ export function buildRecentCompletions(events, frame, nowSec) {
   return { Count: rows.length, Rows: rows };
 }
 
-// preorderTasks walks frame.tasks in DFS-preorder, root sort_order
-// first, then descending into each child by sort_order. Mirrors the
-// recursive sort_order CTE in loadUpcoming.
+// preorderTasks walks frame.tasks in DFS-preorder, roots by sort key
+// first, then descending into each child by sort key. Mirrors the
+// recursive sort-key CTE in loadUpcoming.
 function preorderTasks(frame) {
   const childrenOf = new Map();
   const roots = [];
@@ -314,12 +314,14 @@ function preorderTasks(frame) {
         arr = [];
         childrenOf.set(t.parentShortId, arr);
       }
-      arr.push({ shortId, sortOrder: t.sortOrder ?? 0 });
+      arr.push({ shortId, sortKey: t.sortKey ?? "" });
     } else {
-      roots.push({ shortId, sortOrder: t.sortOrder ?? 0 });
+      roots.push({ shortId, sortKey: t.sortKey ?? "" });
     }
   }
-  const cmp = (a, b) => a.sortOrder - b.sortOrder || (a.shortId < b.shortId ? -1 : 1);
+  const cmp = (a, b) =>
+    (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0) ||
+    (a.shortId < b.shortId ? -1 : 1);
   roots.sort(cmp);
   for (const arr of childrenOf.values()) arr.sort(cmp);
   const out = [];

@@ -48,7 +48,7 @@ test("actorStatusText: idle / 1 claim / N claims with last seen suffix", () => {
 
 test("buildActorColumns: single actor, single created event → one history card", () => {
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "Build it", description: "do the thing", status: "available", sortOrder: 0 },
+    { shortId: "T0001", title: "Build it", description: "do the thing", status: "available", sortKey: "000000" },
   ]);
   const events = [evt(1, "alice", "created", "T0001")];
 
@@ -64,7 +64,7 @@ test("buildActorColumns: single actor, single created event → one history card
 
 test("buildActorColumns: claim then done → card ends as 'done', not IsClaim, in history band", () => {
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "Task", status: "done", sortOrder: 0 },
+    { shortId: "T0001", title: "Task", status: "done", sortKey: "000000" },
   ]);
   const events = [
     evt(1, "alice", "created", "T0001", 1700000000),
@@ -79,7 +79,7 @@ test("buildActorColumns: claim then done → card ends as 'done', not IsClaim, i
 
 test("buildActorColumns: active claim → IsClaim true, claimCount 1, idle false", () => {
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "Task", status: "claimed", sortOrder: 0 },
+    { shortId: "T0001", title: "Task", status: "claimed", sortKey: "000000" },
   ]);
   const events = [
     evt(1, "alice", "created", "T0001"),
@@ -94,7 +94,7 @@ test("buildActorColumns: active claim → IsClaim true, claimCount 1, idle false
 
 test("buildActorColumns: notes fold into noteCount; do not create separate cards", () => {
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "T", status: "claimed", sortOrder: 0 },
+    { shortId: "T0001", title: "T", status: "claimed", sortKey: "000000" },
   ]);
   const events = [
     evt(1, "alice", "claimed", "T0001"),
@@ -109,7 +109,7 @@ test("buildActorColumns: notes fold into noteCount; do not create separate cards
 
 test("buildActorColumns: claim --force override moves IsClaim to the new claimer", () => {
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "T", status: "claimed", sortOrder: 0 },
+    { shortId: "T0001", title: "T", status: "claimed", sortKey: "000000" },
   ]);
   const events = [
     evt(1, "alice", "claimed", "T0001"),
@@ -125,7 +125,7 @@ test("buildActorColumns: claim --force override moves IsClaim to the new claimer
 
 test("buildActorColumns: claim_expired clears claimer; system 'Jobs' actor gets its own column", () => {
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "T", status: "available", sortOrder: 0 },
+    { shortId: "T0001", title: "T", status: "available", sortKey: "000000" },
   ]);
   const events = [
     evt(1, "alice", "claimed", "T0001", 1700000000),
@@ -139,7 +139,7 @@ test("buildActorColumns: claim_expired clears claimer; system 'Jobs' actor gets 
 
 test("buildActorColumns: columns ordered by lastSeen desc, name asc tiebreak", () => {
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "T", status: "available", sortOrder: 0 },
+    { shortId: "T0001", title: "T", status: "available", sortKey: "000000" },
   ]);
   const events = [
     evt(1, "alice", "created", "T0001", 1700000000),
@@ -155,7 +155,7 @@ test("buildActorColumns: columns ordered by lastSeen desc, name asc tiebreak", (
 
 test("buildActorColumns: state-changing event sets stateClass / verb / verbClass / cardKey", () => {
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "T", status: "available", sortOrder: 0 },
+    { shortId: "T0001", title: "T", status: "available", sortKey: "000000" },
   ]);
   const events = [evt(1, "alice", "blocked", "T0001")];
   const card = buildActorColumns(events, frame, 1700000099)[0].cards[0];
@@ -170,7 +170,7 @@ test("buildActorColumns: state-changing event sets stateClass / verb / verbClass
 
 test("buildActorColumns: ageText is computed against the cursor's nowSec, not wall clock", () => {
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "T", status: "available", sortOrder: 0 },
+    { shortId: "T0001", title: "T", status: "available", sortKey: "000000" },
   ]);
   // Event 5 minutes before the cursor → '5m'.
   const events = [evt(1, "alice", "created", "T0001", 1700000000)];
@@ -183,7 +183,7 @@ test("buildActorColumns: pure-noted (no state-changer) does not create a card", 
   // a card — there's no state to tint. Mirrors the server's
   // p.hasState gate.
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "T", status: "available", sortOrder: 0 },
+    { shortId: "T0001", title: "T", status: "available", sortKey: "000000" },
   ]);
   const events = [evt(1, "alice", "noted", "T0001")];
   const cols = buildActorColumns(events, frame, 1700000099);
@@ -194,10 +194,10 @@ test("buildActorColumns: pure-noted (no state-changer) does not create a card", 
 
 test("buildActorColumns: claim band orders newest-first; history band orders newest-first", () => {
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "A", status: "claimed", sortOrder: 0 },
-    { shortId: "T0002", title: "B", status: "claimed", sortOrder: 0 },
-    { shortId: "T0003", title: "C", status: "available", sortOrder: 0 },
-    { shortId: "T0004", title: "D", status: "available", sortOrder: 0 },
+    { shortId: "T0001", title: "A", status: "claimed", sortKey: "000000" },
+    { shortId: "T0002", title: "B", status: "claimed", sortKey: "000000" },
+    { shortId: "T0003", title: "C", status: "available", sortKey: "000000" },
+    { shortId: "T0004", title: "D", status: "available", sortKey: "000000" },
   ]);
   const events = [
     evt(1, "alice", "claimed", "T0001", 1700000010),
@@ -225,13 +225,13 @@ test("buildActorColumns: per-column cap retains all claims; history truncated to
   const events = [];
   for (let i = 1; i <= 2; i++) {
     const id = "C" + String(i).padStart(4, "0");
-    tasks.push({ shortId: id, title: "claim " + i, status: "claimed", sortOrder: 0 });
+    tasks.push({ shortId: id, title: "claim " + i, status: "claimed", sortKey: "000000" });
     events.push(evt(events.length + 1, "alice", "claimed", id, 1700000000 + i));
   }
   // Add LIMIT+5 history-band cards so truncation is visible.
   for (let i = 1; i <= COLUMN_CARD_LIMIT + 5; i++) {
     const id = "H" + String(i).padStart(4, "0");
-    tasks.push({ shortId: id, title: "hist " + i, status: "done", sortOrder: 0 });
+    tasks.push({ shortId: id, title: "hist " + i, status: "done", sortKey: "000000" });
     events.push(evt(events.length + 1, "alice", "done", id, 1700001000 + i));
   }
   const frame = frameWithTasks(tasks);
@@ -242,7 +242,7 @@ test("buildActorColumns: per-column cap retains all claims; history truncated to
 
 test("buildActorColumns: empty actor names are skipped (matches the SQL filter)", () => {
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "T", status: "available", sortOrder: 0 },
+    { shortId: "T0001", title: "T", status: "available", sortKey: "000000" },
   ]);
   const events = [
     evt(1, "", "created", "T0001"),
@@ -259,8 +259,8 @@ test("buildActorColumns: empty actor names are skipped (matches the SQL filter)"
 
 test("buildActorColumns: cutoff drops actors whose only events predate it", () => {
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "Fresh", description: "", status: "available", sortOrder: 0 },
-    { shortId: "T0002", title: "Stale", description: "", status: "available", sortOrder: 1 },
+    { shortId: "T0001", title: "Fresh", description: "", status: "available", sortKey: "000000" },
+    { shortId: "T0002", title: "Stale", description: "", status: "available", sortKey: "000001" },
   ]);
   const now = 1700000000;
   const day = 86400;
@@ -277,8 +277,8 @@ test("buildActorColumns: cutoff drops actors whose only events predate it", () =
 
 test("buildActorColumns: cutoff trims out-of-range cards from a surviving column", () => {
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "Recent", description: "", status: "available", sortOrder: 0 },
-    { shortId: "T0002", title: "Ancient", description: "", status: "available", sortOrder: 1 },
+    { shortId: "T0001", title: "Recent", description: "", status: "available", sortKey: "000000" },
+    { shortId: "T0002", title: "Ancient", description: "", status: "available", sortKey: "000001" },
   ]);
   const now = 1700000000;
   const day = 86400;
@@ -295,8 +295,8 @@ test("buildActorColumns: cutoff trims out-of-range cards from a surviving column
 
 test("buildActorColumns: cutoff 0 (or omitted) keeps every event — the 'all' range", () => {
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "Fresh", description: "", status: "available", sortOrder: 0 },
-    { shortId: "T0002", title: "Stale", description: "", status: "available", sortOrder: 1 },
+    { shortId: "T0001", title: "Fresh", description: "", status: "available", sortKey: "000000" },
+    { shortId: "T0002", title: "Stale", description: "", status: "available", sortKey: "000001" },
   ]);
   const now = 1700000000;
   const day = 86400;
@@ -311,7 +311,7 @@ test("buildActorColumns: cutoff 0 (or omitted) keeps every event — the 'all' r
 
 test("buildActorColumns: an event exactly on the cutoff second is inside the window", () => {
   const frame = frameWithTasks([
-    { shortId: "T0001", title: "Edge", description: "", status: "available", sortOrder: 0 },
+    { shortId: "T0001", title: "Edge", description: "", status: "available", sortKey: "000000" },
   ]);
   const now = 1700000000;
   const cutoff = now - 7 * 86400;

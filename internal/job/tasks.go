@@ -78,7 +78,7 @@ func RunAddKind(db *sql.DB, parentShortID, title, desc, beforeShortID string, la
 		return nil, err
 	}
 
-	var sortOrder int
+	var sortKey string
 	if beforeShortID != "" {
 		beforeTask, err := GetTaskByShortID(tx, beforeShortID)
 		if err != nil {
@@ -93,37 +93,24 @@ func RunAddKind(db *sql.DB, parentShortID, title, desc, beforeShortID string, la
 		if beforeTask.ParentID != nil && parentID != nil && *beforeTask.ParentID != *parentID {
 			return nil, fmt.Errorf("task %q is not a sibling of the new task", beforeShortID)
 		}
-		sortOrder = beforeTask.SortOrder
-		if parentID == nil {
-			_, err = tx.Exec("UPDATE tasks SET sort_order = sort_order + 1 WHERE parent_id IS NULL AND sort_order >= ? AND deleted_at IS NULL", sortOrder)
-		} else {
-			_, err = tx.Exec("UPDATE tasks SET sort_order = sort_order + 1 WHERE parent_id = ? AND sort_order >= ? AND deleted_at IS NULL", *parentID, sortOrder)
-		}
+		sortKey, err = sortKeyBeforeSibling(tx, parentID, beforeTask, noSortKeyExclusion)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		var maxSort sql.NullInt64
-		if parentID == nil {
-			err = tx.QueryRow("SELECT MAX(sort_order) FROM tasks WHERE parent_id IS NULL AND deleted_at IS NULL").Scan(&maxSort)
-		} else {
-			err = tx.QueryRow("SELECT MAX(sort_order) FROM tasks WHERE parent_id = ? AND deleted_at IS NULL", *parentID).Scan(&maxSort)
-		}
+		sortKey, err = appendSortKey(tx, parentID, noSortKeyExclusion)
 		if err != nil {
 			return nil, err
-		}
-		if maxSort.Valid {
-			sortOrder = int(maxSort.Int64) + 1
 		}
 	}
 
 	now := CurrentNowFunc().Unix()
 	var taskID int64
 	err = tx.QueryRow(`
-		INSERT INTO tasks (short_id, parent_id, title, description, status, sort_order, created_at, updated_at, kind)
+		INSERT INTO tasks (short_id, parent_id, title, description, status, sort_key, created_at, updated_at, kind)
 		VALUES (?, ?, ?, ?, 'available', ?, ?, ?, ?)
 		RETURNING id
-	`, shortID, parentID, title, desc, sortOrder, now, now, string(kind)).Scan(&taskID)
+	`, shortID, parentID, title, desc, sortKey, now, now, string(kind)).Scan(&taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +123,7 @@ func RunAddKind(db *sql.DB, parentShortID, title, desc, beforeShortID string, la
 		ParentID:    eventParentID,
 		Title:       title,
 		Description: desc,
-		SortOrder:   int64(sortOrder),
+		SortKey:     sortKey,
 	}
 	if kind.IsIssue() {
 		createdPayload.Kind = string(kind)
@@ -453,7 +440,7 @@ func cascadeAutoCloseAncestors(tx dbtx, taskID int64, triggerShortID, triggerKin
 		}
 
 		row := tx.QueryRow(`
-			SELECT id, short_id, parent_id, title, description, status, sort_order,
+			SELECT id, short_id, parent_id, title, description, status, sort_key,
 			       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 			FROM tasks WHERE id = ?`, *parentID)
 		p, err := scanTask(row)
@@ -1089,60 +1076,32 @@ func RunMove(db *sql.DB, shortID, direction, relativeToShortID, actor string) er
 		return fmt.Errorf("%s and %s are not siblings (different parents)", shortID, relativeToShortID)
 	}
 
-	oldSortOrder := task.SortOrder
-	var newSortOrder int
-
+	// The moving task is excluded from the neighbour search: it is leaving
+	// its old position, and no other row's key is touched.
+	oldSortKey := task.SortKey
+	var newSortKey string
 	if direction == "before" {
-		newSortOrder = relative.SortOrder
-		var parentFilter string
-		var args []any
-		if task.ParentID == nil {
-			parentFilter = "parent_id IS NULL"
-		} else {
-			parentFilter = "parent_id = ?"
-			args = append(args, *task.ParentID)
-		}
-		args = append(args, newSortOrder, task.ID)
-		_, err = tx.Exec(
-			"UPDATE tasks SET sort_order = sort_order + 1 WHERE "+parentFilter+" AND sort_order >= ? AND id != ? AND deleted_at IS NULL",
-			args...,
-		)
-		if err != nil {
-			return err
-		}
+		newSortKey, err = sortKeyBeforeSibling(tx, task.ParentID, relative, task.ID)
 	} else {
-		newSortOrder = relative.SortOrder + 1
-		var parentFilter string
-		var args []any
-		if task.ParentID == nil {
-			parentFilter = "parent_id IS NULL"
-		} else {
-			parentFilter = "parent_id = ?"
-			args = append(args, *task.ParentID)
-		}
-		args = append(args, relative.SortOrder, task.ID)
-		_, err = tx.Exec(
-			"UPDATE tasks SET sort_order = sort_order + 1 WHERE "+parentFilter+" AND sort_order > ? AND id != ? AND deleted_at IS NULL",
-			args...,
-		)
-		if err != nil {
-			return err
-		}
+		newSortKey, err = sortKeyAfterSibling(tx, task.ParentID, relative, task.ID)
+	}
+	if err != nil {
+		return err
 	}
 
 	now := CurrentNowFunc().Unix()
 	if _, err := tx.Exec(
-		"UPDATE tasks SET sort_order = ?, updated_at = ? WHERE id = ?",
-		newSortOrder, now, task.ID,
+		"UPDATE tasks SET sort_key = ?, updated_at = ? WHERE id = ?",
+		newSortKey, now, task.ID,
 	); err != nil {
 		return err
 	}
 
 	if err := recordEvent(tx, task.ID, EventMoved, actor, MovedPayload{
-		Direction:    direction,
-		RelativeTo:   relativeToShortID,
-		OldSortOrder: oldSortOrder,
-		NewSortOrder: newSortOrder,
+		Direction:  direction,
+		RelativeTo: relativeToShortID,
+		SortKey:    newSortKey,
+		OldSortKey: oldSortKey,
 	}); err != nil {
 		return err
 	}
@@ -1274,19 +1233,11 @@ func RunReparent(db *sql.DB, shortID, newParentShortID, direction, relativeToSho
 		}
 	}
 
-	var newSortOrder int
+	var newSortKey string
 	if direction == "" {
-		var maxSort sql.NullInt64
-		if newParentID == nil {
-			err = tx.QueryRow("SELECT MAX(sort_order) FROM tasks WHERE parent_id IS NULL AND deleted_at IS NULL AND id != ?", task.ID).Scan(&maxSort)
-		} else {
-			err = tx.QueryRow("SELECT MAX(sort_order) FROM tasks WHERE parent_id = ? AND deleted_at IS NULL AND id != ?", *newParentID, task.ID).Scan(&maxSort)
-		}
+		newSortKey, err = appendSortKey(tx, newParentID, task.ID)
 		if err != nil {
 			return err
-		}
-		if maxSort.Valid {
-			newSortOrder = int(maxSort.Int64) + 1
 		}
 	} else {
 		if direction != "before" && direction != "after" {
@@ -1306,44 +1257,19 @@ func RunReparent(db *sql.DB, shortID, newParentShortID, direction, relativeToSho
 			return fmt.Errorf("%s is not a child of the new parent", relativeToShortID)
 		}
 		if direction == "before" {
-			newSortOrder = relative.SortOrder
+			newSortKey, err = sortKeyBeforeSibling(tx, newParentID, relative, task.ID)
 		} else {
-			newSortOrder = relative.SortOrder + 1
+			newSortKey, err = sortKeyAfterSibling(tx, newParentID, relative, task.ID)
 		}
-		var parentFilter string
-		var args []any
-		if newParentID == nil {
-			parentFilter = "parent_id IS NULL"
-		} else {
-			parentFilter = "parent_id = ?"
-			args = append(args, *newParentID)
-		}
-		var threshold int
-		if direction == "before" {
-			threshold = relative.SortOrder
-			args = append(args, threshold, task.ID)
-			if _, err := tx.Exec(
-				"UPDATE tasks SET sort_order = sort_order + 1 WHERE "+parentFilter+" AND sort_order >= ? AND id != ? AND deleted_at IS NULL",
-				args...,
-			); err != nil {
-				return err
-			}
-		} else {
-			threshold = relative.SortOrder
-			args = append(args, threshold, task.ID)
-			if _, err := tx.Exec(
-				"UPDATE tasks SET sort_order = sort_order + 1 WHERE "+parentFilter+" AND sort_order > ? AND id != ? AND deleted_at IS NULL",
-				args...,
-			); err != nil {
-				return err
-			}
+		if err != nil {
+			return err
 		}
 	}
 
 	now := CurrentNowFunc().Unix()
 	if _, err := tx.Exec(
-		"UPDATE tasks SET parent_id = ?, sort_order = ?, updated_at = ? WHERE id = ?",
-		newParentID, newSortOrder, now, task.ID,
+		"UPDATE tasks SET parent_id = ?, sort_key = ?, updated_at = ? WHERE id = ?",
+		newParentID, newSortKey, now, task.ID,
 	); err != nil {
 		return err
 	}
@@ -1351,8 +1277,8 @@ func RunReparent(db *sql.DB, shortID, newParentShortID, direction, relativeToSho
 	payload := ReparentedPayload{
 		PriorParentID: priorParentShort,
 		NewParentID:   newParentShortOut,
-		OldSortOrder:  task.SortOrder,
-		NewSortOrder:  newSortOrder,
+		SortKey:       newSortKey,
+		OldSortKey:    task.SortKey,
 	}
 	if direction != "" {
 		payload.Direction = direction
@@ -1501,7 +1427,7 @@ func ComputeDoneContext(db *sql.DB, closedShortID string, autoClosedSet map[stri
 
 // findNextClaimableLeafHierarchical implements the Next: walk used by
 // the done ack. Starting at closed's parent, at each ancestor level it
-// checks forward siblings (sort_order strictly greater than the
+// checks forward siblings (sort_key strictly greater than the
 // came-from child) and then earlier siblings (strictly less), descending
 // into any parent-with-open-children to surface the first claimable
 // leaf. It walks up until claimable work is found or until it has
@@ -1517,12 +1443,12 @@ func findNextClaimableLeafHierarchical(db *sql.DB, closed *Task) (*Task, *Task, 
 	var skipped *Task
 	var skippedBy string
 
-	// cameFromID / cameFromSortOrder describe the child of the current
+	// cameFromID / cameFromSortKey describe the child of the current
 	// ancestor that is on the path from the closed task. At the first
 	// iteration this is `closed` itself; each subsequent iteration
 	// steps cameFrom up one level.
 	cameFromID := closed.ID
-	cameFromSortOrder := closed.SortOrder
+	cameFromSortKey := closed.SortKey
 
 	var anchorParentID *int64
 	if closed.ParentID != nil {
@@ -1588,15 +1514,15 @@ func findNextClaimableLeafHierarchical(db *sql.DB, closed *Task) (*Task, *Task, 
 			}
 		}
 
-		// Forward candidates: sort_order strictly greater than came-from's.
+		// Forward candidates: sort_key strictly greater than came-from's.
 		var forward, earlier []*Task
 		for _, c := range children {
 			if c.ID == cameFromID {
 				continue
 			}
-			if c.SortOrder > cameFromSortOrder {
+			if c.SortKey > cameFromSortKey {
 				forward = append(forward, c)
-			} else if c.SortOrder < cameFromSortOrder {
+			} else if c.SortKey < cameFromSortKey {
 				earlier = append(earlier, c)
 			}
 		}
@@ -1633,7 +1559,7 @@ func findNextClaimableLeafHierarchical(db *sql.DB, closed *Task) (*Task, *Task, 
 			return nil, skipped, skippedBy, nil
 		}
 		cameFromID = parent.ID
-		cameFromSortOrder = parent.SortOrder
+		cameFromSortKey = parent.SortKey
 		if parent.ParentID != nil {
 			pid := *parent.ParentID
 			anchorParentID = &pid
@@ -1646,7 +1572,7 @@ func findNextClaimableLeafHierarchical(db *sql.DB, closed *Task) (*Task, *Task, 
 
 func getTaskByID(db dbtx, id int64) (*Task, error) {
 	row := db.QueryRow(`
-		SELECT id, short_id, parent_id, title, description, status, sort_order,
+		SELECT id, short_id, parent_id, title, description, status, sort_key,
 		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE id = ? AND deleted_at IS NULL
 	`, id)
@@ -1675,10 +1601,10 @@ func taskKindRoots(roots []*Task) []*Task {
 
 func getRootTasks(db *sql.DB) ([]*Task, error) {
 	rows, err := db.Query(`
-		SELECT id, short_id, parent_id, title, description, status, sort_order,
+		SELECT id, short_id, parent_id, title, description, status, sort_key,
 		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE parent_id IS NULL AND deleted_at IS NULL
-		ORDER BY sort_order
+		ORDER BY sort_key
 	`)
 	if err != nil {
 		return nil, err
@@ -1697,10 +1623,10 @@ func getRootTasks(db *sql.DB) ([]*Task, error) {
 
 func getChildren(db *sql.DB, parentID int64) ([]*Task, error) {
 	rows, err := db.Query(`
-		SELECT id, short_id, parent_id, title, description, status, sort_order,
+		SELECT id, short_id, parent_id, title, description, status, sort_key,
 		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE parent_id = ? AND deleted_at IS NULL
-		ORDER BY sort_order
+		ORDER BY sort_key
 	`, parentID)
 	if err != nil {
 		return nil, err
@@ -1727,7 +1653,7 @@ func findNextSibling(db *sql.DB, siblings []*Task, closed *Task) (next *Task, sk
 		if s.ID == closed.ID {
 			continue
 		}
-		if s.SortOrder <= closed.SortOrder {
+		if s.SortKey <= closed.SortKey {
 			continue
 		}
 		if s.Status == "done" {
@@ -1810,7 +1736,7 @@ func subtreeCompleteness(db *sql.DB, rootID int64) (allDone bool, doneCount int,
 // If t has no open children, t is already a leaf and is returned unchanged.
 // If t has open children, it isn't directly claimable under leaf-frontier
 // semantics, so we descend into t's subtree and return the first claimable
-// leaf (depth-first by sort_order). Returns nil if the subtree is entirely
+// leaf (depth-first by sort_key). Returns nil if the subtree is entirely
 // blocked or contains no available work. Passing a nil t returns nil.
 func descendToClaimableLeaf(db *sql.DB, t *Task) (*Task, error) {
 	if t == nil {
@@ -1867,7 +1793,7 @@ func RunInfo(db *sql.DB, shortID string) (*TaskInfo, error) {
 	var parent *Task
 	if task.ParentID != nil {
 		row := db.QueryRow(`
-			SELECT id, short_id, parent_id, title, description, status, sort_order,
+			SELECT id, short_id, parent_id, title, description, status, sort_key,
 			       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 			FROM tasks WHERE id = ? AND deleted_at IS NULL
 		`, *task.ParentID)
@@ -1879,10 +1805,10 @@ func RunInfo(db *sql.DB, shortID string) (*TaskInfo, error) {
 	}
 
 	rows, err := db.Query(`
-		SELECT id, short_id, parent_id, title, description, status, sort_order,
+		SELECT id, short_id, parent_id, title, description, status, sort_key,
 		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE parent_id = ? AND deleted_at IS NULL
-		ORDER BY sort_order
+		ORDER BY sort_key
 	`, task.ID)
 	if err != nil {
 		return nil, err
@@ -1988,7 +1914,7 @@ func GetAncestors(db *sql.DB, shortID string) ([]*Task, error) {
 	cur := task
 	for cur.ParentID != nil {
 		row := db.QueryRow(`
-			SELECT id, short_id, parent_id, title, description, status, sort_order,
+			SELECT id, short_id, parent_id, title, description, status, sort_key,
 			       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 			FROM tasks WHERE id = ? AND deleted_at IS NULL
 		`, *cur.ParentID)

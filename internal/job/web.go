@@ -53,7 +53,7 @@ func GetBlocking(db *sql.DB, shortID string) ([]*Task, error) {
 		return nil, fmt.Errorf("task %q not found", shortID)
 	}
 	rows, err := db.Query(`
-		SELECT t.id, t.short_id, t.parent_id, t.title, t.description, t.status, t.sort_order,
+		SELECT t.id, t.short_id, t.parent_id, t.title, t.description, t.status, t.sort_key,
 		       t.claimed_by, t.claim_expires_at, t.completion_note, t.created_at, t.updated_at, t.deleted_at, t.kind
 		FROM blocks b
 		JOIN tasks t ON t.id = b.blocked_id
@@ -88,7 +88,7 @@ func GetTaskParent(db *sql.DB, shortID string) (*Task, error) {
 		return nil, nil
 	}
 	rows, err := db.Query(`
-		SELECT id, short_id, parent_id, title, description, status, sort_order,
+		SELECT id, short_id, parent_id, title, description, status, sort_key,
 		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
 		FROM tasks WHERE id = ? AND deleted_at IS NULL
 	`, *task.ParentID)

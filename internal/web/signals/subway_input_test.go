@@ -1,6 +1,7 @@
 package signals
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -28,9 +29,9 @@ func TestBuildSubwayFromInput_MatchesEquivalentWorld(t *testing.T) {
 			ShortID:       td.short,
 			Status:        td.status,
 			ParentShortID: td.parent,
-			// Match newTestWorld's i+1 sort_order assignment so the
-			// child ordering inside each parent matches.
-			SortOrder: i + 1,
+			// Match newTestWorld's sort-key assignment so the child
+			// ordering inside each parent matches.
+			SortKey: fmt.Sprintf("%06d", i+1),
 		})
 	}
 	gotSubway := BuildSubwayFromInput(in)

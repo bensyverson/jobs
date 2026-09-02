@@ -37,8 +37,8 @@ export function displayStatus(raw, hasOpenBlockers) {
 }
 
 // buildForestFromFrame walks the flat tasks Map and assembles a tree
-// keyed by parentShortId. Children are sorted by sortOrder asc, with
-// shortId as a stable tiebreak so two tasks with identical sort_order
+// keyed by parentShortId. Children are sorted by sortKey asc, with
+// shortId as a stable tiebreak so two tasks with identical sort keys
 // always render in the same position. Tasks whose parent is missing
 // from the frame are surfaced as roots — better than dropping them
 // silently when a partial replay lacks the parent.
@@ -56,7 +56,7 @@ export function buildForestFromFrame(frame) {
   }
   const sortBucket = (arr) => {
     arr.sort((a, b) => {
-      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+      if (a.sortKey !== b.sortKey) return a.sortKey < b.sortKey ? -1 : 1;
       return a.shortId < b.shortId ? -1 : a.shortId > b.shortId ? 1 : 0;
     });
   };

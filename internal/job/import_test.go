@@ -495,11 +495,11 @@ func TestImport_FencedBlockStillPreferredOverBareDocument(t *testing.T) {
 	}
 }
 
-// Imported siblings must receive distinct, ascending sort_order values so
-// findNextSibling's `SortOrder > closed.SortOrder` filter can pick them
+// Imported siblings must receive distinct, ascending sort keys so
+// findNextSibling's `SortKey > closed.SortKey` filter can pick them
 // apart. Historically every imported task was written with sort_order=0,
 // breaking Next: hints for any imported umbrella.
-func TestImport_AssignsSequentialSortOrderPerParent(t *testing.T) {
+func TestImport_AssignsSequentialSortKeyPerParent(t *testing.T) {
 	db := SetupTestDB(t)
 
 	body := "```yaml\n" +
@@ -517,56 +517,19 @@ func TestImport_AssignsSequentialSortOrderPerParent(t *testing.T) {
 		t.Fatalf("RunImport: %v", err)
 	}
 
-	rows, err := db.Query(`
-		SELECT t.title, t.sort_order
+	got := sortKeyRows(t, db, `
+		SELECT t.title, t.sort_key
 		FROM tasks t
 		JOIN tasks p ON t.parent_id = p.id
 		WHERE p.title = 'Umbrella'
 		ORDER BY t.id
 	`)
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	defer rows.Close()
-
-	var got []struct {
-		title string
-		order int64
-	}
-	for rows.Next() {
-		var r struct {
-			title string
-			order int64
-		}
-		if err := rows.Scan(&r.title, &r.order); err != nil {
-			t.Fatalf("scan: %v", err)
-		}
-		got = append(got, r)
-	}
-
-	if len(got) != 4 {
-		t.Fatalf("got %d children, want 4", len(got))
-	}
-	want := []struct {
-		title string
-		order int64
-	}{
-		{"A", 0},
-		{"B", 1},
-		{"C", 2},
-		{"D", 3},
-	}
-	for i, w := range want {
-		if got[i].title != w.title || got[i].order != w.order {
-			t.Errorf("child %d: got (%q, %d), want (%q, %d)",
-				i, got[i].title, got[i].order, w.title, w.order)
-		}
-	}
+	assertAscendingKeys(t, got, []string{"A", "B", "C", "D"})
 }
 
 // Import's own root siblings (the top-level entries of the `tasks:`
-// list) also need distinct sort_order values.
-func TestImport_AssignsSequentialSortOrderToRoots(t *testing.T) {
+// list) also need distinct, ascending sort keys.
+func TestImport_AssignsSequentialSortKeyToRoots(t *testing.T) {
 	db := SetupTestDB(t)
 
 	body := "```yaml\n" +
@@ -581,40 +544,19 @@ func TestImport_AssignsSequentialSortOrderToRoots(t *testing.T) {
 		t.Fatalf("RunImport: %v", err)
 	}
 
-	rows, err := db.Query(`
-		SELECT title, sort_order FROM tasks WHERE parent_id IS NULL ORDER BY id
-	`)
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	defer rows.Close()
-
-	i := int64(0)
-	for rows.Next() {
-		var title string
-		var order int64
-		if err := rows.Scan(&title, &order); err != nil {
-			t.Fatalf("scan: %v", err)
-		}
-		if order != i {
-			t.Errorf("root %q: sort_order=%d, want %d", title, order, i)
-		}
-		i++
-	}
-	if i != 3 {
-		t.Fatalf("got %d roots, want 3", i)
-	}
+	got := sortKeyRows(t, db, `SELECT title, sort_key FROM tasks WHERE parent_id IS NULL ORDER BY id`)
+	assertAscendingKeys(t, got, []string{"First", "Second", "Third"})
 }
 
 // When importing under an existing parent that already has children,
-// the imported roots must continue the sort_order sequence (max existing
-// + 1, + 2, …) rather than colliding at 0 or restarting.
-func TestImport_NestedUnderExistingParent_ContinuesSortOrderSequence(t *testing.T) {
+// the imported roots must land after the siblings already there rather
+// than colliding with them.
+func TestImport_NestedUnderExistingParent_ContinuesSortKeySequence(t *testing.T) {
 	db := SetupTestDB(t)
 
 	parentShort := MustAdd(t, db, "", "Parent")
-	MustAdd(t, db, parentShort, "existing-A") // sort_order 0
-	MustAdd(t, db, parentShort, "existing-B") // sort_order 1
+	MustAdd(t, db, parentShort, "existing-A")
+	MustAdd(t, db, parentShort, "existing-B")
 
 	body := "```yaml\n" +
 		"tasks:\n" +
@@ -627,49 +569,60 @@ func TestImport_NestedUnderExistingParent_ContinuesSortOrderSequence(t *testing.
 		t.Fatalf("RunImport: %v", err)
 	}
 
-	rows, err := db.Query(`
-		SELECT t.title, t.sort_order
+	got := sortKeyRows(t, db, `
+		SELECT t.title, t.sort_key
 		FROM tasks t
 		JOIN tasks p ON t.parent_id = p.id
 		WHERE p.title = 'Parent'
-		ORDER BY t.sort_order
+		ORDER BY t.sort_key
 	`)
+	assertAscendingKeys(t, got, []string{"existing-A", "existing-B", "imported-X", "imported-Y"})
+}
+
+type titledSortKey struct {
+	title string
+	key   string
+}
+
+func sortKeyRows(t *testing.T, db *sql.DB, query string) []titledSortKey {
+	t.Helper()
+	rows, err := db.Query(query)
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	defer rows.Close()
-
-	var seq []struct {
-		title string
-		order int64
-	}
+	var out []titledSortKey
 	for rows.Next() {
-		var r struct {
-			title string
-			order int64
-		}
-		if err := rows.Scan(&r.title, &r.order); err != nil {
+		var r titledSortKey
+		if err := rows.Scan(&r.title, &r.key); err != nil {
 			t.Fatalf("scan: %v", err)
 		}
-		seq = append(seq, r)
+		out = append(out, r)
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows: %v", err)
+	}
+	return out
+}
 
-	want := []struct {
-		title string
-		order int64
-	}{
-		{"existing-A", 0},
-		{"existing-B", 1},
-		{"imported-X", 2},
-		{"imported-Y", 3},
+// assertAscendingKeys checks the rows carry wantTitles in order and that
+// their sort keys strictly ascend — the property the integer sort_order
+// sequence used to provide.
+func assertAscendingKeys(t *testing.T, got []titledSortKey, wantTitles []string) {
+	t.Helper()
+	if len(got) != len(wantTitles) {
+		t.Fatalf("got %d rows, want %d: %+v", len(got), len(wantTitles), got)
 	}
-	if len(seq) != len(want) {
-		t.Fatalf("got %d rows, want %d", len(seq), len(want))
-	}
-	for i, w := range want {
-		if seq[i].title != w.title || seq[i].order != w.order {
-			t.Errorf("row %d: got (%q, %d), want (%q, %d)",
-				i, seq[i].title, seq[i].order, w.title, w.order)
+	for i, want := range wantTitles {
+		if got[i].title != want {
+			t.Errorf("row %d: got title %q, want %q", i, got[i].title, want)
+		}
+		if got[i].key == "" {
+			t.Errorf("row %d (%q): empty sort key", i, got[i].title)
+		}
+		if i > 0 && !(got[i-1].key < got[i].key) {
+			t.Errorf("row %d (%q) key %q does not sort after row %d (%q) key %q",
+				i, got[i].title, got[i].key, i-1, got[i-1].title, got[i-1].key)
 		}
 	}
 }

@@ -68,8 +68,12 @@ whole log:
 `headEventId` is the event id the snapshot is current as of — the same id
 space as `/events`, so a client hydrates from the island and resumes with
 `?since=<headEventId>`. Each entry in `tasks` carries `shortId`, `title`,
-`description`, `status`, `parentShortId`, `sortOrder`, `labels`, `criteria`,
-and two fields that describe the [issue](../../concepts/tree-kinds/) surface:
+`description`, `status`, `parentShortId`, `sortKey`, `labels`, `criteria`,
+and two fields that describe the [issue](../../concepts/tree-kinds/) surface.
+`sortKey` is an opaque string: siblings are ordered by comparing it
+byte-for-byte, and no arithmetic on it is meaningful.
+
+The two issue fields:
 
 - **`kind`** — the tree kind, `"task"` or `"issue"`. Carried on **roots
   only** and absent on children, so a consumer can tell a root from a child

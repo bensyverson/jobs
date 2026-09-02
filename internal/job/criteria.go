@@ -22,12 +22,14 @@ const (
 // the human-facing string, free to be edited later without orphaning the
 // event log.
 type Criterion struct {
-	ID        int64
-	ShortID   string
-	TaskID    int64
-	Label     string
-	State     CriterionState
-	SortOrder int
+	ID      int64
+	ShortID string
+	TaskID  int64
+	Label   string
+	State   CriterionState
+	// SortKey is the fractional key that orders this criterion among its
+	// task's criteria; see internal/job/sortkey.go.
+	SortKey string
 }
 
 func ValidateCriterionState(raw string) (CriterionState, error) {
@@ -56,15 +58,11 @@ func insertCriteria(tx dbtx, taskID int64, items []Criterion) ([]Criterion, erro
 		return nil, nil
 	}
 
-	var maxSort sql.NullInt64
+	var lastKey string
 	if err := tx.QueryRow(
-		"SELECT MAX(sort_order) FROM task_criteria WHERE task_id = ?", taskID,
-	).Scan(&maxSort); err != nil && err != sql.ErrNoRows {
+		"SELECT COALESCE(MAX(sort_key), '') FROM task_criteria WHERE task_id = ?", taskID,
+	).Scan(&lastKey); err != nil && err != sql.ErrNoRows {
 		return nil, err
-	}
-	next := 0
-	if maxSort.Valid {
-		next = int(maxSort.Int64) + 1
 	}
 
 	now := CurrentNowFunc().Unix()
@@ -85,24 +83,28 @@ func insertCriteria(tx dbtx, taskID int64, items []Criterion) ([]Criterion, erro
 		if err != nil {
 			return nil, err
 		}
+		sortKey, err := KeyBetween(lastKey, "")
+		if err != nil {
+			return nil, err
+		}
 		var id int64
 		err = tx.QueryRow(
-			`INSERT INTO task_criteria (task_id, short_id, label, state, sort_order, created_at, updated_at)
+			`INSERT INTO task_criteria (task_id, short_id, label, state, sort_key, created_at, updated_at)
 			 VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-			taskID, shortID, label, string(state), next, now, now,
+			taskID, shortID, label, string(state), sortKey, now, now,
 		).Scan(&id)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, Criterion{
-			ID:        id,
-			ShortID:   shortID,
-			TaskID:    taskID,
-			Label:     label,
-			State:     state,
-			SortOrder: next,
+			ID:      id,
+			ShortID: shortID,
+			TaskID:  taskID,
+			Label:   label,
+			State:   state,
+			SortKey: sortKey,
 		})
-		next++
+		lastKey = sortKey
 	}
 	return out, nil
 }
@@ -110,8 +112,8 @@ func insertCriteria(tx dbtx, taskID int64, items []Criterion) ([]Criterion, erro
 // GetCriteria returns the criteria for taskID in sort order.
 func GetCriteria(db dbtx, taskID int64) ([]Criterion, error) {
 	rows, err := db.Query(
-		`SELECT id, COALESCE(short_id, ''), task_id, label, state, sort_order
-		 FROM task_criteria WHERE task_id = ? ORDER BY sort_order, id`,
+		`SELECT id, COALESCE(short_id, ''), task_id, label, state, sort_key
+		 FROM task_criteria WHERE task_id = ? ORDER BY sort_key, id`,
 		taskID,
 	)
 	if err != nil {
@@ -122,7 +124,7 @@ func GetCriteria(db dbtx, taskID int64) ([]Criterion, error) {
 	for rows.Next() {
 		var c Criterion
 		var state string
-		if err := rows.Scan(&c.ID, &c.ShortID, &c.TaskID, &c.Label, &state, &c.SortOrder); err != nil {
+		if err := rows.Scan(&c.ID, &c.ShortID, &c.TaskID, &c.Label, &state, &c.SortKey); err != nil {
 			return nil, err
 		}
 		c.State = CriterionState(state)

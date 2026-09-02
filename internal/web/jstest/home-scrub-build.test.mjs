@@ -339,10 +339,10 @@ test("buildUpcoming: lists available unblocked leaves in preorder", () => {
   const now = 1700001000;
   const frame = frameWith({
     tasks: [
-      { shortId: "P", title: "parent", status: "available", sortOrder: 1 },
-      { shortId: "C1", title: "child1", status: "available", parentShortId: "P", sortOrder: 1 },
-      { shortId: "C2", title: "child2", status: "available", parentShortId: "P", sortOrder: 2 },
-      { shortId: "Q", title: "loneleaf", status: "available", sortOrder: 2 },
+      { shortId: "P", title: "parent", status: "available", sortKey: "000001" },
+      { shortId: "C1", title: "child1", status: "available", parentShortId: "P", sortKey: "000001" },
+      { shortId: "C2", title: "child2", status: "available", parentShortId: "P", sortKey: "000002" },
+      { shortId: "Q", title: "loneleaf", status: "available", sortKey: "000002" },
     ],
   });
   const events = [
@@ -389,7 +389,7 @@ test("buildUpcoming: capped at 25", () => {
   const events = [];
   for (let i = 1; i <= 30; i++) {
     const id = "T" + i;
-    tasks.push({ shortId: id, title: id, status: "available", sortOrder: i });
+    tasks.push({ shortId: id, title: id, status: "available", sortKey: i });
     events.push(evt(i, "alice", "created", id, now - (30 - i) * 10));
   }
   const up = buildUpcoming(events, frameWith({ tasks }), now);

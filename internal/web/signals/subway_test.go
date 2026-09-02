@@ -12,7 +12,7 @@ import (
 // ------------------------------------------------------------------
 
 // tt is a compact task descriptor for in-memory graphWorld
-// construction. Slice order determines sort_order; parent references
+// construction. Slice order determines sort_key; parent references
 // another tt by short ID (empty = root).
 type tt struct {
 	short  string
@@ -31,10 +31,10 @@ func newTestWorld(tasks []tt, blocks ...[2]string) *graphWorld {
 
 	for i, td := range tasks {
 		t := &graphTask{
-			id:        nextID,
-			shortID:   td.short,
-			status:    td.status,
-			sortOrder: i + 1,
+			id:      nextID,
+			shortID: td.short,
+			status:  td.status,
+			sortKey: fmt.Sprintf("%06d", i+1),
 		}
 		nextID++
 		w.byID[t.id] = t

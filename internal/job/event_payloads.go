@@ -42,7 +42,7 @@ type CreatedPayload struct {
 	ParentID    string `json:"parent_id"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
-	SortOrder   int64  `json:"sort_order"`
+	SortKey     string `json:"sort_key"`
 	Kind        string `json:"kind,omitempty"`
 }
 
@@ -229,21 +229,24 @@ type EditedPayload struct {
 	NewDesc  *string `json:"new_desc,omitempty"`
 }
 
-// MovedPayload is recorded by RunMove.
+// MovedPayload is recorded by RunMove. SortKey is the task's new fractional
+// sort key — applying the event is a plain column write — and OldSortKey is
+// what it replaced, so the scrubber can rewind the move.
 type MovedPayload struct {
-	Direction    string `json:"direction"`
-	RelativeTo   string `json:"relative_to"`
-	OldSortOrder int    `json:"old_sort_order"`
-	NewSortOrder int    `json:"new_sort_order"`
+	Direction  string `json:"direction"`
+	RelativeTo string `json:"relative_to"`
+	SortKey    string `json:"sort_key"`
+	OldSortKey string `json:"old_sort_key"`
 }
 
 // ReparentedPayload is recorded by RunReparent. Direction/RelativeTo are
-// set only when the reparent named a sibling to move before/after.
+// set only when the reparent named a sibling to move before/after. See
+// MovedPayload for the two keys.
 type ReparentedPayload struct {
 	PriorParentID string `json:"prior_parent_id"`
 	NewParentID   string `json:"new_parent_id"`
-	OldSortOrder  int    `json:"old_sort_order"`
-	NewSortOrder  int    `json:"new_sort_order"`
+	SortKey       string `json:"sort_key"`
+	OldSortKey    string `json:"old_sort_key"`
 	Direction     string `json:"direction,omitempty"`
 	RelativeTo    string `json:"relative_to,omitempty"`
 }

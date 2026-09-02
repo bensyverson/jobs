@@ -61,18 +61,18 @@ function frameWith({ tasks = [], blocks = [], claims = [], headEventId = 0 }) {
   return initialFrame({ headEventId, tasks, blocks, claims });
 }
 
-test("buildForestFromFrame: groups tasks by parent in sortOrder", () => {
+test("buildForestFromFrame: groups tasks by parent in sortKey", () => {
   const f = frameWith({
     tasks: [
-      { shortId: "P0001", title: "P", status: "available", sortOrder: 1 },
-      { shortId: "C0001", title: "C1", status: "available", parentShortId: "P0001", sortOrder: 2 },
-      { shortId: "C0002", title: "C2", status: "available", parentShortId: "P0001", sortOrder: 1 },
+      { shortId: "P0001", title: "P", status: "available", sortKey: "000001" },
+      { shortId: "C0001", title: "C1", status: "available", parentShortId: "P0001", sortKey: "000002" },
+      { shortId: "C0002", title: "C2", status: "available", parentShortId: "P0001", sortKey: "000001" },
     ],
   });
   const roots = buildForestFromFrame(f);
   assert.equal(roots.length, 1);
   assert.equal(roots[0].task.shortId, "P0001");
-  // Children sorted by sortOrder ascending.
+  // Children sorted by sortKey ascending.
   assert.deepStrictEqual(
     roots[0].children.map((n) => n.task.shortId),
     ["C0002", "C0001"],
@@ -84,7 +84,7 @@ test("buildForestFromFrame: orphans (parent missing) become roots", () => {
   // task. Surface it as a root instead so the user still sees it.
   const f = frameWith({
     tasks: [
-      { shortId: "X0001", title: "Orphan", status: "available", parentShortId: "MISSING", sortOrder: 1 },
+      { shortId: "X0001", title: "Orphan", status: "available", parentShortId: "MISSING", sortKey: "000001" },
     ],
   });
   const roots = buildForestFromFrame(f);
@@ -92,12 +92,12 @@ test("buildForestFromFrame: orphans (parent missing) become roots", () => {
   assert.equal(roots[0].task.shortId, "X0001");
 });
 
-test("buildForestFromFrame: roots ordered by sortOrder asc, shortId tiebreak", () => {
+test("buildForestFromFrame: roots ordered by sortKey asc, shortId tiebreak", () => {
   const f = frameWith({
     tasks: [
-      { shortId: "A0001", title: "A", status: "available", sortOrder: 2 },
-      { shortId: "B0001", title: "B", status: "available", sortOrder: 1 },
-      { shortId: "C0001", title: "C", status: "available", sortOrder: 1 },
+      { shortId: "A0001", title: "A", status: "available", sortKey: "000002" },
+      { shortId: "B0001", title: "B", status: "available", sortKey: "000001" },
+      { shortId: "C0001", title: "C", status: "available", sortKey: "000001" },
     ],
   });
   const roots = buildForestFromFrame(f);
@@ -214,11 +214,11 @@ test("labelFreqsByView: archived view counts only done/canceled tasks", () => {
 // --- buildPlanNodes (rollup, collapsed, depth, blocked) ---
 
 test("buildPlanNodes: blocked task with open blockers shows as blocked", () => {
-  // Use sortOrder to put T0001 first since shortId is the tiebreak.
+  // Use sortKey to put T0001 first since shortId is the tiebreak.
   const f = frameWith({
     tasks: [
-      { shortId: "T0001", title: "T", status: "available", sortOrder: 1 },
-      { shortId: "B0001", title: "Blocker", status: "available", sortOrder: 2 },
+      { shortId: "T0001", title: "T", status: "available", sortKey: "000001" },
+      { shortId: "B0001", title: "Blocker", status: "available", sortKey: "000002" },
     ],
     blocks: [{ blockedShortId: "T0001", blockerShortId: "B0001" }],
   });
@@ -234,8 +234,8 @@ test("buildPlanNodes: blocked task with open blockers shows as blocked", () => {
 test("buildPlanNodes: parent rolls up to active when any descendant is claimed", () => {
   const f = frameWith({
     tasks: [
-      { shortId: "P0001", title: "P", status: "available", sortOrder: 1 },
-      { shortId: "C0001", title: "C", status: "claimed", parentShortId: "P0001", sortOrder: 1 },
+      { shortId: "P0001", title: "P", status: "available", sortKey: "000001" },
+      { shortId: "C0001", title: "C", status: "claimed", parentShortId: "P0001", sortKey: "000001" },
     ],
     claims: [{ shortId: "C0001", claimedBy: "alice", expiresAt: 1700000999 }],
   });
@@ -247,8 +247,8 @@ test("buildPlanNodes: parent rolls up to active when any descendant is claimed",
 test("buildPlanNodes: subtree fully closed → collapsed=true", () => {
   const f = frameWith({
     tasks: [
-      { shortId: "P0001", title: "P", status: "done", sortOrder: 1 },
-      { shortId: "C0001", title: "C", status: "done", parentShortId: "P0001", sortOrder: 1 },
+      { shortId: "P0001", title: "P", status: "done", sortKey: "000001" },
+      { shortId: "C0001", title: "C", status: "done", parentShortId: "P0001", sortKey: "000001" },
     ],
   });
   const roots = buildForestFromFrame(f);
@@ -259,8 +259,8 @@ test("buildPlanNodes: subtree fully closed → collapsed=true", () => {
 test("buildPlanNodes: depth increments, hasChildren / collapsible flags set", () => {
   const f = frameWith({
     tasks: [
-      { shortId: "P0001", title: "P", description: "", status: "available", sortOrder: 1 },
-      { shortId: "C0001", title: "C", description: "with desc", status: "available", parentShortId: "P0001", sortOrder: 1 },
+      { shortId: "P0001", title: "P", description: "", status: "available", sortKey: "000001" },
+      { shortId: "C0001", title: "C", description: "with desc", status: "available", parentShortId: "P0001", sortKey: "000001" },
     ],
   });
   const roots = buildForestFromFrame(f);
@@ -275,7 +275,7 @@ test("buildPlanNodes: depth increments, hasChildren / collapsible flags set", ()
 
 test("buildPlanNodes: actor pulled from frame.claims when present", () => {
   const f = frameWith({
-    tasks: [{ shortId: "T0001", title: "T", status: "claimed", sortOrder: 1 }],
+    tasks: [{ shortId: "T0001", title: "T", status: "claimed", sortKey: "000001" }],
     claims: [{ shortId: "T0001", claimedBy: "alice", expiresAt: 1700000999 }],
   });
   const roots = buildForestFromFrame(f);
@@ -290,7 +290,7 @@ test("buildPlanNodes: notes carried through with status tint", () => {
         shortId: "T0001",
         title: "T",
         status: "available",
-        sortOrder: 1,
+        sortKey: "000001",
         notes: [{ actor: "alice", ts: 1700000000, text: "hello" }],
       },
     ],
@@ -311,7 +311,7 @@ test("buildPlanNodes: row labels are {name, url} where url is the add-label URL"
         shortId: "T0001",
         title: "T",
         status: "available",
-        sortOrder: 1,
+        sortKey: "000001",
         labels: ["web"],
       },
     ],
@@ -331,7 +331,7 @@ test("buildPlanNodes: add-label URL preserves current show mode", () => {
         shortId: "T0001",
         title: "T",
         status: "available",
-        sortOrder: 1,
+        sortKey: "000001",
         labels: ["web"],
       },
     ],
@@ -371,9 +371,9 @@ test("addLabel: add absent (sorted); no-op if present", () => {
 test("filterRootsByKind: 'issue' keeps only roots whose kind is issue", () => {
   const f = frameWith({
     tasks: [
-      { shortId: "P0001", title: "Plan", status: "available", sortOrder: 1, kind: "task" },
-      { shortId: "I0001", title: "Issues", status: "available", sortOrder: 2, kind: "issue" },
-      { shortId: "C0001", title: "Bug", status: "available", parentShortId: "I0001", sortOrder: 1 },
+      { shortId: "P0001", title: "Plan", status: "available", sortKey: "000001", kind: "task" },
+      { shortId: "I0001", title: "Issues", status: "available", sortKey: "000002", kind: "issue" },
+      { shortId: "C0001", title: "Bug", status: "available", parentShortId: "I0001", sortKey: "000001" },
     ],
   });
   const roots = buildForestFromFrame(f);
@@ -389,9 +389,9 @@ test("filterRootsByKind: 'task' drops issue roots and keeps kind-less roots", ()
   // read as a task tree, matching the Go-side default.
   const f = frameWith({
     tasks: [
-      { shortId: "P0001", title: "Plan", status: "available", sortOrder: 1, kind: "task" },
-      { shortId: "N0001", title: "No kind", status: "available", sortOrder: 2 },
-      { shortId: "I0001", title: "Issues", status: "available", sortOrder: 3, kind: "issue" },
+      { shortId: "P0001", title: "Plan", status: "available", sortKey: "000001", kind: "task" },
+      { shortId: "N0001", title: "No kind", status: "available", sortKey: "000002" },
+      { shortId: "I0001", title: "Issues", status: "available", sortKey: "000003", kind: "issue" },
     ],
   });
   const roots = buildForestFromFrame(f);
@@ -410,7 +410,7 @@ test("planURL: an explicit base composes /issues URLs with the same rules", () =
 test("buildPlanNodes: inline label URLs follow opts.base", () => {
   const f = frameWith({
     tasks: [
-      { shortId: "I0001", title: "Issues", status: "available", sortOrder: 1, kind: "issue", labels: ["web"] },
+      { shortId: "I0001", title: "Issues", status: "available", sortKey: "000001", kind: "issue", labels: ["web"] },
     ],
   });
   const roots = buildForestFromFrame(f);

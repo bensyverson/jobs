@@ -87,8 +87,8 @@ test("composePlanFilterBarShape: assembles the renderFilterBar input from a fram
   const frame = initialFrame({
     headEventId: 0,
     tasks: [
-      { shortId: "A0001", title: "A", status: "available", sortOrder: 1, labels: ["web"] },
-      { shortId: "B0001", title: "B", status: "available", sortOrder: 2, labels: ["web", "dx"] },
+      { shortId: "A0001", title: "A", status: "available", sortKey: "000001", labels: ["web"] },
+      { shortId: "B0001", title: "B", status: "available", sortKey: "000002", labels: ["web", "dx"] },
     ],
     blocks: [],
     claims: [],
@@ -109,9 +109,9 @@ test("composePlanFilterBarShape: an issue view filters the forest by kind and ta
   const frame = initialFrame({
     headEventId: 0,
     tasks: [
-      { shortId: "P0001", title: "Plan", status: "available", sortOrder: 1, kind: "task", labels: ["web"] },
-      { shortId: "I0001", title: "Issues", status: "available", sortOrder: 2, kind: "issue" },
-      { shortId: "C0001", title: "Bug", status: "available", parentShortId: "I0001", sortOrder: 1, labels: ["parser"] },
+      { shortId: "P0001", title: "Plan", status: "available", sortKey: "000001", kind: "task", labels: ["web"] },
+      { shortId: "I0001", title: "Issues", status: "available", sortKey: "000002", kind: "issue" },
+      { shortId: "C0001", title: "Bug", status: "available", parentShortId: "I0001", sortKey: "000001", labels: ["parser"] },
     ],
     blocks: [],
     claims: [],
@@ -137,8 +137,8 @@ test("composePlanFilterBarShape: the default (task) view still excludes issue ro
   const frame = initialFrame({
     headEventId: 0,
     tasks: [
-      { shortId: "P0001", title: "Plan", status: "available", sortOrder: 1, kind: "task", labels: ["web"] },
-      { shortId: "I0001", title: "Issues", status: "available", sortOrder: 2, kind: "issue", labels: ["parser"] },
+      { shortId: "P0001", title: "Plan", status: "available", sortKey: "000001", kind: "task", labels: ["web"] },
+      { shortId: "I0001", title: "Issues", status: "available", sortKey: "000002", kind: "issue", labels: ["parser"] },
     ],
     blocks: [],
     claims: [],

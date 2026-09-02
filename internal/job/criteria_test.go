@@ -39,8 +39,8 @@ func TestInsertAndGetCriteria(t *testing.T) {
 	if got[1].Label != "Docs updated" || got[1].State != CriterionSkipped {
 		t.Errorf("second: got %+v", got[1])
 	}
-	if !(got[0].SortOrder < got[1].SortOrder) {
-		t.Errorf("sort order not ascending: %d %d", got[0].SortOrder, got[1].SortOrder)
+	if !(got[0].SortKey < got[1].SortKey) {
+		t.Errorf("sort order not ascending: %q %q", got[0].SortKey, got[1].SortKey)
 	}
 }
 

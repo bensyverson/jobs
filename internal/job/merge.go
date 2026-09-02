@@ -35,11 +35,11 @@ func applyMergePlan(db *sql.DB, plan *mergePlan) error {
 	// linked afterwards; row ids are per-database and are never copied.
 	for _, t := range plan.insertTasks {
 		if _, err := tx.Exec(`
-			INSERT INTO tasks (short_id, parent_id, title, description, status, sort_order,
+			INSERT INTO tasks (short_id, parent_id, title, description, status, sort_key,
 			                   claimed_by, claim_expires_at, completion_note,
 			                   created_at, updated_at, deleted_at, kind)
 			VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			t.shortID, t.title, t.description, t.status, t.sortOrder,
+			t.shortID, t.title, t.description, t.status, t.sortKey,
 			t.claimedBy, t.claimExpiresAt, t.completionNote,
 			t.createdAt, t.updatedAt, t.deletedAt, t.kind); err != nil {
 			return fmt.Errorf("insert task %s: %w", t.shortID, err)
@@ -48,11 +48,11 @@ func applyMergePlan(db *sql.DB, plan *mergePlan) error {
 	for _, t := range append(append([]*mergeTaskRow{}, plan.insertTasks...), plan.updateTasks...) {
 		if _, err := tx.Exec(`
 			UPDATE tasks SET parent_id = (SELECT id FROM tasks WHERE short_id = ?),
-			                 title = ?, description = ?, status = ?, sort_order = ?,
+			                 title = ?, description = ?, status = ?, sort_key = ?,
 			                 claimed_by = ?, claim_expires_at = ?, completion_note = ?,
 			                 created_at = ?, updated_at = ?, deleted_at = ?, kind = ?
 			WHERE short_id = ?`,
-			nullIfEmpty(t.parentShortID), t.title, t.description, t.status, t.sortOrder,
+			nullIfEmpty(t.parentShortID), t.title, t.description, t.status, t.sortKey,
 			t.claimedBy, t.claimExpiresAt, t.completionNote,
 			t.createdAt, t.updatedAt, t.deletedAt, t.kind, t.shortID); err != nil {
 			return fmt.Errorf("update task %s: %w", t.shortID, err)
@@ -79,9 +79,9 @@ func applyMergePlan(db *sql.DB, plan *mergePlan) error {
 
 	for _, c := range plan.insertCriteria {
 		if _, err := tx.Exec(`
-			INSERT INTO task_criteria (task_id, short_id, label, state, sort_order, created_at, updated_at)
+			INSERT INTO task_criteria (task_id, short_id, label, state, sort_key, created_at, updated_at)
 			SELECT id, ?, ?, ?, ?, ?, ? FROM tasks WHERE short_id = ?`,
-			c.shortID, c.label, c.state, c.sortOrder, c.createdAt, c.updatedAt, c.taskShortID); err != nil {
+			c.shortID, c.label, c.state, c.sortKey, c.createdAt, c.updatedAt, c.taskShortID); err != nil {
 			return fmt.Errorf("insert criterion on %s: %w", c.taskShortID, err)
 		}
 	}
@@ -92,14 +92,14 @@ func applyMergePlan(db *sql.DB, plan *mergePlan) error {
 		var err error
 		if c.shortID.Valid && c.shortID.String != "" {
 			_, err = tx.Exec(`
-				UPDATE task_criteria SET label = ?, state = ?, sort_order = ?, updated_at = ?
+				UPDATE task_criteria SET label = ?, state = ?, sort_key = ?, updated_at = ?
 				WHERE short_id = ? AND task_id = (SELECT id FROM tasks WHERE short_id = ?)`,
-				c.label, c.state, c.sortOrder, c.updatedAt, c.shortID.String, c.taskShortID)
+				c.label, c.state, c.sortKey, c.updatedAt, c.shortID.String, c.taskShortID)
 		} else {
 			_, err = tx.Exec(`
-				UPDATE task_criteria SET state = ?, sort_order = ?, updated_at = ?
+				UPDATE task_criteria SET state = ?, sort_key = ?, updated_at = ?
 				WHERE label = ? AND task_id = (SELECT id FROM tasks WHERE short_id = ?)`,
-				c.state, c.sortOrder, c.updatedAt, c.label, c.taskShortID)
+				c.state, c.sortKey, c.updatedAt, c.label, c.taskShortID)
 		}
 		if err != nil {
 			return fmt.Errorf("update criterion on %s: %w", c.taskShortID, err)

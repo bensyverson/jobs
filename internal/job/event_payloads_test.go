@@ -15,7 +15,7 @@ var eventPayloadSamples = []struct {
 	Payload any
 }{
 	{EventCreated, CreatedPayload{
-		ParentID: "AbC12", Title: "Root task", Description: "desc", SortOrder: 3, Kind: "issue",
+		ParentID: "AbC12", Title: "Root task", Description: "desc", SortKey: "V00001", Kind: "issue",
 	}},
 	{EventLabeled, LabeledPayload{Names: []string{"web", "bug"}, Existing: []string{}}},
 	{EventUnlabeled, UnlabeledPayload{Names: []string{"web"}, Absent: []string{"bug"}}},
@@ -65,10 +65,10 @@ var eventPayloadSamples = []struct {
 		OldTitle: new("old"), NewTitle: new("new"), OldDesc: new("old desc"), NewDesc: new("new desc"),
 	}},
 	{EventMoved, MovedPayload{
-		Direction: "before", RelativeTo: "AbC12", OldSortOrder: 1, NewSortOrder: 2,
+		Direction: "before", RelativeTo: "AbC12", OldSortKey: "V00001", SortKey: "V00002",
 	}},
 	{EventReparented, ReparentedPayload{
-		PriorParentID: "AbC12", NewParentID: "XyZ99", OldSortOrder: 1, NewSortOrder: 2,
+		PriorParentID: "AbC12", NewParentID: "XyZ99", OldSortKey: "V00001", SortKey: "V00002",
 		Direction: "after", RelativeTo: "QnB2g",
 	}},
 }

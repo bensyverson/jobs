@@ -21,7 +21,7 @@ type mergeTaskRow struct {
 	title          string
 	description    string
 	status         string
-	sortOrder      int64
+	sortKey        string
 	claimedBy      sql.NullString
 	claimExpiresAt sql.NullInt64
 	completionNote sql.NullString
@@ -41,7 +41,7 @@ type mergeCriterionRow struct {
 	shortID     sql.NullString
 	label       string
 	state       string
-	sortOrder   int64
+	sortKey     string
 	createdAt   int64
 	updatedAt   int64
 }
@@ -59,7 +59,7 @@ func (c mergeCriterionRow) key() string {
 
 func (c mergeCriterionRow) sameAs(o mergeCriterionRow) bool {
 	return c.taskShortID == o.taskShortID && c.label == o.label && c.state == o.state &&
-		c.sortOrder == o.sortOrder && c.createdAt == o.createdAt && c.updatedAt == o.updatedAt
+		c.sortKey == o.sortKey && c.createdAt == o.createdAt && c.updatedAt == o.updatedAt
 }
 
 type mergeEventRow struct {
@@ -108,7 +108,7 @@ func readMergeSnapshot(db *sql.DB) (*mergeSnapshot, error) {
 
 	rows, err := db.Query(`
 		SELECT t.short_id, COALESCE(p.short_id, ''), t.title, t.description, t.status,
-		       t.sort_order, t.claimed_by, t.claim_expires_at, t.completion_note,
+		       t.sort_key, t.claimed_by, t.claim_expires_at, t.completion_note,
 		       t.created_at, t.updated_at, t.deleted_at, t.kind
 		FROM tasks t LEFT JOIN tasks p ON p.id = t.parent_id`)
 	if err != nil {
@@ -117,7 +117,7 @@ func readMergeSnapshot(db *sql.DB) (*mergeSnapshot, error) {
 	for rows.Next() {
 		var r mergeTaskRow
 		if err := rows.Scan(&r.shortID, &r.parentShortID, &r.title, &r.description, &r.status,
-			&r.sortOrder, &r.claimedBy, &r.claimExpiresAt, &r.completionNote,
+			&r.sortKey, &r.claimedBy, &r.claimExpiresAt, &r.completionNote,
 			&r.createdAt, &r.updatedAt, &r.deletedAt, &r.kind); err != nil {
 			rows.Close()
 			return nil, err
@@ -162,10 +162,10 @@ func readMergeSnapshot(db *sql.DB) (*mergeSnapshot, error) {
 	}
 
 	if err := scanRows(db, `
-		SELECT t.short_id, c.short_id, c.label, c.state, c.sort_order, c.created_at, c.updated_at
+		SELECT t.short_id, c.short_id, c.label, c.state, c.sort_key, c.created_at, c.updated_at
 		FROM task_criteria c JOIN tasks t ON t.id = c.task_id`, func(sc scanner) error {
 		var c mergeCriterionRow
-		if err := sc.Scan(&c.taskShortID, &c.shortID, &c.label, &c.state, &c.sortOrder,
+		if err := sc.Scan(&c.taskShortID, &c.shortID, &c.label, &c.state, &c.sortKey,
 			&c.createdAt, &c.updatedAt); err != nil {
 			return err
 		}

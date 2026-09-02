@@ -25,7 +25,7 @@ import {
 test("parseInitialFrameJSON: valid payload returns the parsed object", () => {
   const raw = JSON.stringify({
     headEventId: 5,
-    tasks: [{ shortId: "ABC12", title: "T", status: "available", sortOrder: 0 }],
+    tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });
@@ -113,7 +113,7 @@ test("buildEventsFetcher: normalizes wire shape (detail string → object, RFC33
       task_id: "ABC12",
       actor: "alice",
       event_type: "created",
-      detail: '{"title":"T","sort_order":0}',
+      detail: `{"title":"T","sort_key":"000000"}`,
       created_at: "2026-04-21T21:37:05Z",
     },
   ];
@@ -122,7 +122,7 @@ test("buildEventsFetcher: normalizes wire shape (detail string → object, RFC33
   const fetcher = buildEventsFetcher({ baseURL: "http://example.test/events", fetch: stubFetch });
   const got = await fetcher({ limit: 1 });
   assert.equal(got.length, 1);
-  assert.deepStrictEqual(got[0].detail, { title: "T", sort_order: 0 });
+  assert.deepStrictEqual(got[0].detail, { title: "T", sort_key: "000000" });
   assert.equal(typeof got[0].created_at, "number");
   // 2026-04-21T21:37:05Z = 1776159425 (sanity-check unix seconds).
   assert.equal(got[0].created_at, Math.floor(Date.parse("2026-04-21T21:37:05Z") / 1000));

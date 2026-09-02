@@ -363,7 +363,7 @@ func TestPeek_HistoryEmptyStatePresent(t *testing.T) {
 	// Insert a task by direct INSERT so it has zero events. mustAdd
 	// always emits the `created` event.
 	if _, err := db.Exec(`
-		INSERT INTO tasks (short_id, title, description, status, sort_order, created_at, updated_at)
+		INSERT INTO tasks (short_id, title, description, status, sort_key, created_at, updated_at)
 		VALUES ('eventless', 'Quiet task', '', 'available', 0, ?, ?)
 	`, 0, 0); err != nil {
 		t.Fatalf("insert task: %v", err)

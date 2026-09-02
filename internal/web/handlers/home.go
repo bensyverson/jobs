@@ -322,18 +322,19 @@ func loadBlockedStrip(ctx context.Context, db *sql.DB) (BlockedStripPanel, error
 // done, not canceled), not soft-deleted, has no still-active blockers
 // (a blocker counts only if it's neither done nor deleted), and has
 // no open children (a child counts as open when its status is not
-// done/canceled and it is not soft-deleted). Ordering is the
-// zero-padded sort_order path so siblings read top-to-bottom in
-// declaration order and deeper descendants follow their ancestors.
+// done/canceled and it is not soft-deleted). Ordering is the sort-key
+// path, joined with '/' — a byte below every character in the sort-key
+// alphabet — so siblings read top-to-bottom in declaration order and
+// deeper descendants follow their ancestors.
 func loadUpcoming(ctx context.Context, db *sql.DB, now time.Time) (UpcomingPanel, error) {
 	var panel UpcomingPanel
 	rows, err := db.QueryContext(ctx, `
 		WITH RECURSIVE subtree(id, sort_path) AS (
-			SELECT t.id, printf('%06d', t.sort_order)
+			SELECT t.id, t.sort_key
 			FROM tasks t
 			WHERE t.parent_id IS NULL AND t.deleted_at IS NULL
 			UNION ALL
-			SELECT t.id, s.sort_path || '/' || printf('%06d', t.sort_order)
+			SELECT t.id, s.sort_path || '/' || t.sort_key
 			FROM tasks t JOIN subtree s ON t.parent_id = s.id
 			WHERE t.deleted_at IS NULL
 		)

@@ -20,7 +20,7 @@ type SubwayInputTask struct {
 	Title         string `json:"title"`
 	Status        string `json:"status"`
 	ParentShortID string `json:"parentShortId,omitempty"`
-	SortOrder     int    `json:"sortOrder"`
+	SortKey       string `json:"sortKey"`
 	ClaimedBy     string `json:"claimedBy,omitempty"`
 }
 
@@ -42,7 +42,7 @@ func BuildSubwayFromInput(in SubwayInput) Subway {
 // worldFromInput constructs a graphWorld matching what loadGraphWorld
 // would produce for a live DB carrying the same tasks and blocks.
 // Mirrors loadGraphWorld's bookkeeping: child slices sorted by
-// sort_order, openBlockers tracking blockers whose status is neither
+// sort_key, openBlockers tracking blockers whose status is neither
 // done nor canceled.
 func worldFromInput(in SubwayInput) *graphWorld {
 	w := &graphWorld{byID: make(map[int64]*graphTask, len(in.Tasks))}
@@ -50,12 +50,12 @@ func worldFromInput(in SubwayInput) *graphWorld {
 	var nextID int64 = 1
 	for _, td := range in.Tasks {
 		t := &graphTask{
-			id:        nextID,
-			shortID:   td.ShortID,
-			title:     td.Title,
-			status:    td.Status,
-			actor:     td.ClaimedBy,
-			sortOrder: td.SortOrder,
+			id:      nextID,
+			shortID: td.ShortID,
+			title:   td.Title,
+			status:  td.Status,
+			actor:   td.ClaimedBy,
+			sortKey: td.SortKey,
 		}
 		nextID++
 		w.byID[t.id] = t
@@ -81,9 +81,9 @@ func worldFromInput(in SubwayInput) *graphWorld {
 		t.parentID = &pid
 		p.children = append(p.children, t)
 	}
-	sortBySortOrder(w.roots)
+	sortBySortKey(w.roots)
 	for _, t := range w.byID {
-		sortBySortOrder(t.children)
+		sortBySortKey(t.children)
 	}
 	for _, b := range in.Blocks {
 		blocker, okB := byShort[b.BlockerShortID]

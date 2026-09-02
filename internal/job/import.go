@@ -447,10 +447,10 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 	resultIndexByParsed := make(map[*parsedTask]int)
 
 	// Insert in pre-order DFS so parents exist before children. Each node
-	// receives an explicit sort_order so findNextSibling's strict-greater
+	// receives an explicit sort key so findNextSibling's strict-greater
 	// comparison can distinguish imported siblings.
-	var insert func(node *parsedTask, parentDBID *int64, parentShort string, sortOrder int64) error
-	insert = func(node *parsedTask, parentDBID *int64, parentShort string, sortOrder int64) error {
+	var insert func(node *parsedTask, parentDBID *int64, parentShort string, sortKey string) error
+	insert = func(node *parsedTask, parentDBID *int64, parentShort string, sortKey string) error {
 		sid, err := generateShortID(tx)
 		if err != nil {
 			return err
@@ -458,10 +458,10 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 		now := CurrentNowFunc().Unix()
 		var id int64
 		err = tx.QueryRow(`
-			INSERT INTO tasks (short_id, parent_id, title, description, status, sort_order, created_at, updated_at, kind)
+			INSERT INTO tasks (short_id, parent_id, title, description, status, sort_key, created_at, updated_at, kind)
 			VALUES (?, ?, ?, ?, 'available', ?, ?, ?, ?)
 			RETURNING id
-		`, sid, parentDBID, node.Title, node.Desc, sortOrder, now, now, string(node.Kind)).Scan(&id)
+		`, sid, parentDBID, node.Title, node.Desc, sortKey, now, now, string(node.Kind)).Scan(&id)
 		if err != nil {
 			return err
 		}
@@ -472,7 +472,7 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 			ParentID:    parentShort,
 			Title:       node.Title,
 			Description: node.Desc,
-			SortOrder:   sortOrder,
+			SortKey:     sortKey,
 		}
 		// Mirrors `add --kind issue`: the default is silent, so a plain plan's
 		// event stream is byte-for-byte what it was.
@@ -519,10 +519,14 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 		})
 
 		// Children of this just-inserted node have no pre-existing
-		// siblings in the DB, so they start at sort_order 0.
+		// siblings in the DB, so their keys start at the front of the space.
+		childKeys, err := SortKeySequence("", len(node.Children))
+		if err != nil {
+			return err
+		}
 		for i, child := range node.Children {
 			cid := id
-			if err := insert(child, &cid, sid, int64(i)); err != nil {
+			if err := insert(child, &cid, sid, childKeys[i]); err != nil {
 				return err
 			}
 		}
@@ -540,12 +544,12 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 	// Offset the import's roots by any pre-existing siblings so we don't
 	// collide with existing tasks under the target parent (or at DB root
 	// when --parent is omitted).
-	rootSortOffset, err := nextSortOrderForParent(tx, rootParentDBID)
+	rootKeys, err := sortKeysForNewChildren(tx, rootParentDBID, len(tree))
 	if err != nil {
 		return nil, err
 	}
 	for i, root := range tree {
-		if err := insert(root, rootParentDBID, rootParentShort, rootSortOffset+int64(i)); err != nil {
+		if err := insert(root, rootParentDBID, rootParentShort, rootKeys[i]); err != nil {
 			return nil, err
 		}
 	}
@@ -641,29 +645,16 @@ func fenceLangName(lang string) string {
 	return lang
 }
 
-// nextSortOrderForParent returns one past the current max sort_order
-// among live children of parentDBID (or root-level tasks when nil).
-// Used by RunImport to avoid collisions with pre-existing siblings.
-func nextSortOrderForParent(tx dbtx, parentDBID *int64) (int64, error) {
-	var maxSort sql.NullInt64
-	var err error
-	if parentDBID == nil {
-		err = tx.QueryRow(
-			"SELECT MAX(sort_order) FROM tasks WHERE parent_id IS NULL AND deleted_at IS NULL",
-		).Scan(&maxSort)
-	} else {
-		err = tx.QueryRow(
-			"SELECT MAX(sort_order) FROM tasks WHERE parent_id = ? AND deleted_at IS NULL",
-			*parentDBID,
-		).Scan(&maxSort)
+// sortKeysForNewChildren returns n consecutive sort keys that follow every
+// existing child of parentDBID (or every root-level task when nil). Used by
+// RunImport so an imported tree lands after the siblings already there.
+func sortKeysForNewChildren(tx dbtx, parentDBID *int64, n int) ([]string, error) {
+	var last string
+	q := "SELECT COALESCE(MAX(sort_key), '') FROM tasks WHERE " + parentFilterSQL(parentDBID)
+	if err := tx.QueryRow(q, parentFilterArgs(parentDBID)...).Scan(&last); err != nil && err != sql.ErrNoRows {
+		return nil, err
 	}
-	if err != nil && err != sql.ErrNoRows {
-		return 0, err
-	}
-	if !maxSort.Valid {
-		return 0, nil
-	}
-	return maxSort.Int64 + 1, nil
+	return SortKeySequence(last, n)
 }
 
 // buildParsedTree converts the raw YAML tree into parsed tasks, assigning YAML-path
@@ -764,7 +755,9 @@ func validateImportCriteria(path string, raw []string) ([]Criterion, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: criteria[%d]: %s", path, i, err.Error())
 		}
-		out = append(out, Criterion{Label: label, State: CriterionPending, SortOrder: i})
+		// Order comes from the slice: insertCriteria mints a key per row in
+		// the order it is given.
+		out = append(out, Criterion{Label: label, State: CriterionPending})
 	}
 	return out, nil
 }

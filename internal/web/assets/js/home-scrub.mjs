@@ -90,7 +90,7 @@ function frameToGraphPayload(frame) {
       title: t.title ?? "",
       status: t.status ?? "available",
       parentShortId: t.parentShortId ?? "",
-      sortOrder: t.sortOrder ?? 0,
+      sortKey: t.sortKey ?? "",
       claimedBy: claim ? claim.claimedBy : "",
     });
   }

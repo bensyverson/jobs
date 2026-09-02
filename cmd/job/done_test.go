@@ -1005,7 +1005,7 @@ func TestDone_Md_NoteEcho_Long_Truncates(t *testing.T) {
 func TestDone_Next_HierarchicalWalk_StaysInRootTreeOverEarlierSortPath(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
-	// Other root is earlier (lower sort_order) and has its own leaf.
+	// Other root is earlier (lower sort_key) and has its own leaf.
 	otherRoot := job.MustAdd(t, db, "", "Other")
 	_ = job.MustAdd(t, db, otherRoot, "OtherLeaf")
 	// The tree we are working in.
@@ -1081,11 +1081,11 @@ func TestDone_Next_Fallback_WhenLastLeafOfLastRoot_OpenWorkRemainsEarlier(t *tes
 	}
 }
 
-// P5 — Closing the last sibling (by sort_order) of a parent that does
+// P5 — Closing the last sibling (by sort_key) of a parent that does
 // NOT auto-close (because earlier siblings are still open) currently
 // leaves the ack silent on "what next." Fallback should name an earlier
 // sibling in the same parent.
-func TestDone_Next_Fallback_WhenHighestSortOrderSiblingClosesWithEarlierOpen(t *testing.T) {
+func TestDone_Next_Fallback_WhenHighestSortKeySiblingClosesWithEarlierOpen(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
 	root := job.MustAdd(t, db, "", "Root")
@@ -1098,7 +1098,7 @@ func TestDone_Next_Fallback_WhenHighestSortOrderSiblingClosesWithEarlierOpen(t *
 	if err != nil {
 		t.Fatalf("done: %v", err)
 	}
-	// A comes before B in sort_order; global frontier picks A first.
+	// A comes before B in sort_key; global frontier picks A first.
 	want := "Next: " + a + " \"A\""
 	if !strings.Contains(stdout, want) {
 		t.Errorf("Next: should fall back to an earlier unblocked sibling:\n%s", stdout)

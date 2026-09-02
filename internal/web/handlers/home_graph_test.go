@@ -45,10 +45,10 @@ func TestHomeGraph_ClaimedTaskRendersCanvas(t *testing.T) {
 	// Minimal graph: parent ph3 with three children, st2 claimed by alice.
 	body := `{
 		"tasks":[
-			{"shortId":"ph3","title":"Phase 3","status":"available","sortOrder":2},
-			{"shortId":"st1","title":"Step 1","status":"done","parentShortId":"ph3","sortOrder":1},
-			{"shortId":"st2","title":"Step 2","status":"claimed","parentShortId":"ph3","sortOrder":2,"claimedBy":"alice"},
-			{"shortId":"st3","title":"Step 3","status":"available","parentShortId":"ph3","sortOrder":3}
+			{"shortId":"ph3","title":"Phase 3","status":"available","sortKey":"000002"},
+			{"shortId":"st1","title":"Step 1","status":"done","parentShortId":"ph3","sortKey":"000001"},
+			{"shortId":"st2","title":"Step 2","status":"claimed","parentShortId":"ph3","sortKey":"000002","claimedBy":"alice"},
+			{"shortId":"st3","title":"Step 3","status":"available","parentShortId":"ph3","sortKey":"000003"}
 		],
 		"blocks":[]
 	}`
@@ -80,10 +80,10 @@ func TestHomeGraph_ScalableFrameAndIntrinsicSVG(t *testing.T) {
 	deps := newLogDeps(t, setupLogTestDB(t))
 	body := `{
 		"tasks":[
-			{"shortId":"ph3","title":"Phase 3","status":"available","sortOrder":2},
-			{"shortId":"st1","title":"Step 1","status":"done","parentShortId":"ph3","sortOrder":1},
-			{"shortId":"st2","title":"Step 2","status":"claimed","parentShortId":"ph3","sortOrder":2,"claimedBy":"alice"},
-			{"shortId":"st3","title":"Step 3","status":"available","parentShortId":"ph3","sortOrder":3}
+			{"shortId":"ph3","title":"Phase 3","status":"available","sortKey":"000002"},
+			{"shortId":"st1","title":"Step 1","status":"done","parentShortId":"ph3","sortKey":"000001"},
+			{"shortId":"st2","title":"Step 2","status":"claimed","parentShortId":"ph3","sortKey":"000002","claimedBy":"alice"},
+			{"shortId":"st3","title":"Step 3","status":"available","parentShortId":"ph3","sortKey":"000003"}
 		],
 		"blocks":[]
 	}`

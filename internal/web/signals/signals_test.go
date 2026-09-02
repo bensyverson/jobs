@@ -19,7 +19,7 @@ import (
 func seedTask(t *testing.T, db *sql.DB, shortID, title, status string, createdAt time.Time) int64 {
 	t.Helper()
 	res, err := db.Exec(`
-		INSERT INTO tasks (short_id, title, description, status, sort_order, created_at, updated_at)
+		INSERT INTO tasks (short_id, title, description, status, sort_key, created_at, updated_at)
 		VALUES (?, ?, '', ?, 0, ?, ?)
 	`, shortID, title, status, createdAt.Unix(), createdAt.Unix())
 	if err != nil {

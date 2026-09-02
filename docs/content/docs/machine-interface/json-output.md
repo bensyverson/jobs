@@ -98,7 +98,7 @@ job tail --format=json
 ```
 
 ```json
-{"id":3,"task_id":3,"short_id":"bBE83","event_type":"created","actor":"test","detail":{"parent_id":"jTzON","title":"Child B","description":"","sort_order":1},"created_at":1778197309}
+{"id":3,"task_id":3,"short_id":"bBE83","event_type":"created","actor":"test","detail":{"parent_id":"jTzON","title":"Child B","description":"","sort_key":"V00001"},"created_at":1778197309}
 {"id":7,"task_id":3,"short_id":"bBE83","event_type":"done","actor":"test","detail":{"cascade":false,"note":"done","was_status":"available"},"created_at":1778197309}
 ```
 

@@ -363,7 +363,7 @@ type Subway struct {
 //     row.
 //
 // Tree order, not claim order: stops follow their underlying
-// sort_order so the layout stays stable as claims churn.
+// sort_key so the layout stays stable as claims churn.
 type Line struct {
 	AnchorShortID string
 	ParentShortID string
@@ -501,7 +501,7 @@ const (
 // focal in the common adjacent-lookahead case, while still
 // preserving a disjoint window for far lookaheads.
 //
-// Both slices are sorted in tree order (sort_order). A child can
+// Both slices are sorted in tree order (sort_key). A child can
 // appear in only one slice: if a task is both a focal and a
 // lookahead target, it stays a focal.
 type lineSeed struct {
@@ -518,7 +518,7 @@ type lineSeed struct {
 //
 // Output ordering is preorder over the project tree, so visually-
 // adjacent lines sit next to each other in the rendered subway.
-// Within each line, anchors are sorted by sort_order (tree order).
+// Within each line, anchors are sorted by sort_key (tree order).
 func collectLines(w *graphWorld, focals []*graphTask, L int) []*lineSeed {
 	if len(focals) == 0 {
 		return nil
@@ -620,7 +620,7 @@ func collectLines(w *graphWorld, focals []*graphTask, L int) []*lineSeed {
 			focals = append(focals, a)
 		}
 		sort.SliceStable(focals, func(i, j int) bool {
-			return focals[i].sortOrder < focals[j].sortOrder
+			return focals[i].sortKey < focals[j].sortKey
 		})
 		lookaheads := make([]*graphTask, 0, len(d.lookaheads))
 		for _, a := range d.lookaheads {
@@ -630,7 +630,7 @@ func collectLines(w *graphWorld, focals []*graphTask, L int) []*lineSeed {
 			lookaheads = append(lookaheads, a)
 		}
 		sort.SliceStable(lookaheads, func(i, j int) bool {
-			return lookaheads[i].sortOrder < lookaheads[j].sortOrder
+			return lookaheads[i].sortKey < lookaheads[j].sortKey
 		})
 		out = append(out, &lineSeed{
 			parent:           d.parent,
@@ -1150,9 +1150,9 @@ func carveOutCollapseRanges(rowPreorder []*graphTask, focalSet map[int64]bool) [
 		if len(focalChildren) < 2 {
 			continue
 		}
-		// Sort by sortOrder (already stable in p.children order).
+		// Sort by sortKey (already stable in p.children order).
 		sort.SliceStable(focalChildren, func(i, j int) bool {
-			return focalChildren[i].sortOrder < focalChildren[j].sortOrder
+			return focalChildren[i].sortKey < focalChildren[j].sortKey
 		})
 		for i := 0; i+1 < len(focalChildren); i++ {
 			a, b := focalChildren[i], focalChildren[i+1]

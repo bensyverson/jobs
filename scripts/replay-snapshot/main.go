@@ -15,15 +15,16 @@
 // --at=0 (the default) replays every event — equivalent to the
 // current world the live server would render.
 //
-// sort_order is taken from the current tasks table rather than from
+// The sort key is taken from the current tasks table rather than from
 // "created" event payloads. This mirrors the dashboard's JS replay,
 // which rewinds from the current head rather than forward-replaying
-// from event 1. Pre-backfill `job import` runs wrote sort_order=0
-// in every "created" event regardless of the intended order, and the
-// 2026-04-23 backfill SQL script repaired the tasks table directly
-// without recording move events. A pure forward-from-1 replay would
-// therefore see all imported tasks at sort_order=0 and walk them in
-// arbitrary order.
+// from event 1. Events recorded before sort keys existed carry an
+// integer sort_order that no longer means anything, early `job import`
+// runs wrote sort_order=0 in every "created" event regardless of the
+// intended order, and the 2026-04-23 backfill SQL script repaired the
+// tasks table directly without recording move events. A pure
+// forward-from-1 replay would therefore walk those tasks in arbitrary
+// order.
 package main
 
 import (
@@ -59,11 +60,11 @@ func main() {
 	defer db.Close()
 
 	ctx := context.Background()
-	currentSortOrders, err := loadCurrentSortOrders(ctx, db)
+	currentSortKeys, err := loadCurrentSortKeys(ctx, db)
 	if err != nil {
 		log.Fatalf("load current tasks: %v", err)
 	}
-	f, err := buildFrameAt(ctx, db, atEvent, currentSortOrders)
+	f, err := buildFrameAt(ctx, db, atEvent, currentSortKeys)
 	if err != nil {
 		log.Fatalf("replay: %v", err)
 	}
@@ -149,36 +150,36 @@ func main() {
 // Only fields the Subway model reads are tracked; titles are kept
 // for diagnostic output but aren't load-bearing.
 //
-// currentSortOrders is the live tasks-table sort_order map, threaded
-// through so the "created" event handler can stamp the post-backfill
-// value rather than the (often zero) value carried in the event
-// payload — see the package doc comment.
+// currentSortKeys is the live tasks-table sort_key map, threaded
+// through so the "created" event handler can stamp the current key
+// rather than whatever the historical event payload carried — see the
+// package doc comment.
 type frame struct {
-	tasks             map[string]*ftask
-	blocks            map[string]map[string]bool // blocked_short → set of blocker_short
-	currentSortOrders map[string]int
-	eventID           int64
+	tasks           map[string]*ftask
+	blocks          map[string]map[string]bool // blocked_short → set of blocker_short
+	currentSortKeys map[string]string
+	eventID         int64
 }
 
 type ftask struct {
 	shortID       string
 	title         string
 	parentShortID string
-	sortOrder     int
+	sortKey       string
 	status        string
 	claimedBy     string
 }
 
-func loadCurrentSortOrders(ctx context.Context, db *sql.DB) (map[string]int, error) {
-	rows, err := db.QueryContext(ctx, `SELECT short_id, sort_order FROM tasks`)
+func loadCurrentSortKeys(ctx context.Context, db *sql.DB) (map[string]string, error) {
+	rows, err := db.QueryContext(ctx, `SELECT short_id, sort_key FROM tasks`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]int{}
+	out := map[string]string{}
 	for rows.Next() {
 		var short string
-		var so int
+		var so string
 		if err := rows.Scan(&short, &so); err != nil {
 			return nil, err
 		}
@@ -187,11 +188,11 @@ func loadCurrentSortOrders(ctx context.Context, db *sql.DB) (map[string]int, err
 	return out, rows.Err()
 }
 
-func buildFrameAt(ctx context.Context, db *sql.DB, atEvent int64, currentSortOrders map[string]int) (*frame, error) {
+func buildFrameAt(ctx context.Context, db *sql.DB, atEvent int64, currentSortKeys map[string]string) (*frame, error) {
 	f := &frame{
-		tasks:             map[string]*ftask{},
-		blocks:            map[string]map[string]bool{},
-		currentSortOrders: currentSortOrders,
+		tasks:           map[string]*ftask{},
+		blocks:          map[string]map[string]bool{},
+		currentSortKeys: currentSortKeys,
 	}
 
 	var rows *sql.Rows
@@ -227,38 +228,31 @@ func buildFrameAt(ctx context.Context, db *sql.DB, atEvent int64, currentSortOrd
 		if detailStr != "" {
 			_ = json.Unmarshal([]byte(detailStr), &detail)
 		}
-		applyEventReplay(f, taskShort, eventType, actor, detail, f.currentSortOrders)
+		applyEventReplay(f, taskShort, eventType, actor, detail, f.currentSortKeys)
 		f.eventID = id
 	}
 	return f, rows.Err()
 }
 
-func applyEventReplay(f *frame, taskShort, eventType, actor string, detail map[string]any, currentSortOrders map[string]int) {
+func applyEventReplay(f *frame, taskShort, eventType, actor string, detail map[string]any, currentSortKeys map[string]string) {
 	getString := func(key string) string {
 		v, _ := detail[key].(string)
 		return v
 	}
-	getInt := func(key string) int {
-		if v, ok := detail[key].(float64); ok {
-			return int(v)
-		}
-		return 0
-	}
-
 	switch eventType {
 	case "created":
-		// Prefer the live tasks-table sort_order if known: pre-backfill
-		// "created" payloads carried sort_order=0 indiscriminately, so
-		// trusting the event payload would scramble preorder traversal.
-		so, ok := currentSortOrders[taskShort]
+		// Prefer the live tasks-table sort key if known: historical
+		// "created" payloads carry no key at all, so trusting the event
+		// payload would scramble preorder traversal.
+		so, ok := currentSortKeys[taskShort]
 		if !ok {
-			so = getInt("sort_order")
+			so = getString("sort_key")
 		}
 		f.tasks[taskShort] = &ftask{
 			shortID:       taskShort,
 			title:         getString("title"),
 			parentShortID: getString("parent_id"),
-			sortOrder:     so,
+			sortKey:       so,
 			status:        "available",
 		}
 	case "claimed":
@@ -311,15 +305,15 @@ func applyEventReplay(f *frame, taskShort, eventType, actor string, detail map[s
 		}
 	case "moved":
 		if t, ok := f.tasks[taskShort]; ok {
-			if so, ok := detail["new_sort_order"].(float64); ok {
-				t.sortOrder = int(so)
+			if so, ok := detail["sort_key"].(string); ok {
+				t.sortKey = so
 			}
 		}
 	case "reparented":
 		if t, ok := f.tasks[taskShort]; ok {
 			t.parentShortID = getString("new_parent_id")
-			if so, ok := detail["new_sort_order"].(float64); ok {
-				t.sortOrder = int(so)
+			if so, ok := detail["sort_key"].(string); ok {
+				t.sortKey = so
 			}
 		}
 	case "edited":
@@ -345,7 +339,7 @@ func frameToInput(f *frame) signals.SubwayInput {
 			Title:         t.title,
 			Status:        t.status,
 			ParentShortID: t.parentShortID,
-			SortOrder:     t.sortOrder,
+			SortKey:       t.sortKey,
 			ClaimedBy:     t.claimedBy,
 		})
 	}
@@ -453,7 +447,7 @@ func computeGlobalNext(in signals.SubwayInput) string {
 		sort.SliceStable(nodes, func(i, j int) bool {
 			ti := in.Tasks[indexByShort[nodes[i].short]]
 			tj := in.Tasks[indexByShort[nodes[j].short]]
-			return ti.SortOrder < tj.SortOrder
+			return ti.SortKey < tj.SortKey
 		})
 	}
 	sortChildren(roots)

@@ -170,7 +170,7 @@ func queryDecisionTasks(db *sql.DB, parentID *int64) ([]*Task, error) {
 			WHERE l.name = 'decision'
 			  AND t.status NOT IN ('done', 'canceled')
 			  AND t.deleted_at IS NULL
-			ORDER BY t.sort_order, t.id
+			ORDER BY t.sort_key, t.id
 		`)
 	} else {
 		rows, err = db.Query(`
@@ -187,7 +187,7 @@ func queryDecisionTasks(db *sql.DB, parentID *int64) ([]*Task, error) {
 			WHERE l.name = 'decision'
 			  AND t.status NOT IN ('done', 'canceled')
 			  AND t.deleted_at IS NULL
-			ORDER BY t.sort_order, t.id
+			ORDER BY t.sort_key, t.id
 		`, *parentID)
 	}
 	if err != nil {

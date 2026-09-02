@@ -29,7 +29,7 @@ func openLeavesUnder(tx dbtx, taskID int64, limit int) ([]string, error) {
 			    AND c.status NOT IN ('done', 'canceled')
 			    AND c.deleted_at IS NULL
 		  )
-		ORDER BY t.sort_order
+		ORDER BY t.sort_key
 		LIMIT ?
 	`, taskID, limit)
 	if err != nil {
@@ -549,7 +549,7 @@ func queryAvailableDirectChildren(db *sql.DB, parentID *int64, limit int, labelN
 	}
 
 	query := fmt.Sprintf(`
-		SELECT t.id, t.short_id, t.parent_id, t.title, t.description, t.status, t.sort_order,
+		SELECT t.id, t.short_id, t.parent_id, t.title, t.description, t.status, t.sort_key,
 		       t.claimed_by, t.claim_expires_at, t.completion_note, t.created_at, t.updated_at, t.deleted_at, t.kind
 		FROM tasks t
 		WHERE t.status = 'available' AND t.deleted_at IS NULL %s %s
@@ -559,7 +559,7 @@ func queryAvailableDirectChildren(db *sql.DB, parentID *int64, limit int, labelN
 		    JOIN tasks bt ON bt.id = b.blocker_id
 		    WHERE b.blocked_id = t.id AND bt.status != 'done' AND bt.deleted_at IS NULL
 		  )
-		ORDER BY t.sort_order%s
+		ORDER BY t.sort_key%s
 	`, parentFilter, labelFilter, limitClause)
 
 	rows, err := db.Query(query, args...)
@@ -581,7 +581,7 @@ func queryAvailableDirectChildren(db *sql.DB, parentID *int64, limit int, labelN
 // queryAvailableLeafFrontier implements leaf-frontier semantics: descend
 // through the subtree rooted at scope (or all roots) and return tasks that
 // are available, unblocked, and have no open children. Results are ordered
-// by depth-first sort_order traversal so sibling-declaration order is
+// by depth-first sort_key traversal so sibling-declaration order is
 // preserved.
 // An issue root is never a candidate in either query: it stays open by
 // design once its children close, but it is a container, not work.
@@ -611,21 +611,21 @@ func queryAvailableLeafFrontier(db *sql.DB, parentID *int64, limit int, labelNam
 	}
 
 	// The recursive CTE builds a depth-first walk of the subtree. sort_path
-	// concatenates zero-padded sort_order values at each level so that
-	// lexicographic ordering matches preorder traversal. Six digits of padding
-	// accommodates sort_order values up to 999999, well above any realistic
-	// sibling count.
+	// joins each level's sort key with '/', whose byte value is below every
+	// character in the sort-key alphabet, so lexicographic ordering of the
+	// path matches preorder traversal even where one key is a prefix of
+	// another's.
 	query := fmt.Sprintf(`
 		WITH RECURSIVE subtree(id, sort_path) AS (
-			SELECT t.id, printf('%%06d', t.sort_order)
+			SELECT t.id, t.sort_key
 			FROM tasks t
 			WHERE %s AND t.deleted_at IS NULL
 			UNION ALL
-			SELECT t.id, s.sort_path || '/' || printf('%%06d', t.sort_order)
+			SELECT t.id, s.sort_path || '/' || t.sort_key
 			FROM tasks t JOIN subtree s ON t.parent_id = s.id
 			WHERE t.deleted_at IS NULL
 		)
-		SELECT t.id, t.short_id, t.parent_id, t.title, t.description, t.status, t.sort_order,
+		SELECT t.id, t.short_id, t.parent_id, t.title, t.description, t.status, t.sort_key,
 		       t.claimed_by, t.claim_expires_at, t.completion_note, t.created_at, t.updated_at, t.deleted_at, t.kind
 		FROM tasks t JOIN subtree s ON s.id = t.id
 		WHERE t.status = 'available' AND t.deleted_at IS NULL %s

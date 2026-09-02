@@ -9,7 +9,7 @@ type Task struct {
 	Title          string
 	Description    string
 	Status         string
-	SortOrder      int
+	SortKey        string
 	ClaimedBy      *string
 	ClaimExpiresAt *int64
 	CompletionNote *string
@@ -64,7 +64,7 @@ func scanTask(s scanner) (*Task, error) {
 
 	err := s.Scan(
 		&t.ID, &t.ShortID, &parentID, &t.Title, &t.Description,
-		&t.Status, &t.SortOrder, &claimedBy, &claimExpiresAt,
+		&t.Status, &t.SortKey, &claimedBy, &claimExpiresAt,
 		&completionNote, &t.CreatedAt, &t.UpdatedAt, &deletedAt, &t.Kind,
 	)
 	if err != nil {

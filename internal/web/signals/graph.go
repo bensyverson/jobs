@@ -17,15 +17,15 @@ import (
 // ------------------------------------------------------------------
 
 type graphTask struct {
-	id        int64
-	shortID   string
-	title     string
-	status    string
-	actor     string
-	parentID  *int64
-	sortOrder int
-	parent    *graphTask
-	children  []*graphTask
+	id       int64
+	shortID  string
+	title    string
+	status   string
+	actor    string
+	parentID *int64
+	sortKey  string
+	parent   *graphTask
+	children []*graphTask
 	// openBlockers counts upstream blocker tasks that are not yet
 	// done or canceled. When > 0 the task renders as blocked even if
 	// its own status is "available".
@@ -45,7 +45,7 @@ func loadGraphWorld(ctx context.Context, db *sql.DB) (*graphWorld, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, short_id, title, status,
 		       COALESCE(claimed_by, ''),
-		       parent_id, sort_order
+		       parent_id, sort_key
 		FROM tasks
 		WHERE deleted_at IS NULL
 	`)
@@ -58,7 +58,7 @@ func loadGraphWorld(ctx context.Context, db *sql.DB) (*graphWorld, error) {
 	for rows.Next() {
 		t := &graphTask{}
 		if err := rows.Scan(&t.id, &t.shortID, &t.title, &t.status,
-			&t.actor, &t.parentID, &t.sortOrder); err != nil {
+			&t.actor, &t.parentID, &t.sortKey); err != nil {
 			return nil, fmt.Errorf("scan task: %w", err)
 		}
 		w.byID[t.id] = t
@@ -76,9 +76,9 @@ func loadGraphWorld(ctx context.Context, db *sql.DB) (*graphWorld, error) {
 			p.children = append(p.children, t)
 		}
 	}
-	sortBySortOrder(w.roots)
+	sortBySortKey(w.roots)
 	for _, t := range w.byID {
-		sortBySortOrder(t.children)
+		sortBySortKey(t.children)
 	}
 
 	// Blocker edges. A blocker is "open" when its own status is not
@@ -114,10 +114,10 @@ func loadGraphWorld(ctx context.Context, db *sql.DB) (*graphWorld, error) {
 	return w, nil
 }
 
-func sortBySortOrder(ts []*graphTask) {
+func sortBySortKey(ts []*graphTask) {
 	sort.SliceStable(ts, func(i, j int) bool {
-		if ts[i].sortOrder != ts[j].sortOrder {
-			return ts[i].sortOrder < ts[j].sortOrder
+		if ts[i].sortKey != ts[j].sortKey {
+			return ts[i].sortKey < ts[j].sortKey
 		}
 		return ts[i].id < ts[j].id
 	})

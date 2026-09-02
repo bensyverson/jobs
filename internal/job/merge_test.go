@@ -196,7 +196,7 @@ func logicalDump(t *testing.T, db *sql.DB) string {
 	var b strings.Builder
 	queries := []struct{ name, query string }{
 		{"tasks", `SELECT t.short_id, COALESCE(p.short_id,''), t.title, t.description, t.status,
-			t.sort_order, COALESCE(t.claimed_by,''), COALESCE(t.claim_expires_at,0),
+			t.sort_key, COALESCE(t.claimed_by,''), COALESCE(t.claim_expires_at,0),
 			COALESCE(t.completion_note,''), t.created_at, t.updated_at,
 			COALESCE(t.deleted_at,0), t.kind
 			FROM tasks t LEFT JOIN tasks p ON p.id = t.parent_id ORDER BY t.short_id`},
@@ -205,7 +205,7 @@ func logicalDump(t *testing.T, db *sql.DB) string {
 		{"blocks", `SELECT br.short_id, bd.short_id FROM blocks b
 			JOIN tasks br ON br.id = b.blocker_id JOIN tasks bd ON bd.id = b.blocked_id
 			ORDER BY br.short_id, bd.short_id`},
-		{"criteria", `SELECT t.short_id, COALESCE(c.short_id,''), c.label, c.state, c.sort_order,
+		{"criteria", `SELECT t.short_id, COALESCE(c.short_id,''), c.label, c.state, c.sort_key,
 			c.created_at, c.updated_at FROM task_criteria c JOIN tasks t ON t.id = c.task_id
 			ORDER BY t.short_id, c.short_id, c.label`},
 		{"found_in", `SELECT t.short_id, s.short_id FROM found_in f

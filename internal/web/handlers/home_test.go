@@ -26,7 +26,7 @@ func fetchHome(t *testing.T, deps handlers.Deps) string {
 func homeSeedTask(t *testing.T, db *sql.DB, shortID, title, status string, createdAt time.Time) int64 {
 	t.Helper()
 	res, err := db.Exec(`
-		INSERT INTO tasks (short_id, title, description, status, sort_order, created_at, updated_at)
+		INSERT INTO tasks (short_id, title, description, status, sort_key, created_at, updated_at)
 		VALUES (?, ?, '', ?, 0, ?, ?)
 	`, shortID, title, status, createdAt.Unix(), createdAt.Unix())
 	if err != nil {
@@ -712,7 +712,7 @@ func TestHome_Graph_RendersSpineForActiveClaim(t *testing.T) {
 	// Phase 2 (done root) + Phase 3 (root) with three steps.
 	created := now.Add(-1 * time.Hour)
 	_, err := db.Exec(`
-		INSERT INTO tasks (short_id, title, description, status, parent_id, sort_order, created_at, updated_at)
+		INSERT INTO tasks (short_id, title, description, status, parent_id, sort_key, created_at, updated_at)
 		VALUES
 		  ('ph2', 'Phase 2', '', 'done',      NULL, 1, ?, ?),
 		  ('ph3', 'Phase 3', '', 'available', NULL, 2, ?, ?)
@@ -725,7 +725,7 @@ func TestHome_Graph_RendersSpineForActiveClaim(t *testing.T) {
 		t.Fatalf("lookup ph3: %v", err)
 	}
 	_, err = db.Exec(`
-		INSERT INTO tasks (short_id, title, description, status, parent_id, sort_order, created_at, updated_at)
+		INSERT INTO tasks (short_id, title, description, status, parent_id, sort_key, created_at, updated_at)
 		VALUES
 		  ('st1', 'Step 1', '', 'done',      ?, 1, ?, ?),
 		  ('st2', 'Step 2', '', 'available', ?, 2, ?, ?),
@@ -868,7 +868,7 @@ func TestHome_Upcoming_ExcludesParentsWithOpenChildren(t *testing.T) {
 	parentID := homeSeedTask(t, db, "par", "parent with kid", "available", now.Add(-2*time.Hour))
 	// Open child → parent is not a leaf.
 	_, err := db.Exec(`
-		INSERT INTO tasks (short_id, title, description, status, sort_order, parent_id, created_at, updated_at)
+		INSERT INTO tasks (short_id, title, description, status, sort_key, parent_id, created_at, updated_at)
 		VALUES ('kid', 'open kid', '', 'available', 0, ?, ?, ?)
 	`, parentID, now.Add(-1*time.Hour).Unix(), now.Add(-1*time.Hour).Unix())
 	if err != nil {
@@ -917,33 +917,33 @@ func TestHome_Upcoming_PreorderBySortPath(t *testing.T) {
 	deps := newLogDeps(t, db)
 
 	now := time.Now()
-	// Two roots: Root A (sort_order 0) and Root B (sort_order 1).
+	// Two roots: Root A (sort_key 0) and Root B (sort_key 1).
 	// Each has two open children. Preorder visits A → A.c1 → A.c2 →
 	// B → B.c1 → B.c2. Only leaves are claimable, so the Upcoming
 	// order must be A.c1, A.c2, B.c1, B.c2 regardless of created_at.
-	seedParent := func(sid, title string, sortOrder int, createdAgo time.Duration) int64 {
+	seedParent := func(sid, title string, sortKey int, createdAgo time.Duration) int64 {
 		res, err := db.Exec(`
-			INSERT INTO tasks (short_id, title, description, status, sort_order, created_at, updated_at)
+			INSERT INTO tasks (short_id, title, description, status, sort_key, created_at, updated_at)
 			VALUES (?, ?, '', 'available', ?, ?, ?)
-		`, sid, title, sortOrder, now.Add(-createdAgo).Unix(), now.Add(-createdAgo).Unix())
+		`, sid, title, sortKey, now.Add(-createdAgo).Unix(), now.Add(-createdAgo).Unix())
 		if err != nil {
 			t.Fatalf("seed parent: %v", err)
 		}
 		id, _ := res.LastInsertId()
 		return id
 	}
-	seedChild := func(sid, title string, parentID int64, sortOrder int, createdAgo time.Duration) {
+	seedChild := func(sid, title string, parentID int64, sortKey int, createdAgo time.Duration) {
 		_, err := db.Exec(`
-			INSERT INTO tasks (short_id, title, description, status, sort_order, parent_id, created_at, updated_at)
+			INSERT INTO tasks (short_id, title, description, status, sort_key, parent_id, created_at, updated_at)
 			VALUES (?, ?, '', 'available', ?, ?, ?, ?)
-		`, sid, title, sortOrder, parentID, now.Add(-createdAgo).Unix(), now.Add(-createdAgo).Unix())
+		`, sid, title, sortKey, parentID, now.Add(-createdAgo).Unix(), now.Add(-createdAgo).Unix())
 		if err != nil {
 			t.Fatalf("seed child: %v", err)
 		}
 	}
 	// Root A is newer (created 1h ago); Root B is older (created 3h
 	// ago). Pure created_at ordering would flip the expected order —
-	// preorder-by-sort_order keeps A first.
+	// preorder-by-sort_key keeps A first.
 	rootA := seedParent("rA", "root A", 0, 1*time.Hour)
 	rootB := seedParent("rB", "root B", 1, 3*time.Hour)
 	seedChild("aC1", "A child one", rootA, 0, 30*time.Minute)

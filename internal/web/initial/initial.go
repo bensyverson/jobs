@@ -49,7 +49,7 @@ type TaskState struct {
 	Description   string           `json:"description"`
 	Status        string           `json:"status"`
 	ParentShortID *string          `json:"parentShortId"`
-	SortOrder     int64            `json:"sortOrder"`
+	SortKey       string           `json:"sortKey"`
 	Labels        []string         `json:"labels"`
 	Criteria      []CriterionState `json:"criteria"`
 	Kind          string           `json:"kind,omitempty"`
@@ -145,7 +145,7 @@ func loadTasks(ctx context.Context, db *sql.DB) ([]TaskState, error) {
 	// short id resolved in the same query via self-join.
 	rows, err := db.QueryContext(ctx, `
 		SELECT t.short_id, t.title, t.description, t.status,
-		       p.short_id, t.sort_order, t.kind
+		       p.short_id, t.sort_key, t.kind
 		FROM tasks t
 		LEFT JOIN tasks p ON p.id = t.parent_id
 		WHERE t.deleted_at IS NULL
@@ -162,7 +162,7 @@ func loadTasks(ctx context.Context, db *sql.DB) ([]TaskState, error) {
 		var ts TaskState
 		var parent sql.NullString
 		var kind sql.NullString
-		if err := rows.Scan(&ts.ShortID, &ts.Title, &ts.Description, &ts.Status, &parent, &ts.SortOrder, &kind); err != nil {
+		if err := rows.Scan(&ts.ShortID, &ts.Title, &ts.Description, &ts.Status, &parent, &ts.SortKey, &kind); err != nil {
 			return nil, err
 		}
 		if parent.Valid {
@@ -218,13 +218,13 @@ func loadTasks(ctx context.Context, db *sql.DB) ([]TaskState, error) {
 
 	// Criteria: one row per (task, criterion) in sort order so the JS
 	// reducer can render the checklist as the CLI does. Sort by
-	// (task_id, sort_order, id) for deterministic output.
+	// (task_id, sort_key, id) for deterministic output.
 	crows, err := db.QueryContext(ctx, `
 		SELECT t.short_id, c.label, c.state
 		FROM task_criteria c
 		JOIN tasks t ON t.id = c.task_id
 		WHERE t.deleted_at IS NULL
-		ORDER BY t.short_id, c.sort_order, c.id
+		ORDER BY t.short_id, c.sort_key, c.id
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("criteria query: %w", err)

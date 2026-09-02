@@ -81,7 +81,7 @@ test("initialFrame: hydrates tasks, blocks, claims from the JSON island", () => 
         description: "desc",
         status: "available",
         parentShortId: null,
-        sortOrder: 1,
+        sortKey: "000001",
         labels: ["web", "dx"],
       },
     ],
@@ -103,7 +103,7 @@ test("initialFrame: hydrates tasks, blocks, claims from the JSON island", () => 
 
 // --- forward fold per event type ---
 
-test("applyEvent created: inserts task with title/desc/parent/sortOrder", () => {
+test("applyEvent created: inserts task with title/desc/parent/sortKey", () => {
   const before = emptyFrame(0);
   const event = {
     id: 1,
@@ -114,7 +114,7 @@ test("applyEvent created: inserts task with title/desc/parent/sortOrder", () => 
       title: "New task",
       description: "desc",
       parent_id: "",
-      sort_order: 5,
+      sort_key: "000005",
     },
   };
 
@@ -123,7 +123,7 @@ test("applyEvent created: inserts task with title/desc/parent/sortOrder", () => 
   assert.equal(t.title, "New task");
   assert.equal(t.description, "desc");
   assert.equal(t.parentShortId, null);
-  assert.equal(t.sortOrder, 5);
+  assert.equal(t.sortKey, "000005");
   assert.equal(t.status, "available");
   assert.equal(after.eventId, 1);
 });
@@ -131,7 +131,7 @@ test("applyEvent created: inserts task with title/desc/parent/sortOrder", () => 
 test("applyEvent claimed: sets claim with expires_at; status -> claimed", () => {
   const before = initialFrame({
     headEventId: 0,
-    tasks: [{ shortId: "ABC12", title: "T", status: "available", sortOrder: 0 }],
+    tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });
@@ -153,7 +153,7 @@ test("applyEvent claimed: sets claim with expires_at; status -> claimed", () => 
 test("applyEvent released: clears claim; status -> available", () => {
   const before = initialFrame({
     headEventId: 0,
-    tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortOrder: 0 }],
+    tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
     blocks: [],
     claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 1500 }],
   });
@@ -172,7 +172,7 @@ test("applyEvent released: clears claim; status -> available", () => {
 test("applyEvent done: status -> done; clears any claim", () => {
   const before = initialFrame({
     headEventId: 0,
-    tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortOrder: 0 }],
+    tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
     blocks: [],
     claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 1500 }],
   });
@@ -196,7 +196,7 @@ test("applyEvent done: status -> done; clears any claim", () => {
 test("applyEvent canceled: status -> canceled; clears any claim", () => {
   const before = initialFrame({
     headEventId: 0,
-    tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortOrder: 0 }],
+    tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
     blocks: [],
     claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 1500 }],
   });
@@ -220,7 +220,7 @@ test("applyEvent canceled: status -> canceled; clears any claim", () => {
 test("applyEvent reopened: status -> available", () => {
   const before = initialFrame({
     headEventId: 0,
-    tasks: [{ shortId: "ABC12", title: "T", status: "done", sortOrder: 0 }],
+    tasks: [{ shortId: "ABC12", title: "T", status: "done", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });
@@ -239,8 +239,8 @@ test("applyEvent blocked: adds edge to blocks map", () => {
   const before = initialFrame({
     headEventId: 0,
     tasks: [
-      { shortId: "ABC12", title: "T", status: "available", sortOrder: 0 },
-      { shortId: "XYZ99", title: "B", status: "available", sortOrder: 0 },
+      { shortId: "ABC12", title: "T", status: "available", sortKey: "000000" },
+      { shortId: "XYZ99", title: "B", status: "available", sortKey: "000000" },
     ],
     blocks: [],
     claims: [],
@@ -260,8 +260,8 @@ test("applyEvent unblocked: removes edge from blocks map", () => {
   const before = initialFrame({
     headEventId: 0,
     tasks: [
-      { shortId: "ABC12", title: "T", status: "available", sortOrder: 0 },
-      { shortId: "XYZ99", title: "B", status: "available", sortOrder: 0 },
+      { shortId: "ABC12", title: "T", status: "available", sortKey: "000000" },
+      { shortId: "XYZ99", title: "B", status: "available", sortKey: "000000" },
     ],
     blocks: [{ blockedShortId: "ABC12", blockerShortId: "XYZ99" }],
     claims: [],
@@ -285,7 +285,7 @@ test("applyEvent labeled: adds names; existing labels untouched", () => {
         shortId: "ABC12",
         title: "T",
         status: "available",
-        sortOrder: 0,
+        sortKey: "000000",
         labels: ["existing"],
       },
     ],
@@ -315,7 +315,7 @@ test("applyEvent edited: updates title and/or description", () => {
         title: "old title",
         description: "old desc",
         status: "available",
-        sortOrder: 0,
+        sortKey: "000000",
       },
     ],
     blocks: [],
@@ -339,11 +339,11 @@ test("applyEvent edited: updates title and/or description", () => {
   assert.equal(t.description, "new desc");
 });
 
-test("applyEvent moved: updates sortOrder", () => {
+test("applyEvent moved: updates sortKey", () => {
   const before = initialFrame({
     headEventId: 0,
     tasks: [
-      { shortId: "ABC12", title: "T", status: "available", sortOrder: 5 },
+      { shortId: "ABC12", title: "T", status: "available", sortKey: "000005" },
     ],
     blocks: [],
     claims: [],
@@ -356,12 +356,12 @@ test("applyEvent moved: updates sortOrder", () => {
     detail: {
       direction: "after",
       relative_to: "XYZ99",
-      old_sort_order: 5,
-      new_sort_order: 10,
+      old_sort_key: "000005",
+      sort_key: "000010",
     },
   });
 
-  assert.equal(after.tasks.get("ABC12").sortOrder, 10);
+  assert.equal(after.tasks.get("ABC12").sortKey, "000010");
 });
 
 test("applyEvent noted: replaces description with description_after", () => {
@@ -373,7 +373,7 @@ test("applyEvent noted: replaces description with description_after", () => {
         title: "T",
         description: "before",
         status: "available",
-        sortOrder: 0,
+        sortKey: "000000",
       },
     ],
     blocks: [],
@@ -402,7 +402,7 @@ test("applyEvent noted: appends a note to task.notes", () => {
         title: "T",
         description: "",
         status: "available",
-        sortOrder: 0,
+        sortKey: "000000",
       },
     ],
     blocks: [],
@@ -431,7 +431,7 @@ test("applyEvent noted: appends in chronological order across multiple events", 
         title: "T",
         description: "",
         status: "available",
-        sortOrder: 0,
+        sortKey: "000000",
       },
     ],
     blocks: [],
@@ -471,7 +471,7 @@ test("applyEvent noted: missing detail.text is skipped (no empty notes)", () => 
         title: "T",
         description: "",
         status: "available",
-        sortOrder: 0,
+        sortKey: "000000",
       },
     ],
     blocks: [],
@@ -497,7 +497,7 @@ test("initialFrame: hydrates per-task notes from the JSON island", () => {
         title: "T",
         description: "first\n\n[then] second",
         status: "available",
-        sortOrder: 0,
+        sortKey: "000000",
         notes: [
           { actor: "alice", ts: 1700000000, text: "first" },
           { actor: "bob", ts: 1700000060, text: "second" },
@@ -517,7 +517,7 @@ test("initialFrame: missing notes defaults to []", () => {
   const f = initialFrame({
     headEventId: 5,
     tasks: [
-      { shortId: "ABC12", title: "T", description: "", status: "available", sortOrder: 0 },
+      { shortId: "ABC12", title: "T", description: "", status: "available", sortKey: "000000" },
     ],
     blocks: [],
     claims: [],
@@ -536,7 +536,7 @@ test("applyEvent noted: does not mutate the prior frame's notes array", () => {
         title: "T",
         description: "",
         status: "available",
-        sortOrder: 0,
+        sortKey: "000000",
         notes: [{ actor: "alice", ts: 1700000000, text: "first" }],
       },
     ],
@@ -565,7 +565,7 @@ test("initialFrame: hydrates per-task criteria from the JSON island", () => {
         shortId: "ABC12",
         title: "T",
         status: "available",
-        sortOrder: 0,
+        sortKey: "000000",
         criteria: [
           { label: "alpha", state: "pending" },
           { label: "beta", state: "passed" },
@@ -585,7 +585,7 @@ test("initialFrame: missing criteria defaults to []", () => {
   const f = initialFrame({
     headEventId: 0,
     tasks: [
-      { shortId: "ABC12", title: "T", status: "available", sortOrder: 0 },
+      { shortId: "ABC12", title: "T", status: "available", sortKey: "000000" },
     ],
     blocks: [],
     claims: [],
@@ -601,7 +601,7 @@ test("applyEvent criteria_added: appends each entry in input order", () => {
         shortId: "ABC12",
         title: "T",
         status: "available",
-        sortOrder: 0,
+        sortKey: "000000",
         criteria: [{ label: "existing", state: "pending" }],
       },
     ],
@@ -638,7 +638,7 @@ test("applyEvent criterion_state: mutates the matching row by label", () => {
         shortId: "ABC12",
         title: "T",
         status: "available",
-        sortOrder: 0,
+        sortKey: "000000",
         criteria: [
           { label: "alpha", state: "pending" },
           { label: "beta", state: "pending" },
@@ -667,7 +667,7 @@ test("applyEvent criterion_state: mutates the matching row by label", () => {
 test("applyEvent criteria_added: stamps short_id when provided", () => {
   const before = initialFrame({
     headEventId: 0,
-    tasks: [{ shortId: "ABC12", title: "T", status: "available", sortOrder: 0 }],
+    tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });
@@ -697,7 +697,7 @@ test("applyEvent criterion_state: matches by short_id when present", () => {
         shortId: "ABC12",
         title: "T",
         status: "available",
-        sortOrder: 0,
+        sortKey: "000000",
         criteria: [
           { short_id: "x7e", label: "alpha", state: "pending" },
           { short_id: "InT", label: "beta", state: "pending" },
@@ -735,7 +735,7 @@ test("applyEvent criterion_state: legacy label-keyed event still folds", () => {
         shortId: "ABC12",
         title: "T",
         status: "available",
-        sortOrder: 0,
+        sortKey: "000000",
         criteria: [{ label: "alpha", state: "pending" }],
       },
     ],
@@ -760,7 +760,7 @@ test("applyEvent criterion_state: unknown label is a no-op", () => {
         shortId: "ABC12",
         title: "T",
         status: "available",
-        sortOrder: 0,
+        sortKey: "000000",
         criteria: [{ label: "alpha", state: "pending" }],
       },
     ],
@@ -782,7 +782,7 @@ test("applyEvent criterion_state: unknown label is a no-op", () => {
 test("applyEvent claim_expired: clears claim; status -> available", () => {
   const before = initialFrame({
     headEventId: 0,
-    tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortOrder: 0 }],
+    tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
     blocks: [],
     claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 500 }],
   });
@@ -817,7 +817,7 @@ const roundTripCases = [
         title: "T",
         description: "d",
         parent_id: "",
-        sort_order: 1,
+        sort_key: "000001",
       },
     },
   },
@@ -825,7 +825,7 @@ const roundTripCases = [
     name: "claimed (fresh)",
     seed: () => initialFrame({
       headEventId: 0,
-      tasks: [{ shortId: "ABC12", title: "T", status: "available", sortOrder: 0 }],
+      tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000" }],
       blocks: [],
       claims: [],
     }),
@@ -841,7 +841,7 @@ const roundTripCases = [
     name: "claimed (--force override)",
     seed: () => initialFrame({
       headEventId: 0,
-      tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortOrder: 0 }],
+      tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
       blocks: [],
       claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 800 }],
     }),
@@ -862,7 +862,7 @@ const roundTripCases = [
     name: "released (post-breadcrumb)",
     seed: () => initialFrame({
       headEventId: 0,
-      tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortOrder: 0 }],
+      tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
       blocks: [],
       claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 1500 }],
     }),
@@ -878,7 +878,7 @@ const roundTripCases = [
     name: "done (was claimed)",
     seed: () => initialFrame({
       headEventId: 0,
-      tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortOrder: 0 }],
+      tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
       blocks: [],
       claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 1500 }],
     }),
@@ -899,7 +899,7 @@ const roundTripCases = [
     name: "done (was available)",
     seed: () => initialFrame({
       headEventId: 0,
-      tasks: [{ shortId: "ABC12", title: "T", status: "available", sortOrder: 0 }],
+      tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000" }],
       blocks: [],
       claims: [],
     }),
@@ -915,7 +915,7 @@ const roundTripCases = [
     name: "canceled (was claimed)",
     seed: () => initialFrame({
       headEventId: 0,
-      tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortOrder: 0 }],
+      tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
       blocks: [],
       claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 1500 }],
     }),
@@ -937,7 +937,7 @@ const roundTripCases = [
     name: "claim_expired",
     seed: () => initialFrame({
       headEventId: 0,
-      tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortOrder: 0 }],
+      tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
       blocks: [],
       claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 500 }],
     }),
@@ -953,7 +953,7 @@ const roundTripCases = [
     name: "reopened (from done)",
     seed: () => initialFrame({
       headEventId: 0,
-      tasks: [{ shortId: "ABC12", title: "T", status: "done", sortOrder: 0 }],
+      tasks: [{ shortId: "ABC12", title: "T", status: "done", sortKey: "000000" }],
       blocks: [],
       claims: [],
     }),
@@ -970,8 +970,8 @@ const roundTripCases = [
     seed: () => initialFrame({
       headEventId: 0,
       tasks: [
-        { shortId: "ABC12", title: "T", status: "available", sortOrder: 0 },
-        { shortId: "XYZ99", title: "B", status: "available", sortOrder: 0 },
+        { shortId: "ABC12", title: "T", status: "available", sortKey: "000000" },
+        { shortId: "XYZ99", title: "B", status: "available", sortKey: "000000" },
       ],
       blocks: [],
       claims: [],
@@ -989,8 +989,8 @@ const roundTripCases = [
     seed: () => initialFrame({
       headEventId: 0,
       tasks: [
-        { shortId: "ABC12", title: "T", status: "available", sortOrder: 0 },
-        { shortId: "XYZ99", title: "B", status: "available", sortOrder: 0 },
+        { shortId: "ABC12", title: "T", status: "available", sortKey: "000000" },
+        { shortId: "XYZ99", title: "B", status: "available", sortKey: "000000" },
       ],
       blocks: [{ blockedShortId: "ABC12", blockerShortId: "XYZ99" }],
       claims: [],
@@ -1016,7 +1016,7 @@ const roundTripCases = [
           shortId: "ABC12",
           title: "T",
           status: "available",
-          sortOrder: 0,
+          sortKey: "000000",
           labels: ["existing"],
         },
       ],
@@ -1041,7 +1041,7 @@ const roundTripCases = [
           title: "old title",
           description: "old desc",
           status: "available",
-          sortOrder: 0,
+          sortKey: "000000",
         },
       ],
       blocks: [],
@@ -1065,7 +1065,7 @@ const roundTripCases = [
     seed: () => initialFrame({
       headEventId: 0,
       tasks: [
-        { shortId: "ABC12", title: "T", status: "available", sortOrder: 5 },
+        { shortId: "ABC12", title: "T", status: "available", sortKey: "000005" },
       ],
       blocks: [],
       claims: [],
@@ -1078,8 +1078,8 @@ const roundTripCases = [
       detail: {
         direction: "after",
         relative_to: "XYZ99",
-        old_sort_order: 5,
-        new_sort_order: 10,
+        old_sort_key: "000005",
+        sort_key: "000010",
       },
     },
   },
@@ -1092,7 +1092,7 @@ const roundTripCases = [
           shortId: "ABC12",
           title: "T",
           status: "available",
-          sortOrder: 0,
+          sortKey: "000000",
           criteria: [{ label: "existing", state: "pending" }],
         },
       ],
@@ -1121,7 +1121,7 @@ const roundTripCases = [
           shortId: "ABC12",
           title: "T",
           status: "available",
-          sortOrder: 0,
+          sortKey: "000000",
           criteria: [
             { label: "alpha", state: "pending" },
             { label: "beta", state: "pending" },
@@ -1143,7 +1143,7 @@ const roundTripCases = [
     name: "kind_changed",
     seed: () => initialFrame({
       headEventId: 0,
-      tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortOrder: 0, kind: "task" }],
+      tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortKey: "000000", kind: "task" }],
       blocks: [],
       claims: [],
     }),
@@ -1159,7 +1159,7 @@ const roundTripCases = [
     name: "found_in_set (first edge)",
     seed: () => initialFrame({
       headEventId: 0,
-      tasks: [{ shortId: "ABC12", title: "T", status: "available", sortOrder: 0 }],
+      tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000" }],
       blocks: [],
       claims: [],
     }),
@@ -1175,7 +1175,7 @@ const roundTripCases = [
     name: "found_in_set (replacing an edge)",
     seed: () => initialFrame({
       headEventId: 0,
-      tasks: [{ shortId: "ABC12", title: "T", status: "available", sortOrder: 0, foundIn: "OLD11" }],
+      tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000", foundIn: "OLD11" }],
       blocks: [],
       claims: [],
     }),
@@ -1191,7 +1191,7 @@ const roundTripCases = [
     name: "found_in_cleared",
     seed: () => initialFrame({
       headEventId: 0,
-      tasks: [{ shortId: "ABC12", title: "T", status: "available", sortOrder: 0, foundIn: "SRC99" }],
+      tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000", foundIn: "SRC99" }],
       blocks: [],
       claims: [],
     }),
@@ -1224,7 +1224,7 @@ for (const tc of roundTripCases) {
 test("reverseEvent done without was_status: returns null (caller falls back)", () => {
   const seed = initialFrame({
     headEventId: 0,
-    tasks: [{ shortId: "ABC12", title: "T", status: "done", sortOrder: 0 }],
+    tasks: [{ shortId: "ABC12", title: "T", status: "done", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });
@@ -1241,7 +1241,7 @@ test("reverseEvent done without was_status: returns null (caller falls back)", (
 test("reverseEvent released without was_claimed_by: returns null", () => {
   const seed = initialFrame({
     headEventId: 0,
-    tasks: [{ shortId: "ABC12", title: "T", status: "available", sortOrder: 0 }],
+    tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });
@@ -1344,7 +1344,7 @@ test("ReplayBuffer: frameAt(head) returns the head frame without fetching", asyn
       task_id: "ABC12",
       actor: "alice",
       event_type: "created",
-      detail: { title: "T", description: "", parent_id: "", sort_order: 0 },
+      detail: { title: "T", description: "", parent_id: "", sort_key: "000000" },
     },
   ]);
   const fetcher = fakeFetcher(events);
@@ -1364,7 +1364,7 @@ test("ReplayBuffer: frameAt(earlier id) replays back from head", async () => {
       task_id: "ABC12",
       actor: "alice",
       event_type: "created",
-      detail: { title: "T", description: "", parent_id: "", sort_order: 0 },
+      detail: { title: "T", description: "", parent_id: "", sort_key: "000000" },
     },
     {
       task_id: "ABC12",
@@ -1398,7 +1398,7 @@ test("ReplayBuffer: frameAt is memoized — repeated calls reuse the cache", asy
       task_id: "ABC12",
       actor: "alice",
       event_type: "created",
-      detail: { title: "T", description: "", parent_id: "", sort_order: 0 },
+      detail: { title: "T", description: "", parent_id: "", sort_key: "000000" },
     },
     {
       task_id: "ABC12",
@@ -1425,19 +1425,19 @@ test("ReplayBuffer: range returns events in [fromId, toId] inclusive", async () 
       task_id: "A",
       actor: "alice",
       event_type: "created",
-      detail: { title: "A", description: "", parent_id: "", sort_order: 0 },
+      detail: { title: "A", description: "", parent_id: "", sort_key: "000000" },
     },
     {
       task_id: "B",
       actor: "alice",
       event_type: "created",
-      detail: { title: "B", description: "", parent_id: "", sort_order: 0 },
+      detail: { title: "B", description: "", parent_id: "", sort_key: "000000" },
     },
     {
       task_id: "C",
       actor: "alice",
       event_type: "created",
-      detail: { title: "C", description: "", parent_id: "", sort_order: 0 },
+      detail: { title: "C", description: "", parent_id: "", sort_key: "000000" },
     },
   ]);
   const fetcher = fakeFetcher(events);
@@ -1467,7 +1467,7 @@ test("ReplayBuffer: frameAt(0) returns the pinned genesis frame", async () => {
       task_id: "ABC12",
       actor: "alice",
       event_type: "created",
-      detail: { title: "T", description: "", parent_id: "", sort_order: 0 },
+      detail: { title: "T", description: "", parent_id: "", sort_key: "000000" },
     },
   ]);
   const fetcher = fakeFetcher(events);
@@ -1492,7 +1492,7 @@ test("ReplayBuffer: frameAt past head clamps to head (no events to replay forwar
       task_id: "ABC12",
       actor: "alice",
       event_type: "created",
-      detail: { title: "T", description: "", parent_id: "", sort_order: 0 },
+      detail: { title: "T", description: "", parent_id: "", sort_key: "000000" },
     },
   ]);
   const fetcher = fakeFetcher(events);
@@ -1513,7 +1513,7 @@ test("ReplayBuffer: range(from, to) with from > to returns []", async () => {
       task_id: "A",
       actor: "alice",
       event_type: "created",
-      detail: { title: "A", description: "", parent_id: "", sort_order: 0 },
+      detail: { title: "A", description: "", parent_id: "", sort_key: "000000" },
     },
   ]);
   const buf = new ReplayBuffer({
@@ -1530,7 +1530,7 @@ test("ReplayBuffer: range past head returns []", async () => {
       task_id: "A",
       actor: "alice",
       event_type: "created",
-      detail: { title: "A", description: "", parent_id: "", sort_order: 0 },
+      detail: { title: "A", description: "", parent_id: "", sort_key: "000000" },
     },
   ]);
   const buf = new ReplayBuffer({
@@ -1554,7 +1554,7 @@ test("ReplayBuffer: backward replay through `noted` falls back to forward replay
       actor: "alice",
       created_at: 1700000000,
       event_type: "created",
-      detail: { title: "T", description: "", parent_id: "", sort_order: 0 },
+      detail: { title: "T", description: "", parent_id: "", sort_key: "000000" },
     },
     {
       task_id: "ABC12",
@@ -1600,9 +1600,9 @@ test("initialFrame: hydrates kind on a root and leaves children without one", ()
   const f = initialFrame({
     headEventId: 5,
     tasks: [
-      { shortId: "ROOT1", title: "Issue root", status: "available", sortOrder: 0, kind: "issue" },
-      { shortId: "ROOT2", title: "Task root", status: "available", sortOrder: 0, kind: "task" },
-      { shortId: "KID12", title: "Child", status: "available", sortOrder: 0, parentShortId: "ROOT1" },
+      { shortId: "ROOT1", title: "Issue root", status: "available", sortKey: "000000", kind: "issue" },
+      { shortId: "ROOT2", title: "Task root", status: "available", sortKey: "000000", kind: "task" },
+      { shortId: "KID12", title: "Child", status: "available", sortKey: "000000", parentShortId: "ROOT1" },
     ],
     blocks: [],
     claims: [],
@@ -1616,8 +1616,8 @@ test("initialFrame: hydrates foundIn from the JSON island", () => {
   const f = initialFrame({
     headEventId: 5,
     tasks: [
-      { shortId: "ABC12", title: "Defect", status: "available", sortOrder: 0, foundIn: "SRC99" },
-      { shortId: "SRC99", title: "Source", status: "available", sortOrder: 0 },
+      { shortId: "ABC12", title: "Defect", status: "available", sortKey: "000000", foundIn: "SRC99" },
+      { shortId: "SRC99", title: "Source", status: "available", sortKey: "000000" },
     ],
     blocks: [],
     claims: [],
@@ -1629,7 +1629,7 @@ test("initialFrame: hydrates foundIn from the JSON island", () => {
 test("applyEvent kind_changed: sets the root's kind to detail.to", () => {
   const before = initialFrame({
     headEventId: 0,
-    tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortOrder: 0, kind: "task" }],
+    tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortKey: "000000", kind: "task" }],
     blocks: [],
     claims: [],
   });
@@ -1646,7 +1646,7 @@ test("applyEvent kind_changed: sets the root's kind to detail.to", () => {
 test("applyEvent kind_changed: does not mutate the prior frame", () => {
   const before = initialFrame({
     headEventId: 0,
-    tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortOrder: 0, kind: "task" }],
+    tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortKey: "000000", kind: "task" }],
     blocks: [],
     claims: [],
   });
@@ -1664,7 +1664,7 @@ test("applyEvent kind_changed: does not mutate the prior frame", () => {
 test("reverseEvent kind_changed: restores detail.from", () => {
   const frame = initialFrame({
     headEventId: 40,
-    tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortOrder: 0, kind: "issue" }],
+    tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortKey: "000000", kind: "issue" }],
     blocks: [],
     claims: [],
   });
@@ -1685,7 +1685,7 @@ test("reverseEvent kind_changed without detail.from: returns null", () => {
   // handler: the same event *with* `from` must reverse cleanly.
   const frame = initialFrame({
     headEventId: 40,
-    tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortOrder: 0, kind: "issue" }],
+    tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortKey: "000000", kind: "issue" }],
     blocks: [],
     claims: [],
   });
@@ -1707,7 +1707,7 @@ test("reverseEvent kind_changed without detail.from: returns null", () => {
 test("applyEvent found_in_set: sets task.foundIn to the source id", () => {
   const before = initialFrame({
     headEventId: 0,
-    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortOrder: 0 }],
+    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });
@@ -1725,7 +1725,7 @@ test("applyEvent found_in_set: sets task.foundIn to the source id", () => {
 test("applyEvent found_in_set: replacing an edge keeps the new source", () => {
   const before = initialFrame({
     headEventId: 0,
-    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortOrder: 0, foundIn: "OLD11" }],
+    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortKey: "000000", foundIn: "OLD11" }],
     blocks: [],
     claims: [],
   });
@@ -1742,7 +1742,7 @@ test("applyEvent found_in_set: replacing an edge keeps the new source", () => {
 test("reverseEvent found_in_set: clears an edge that had no predecessor", () => {
   const frame = initialFrame({
     headEventId: 41,
-    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortOrder: 0, foundIn: "SRC99" }],
+    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortKey: "000000", foundIn: "SRC99" }],
     blocks: [],
     claims: [],
   });
@@ -1761,7 +1761,7 @@ test("reverseEvent found_in_set: clears an edge that had no predecessor", () => 
 test("reverseEvent found_in_set: restores the displaced source", () => {
   const frame = initialFrame({
     headEventId: 42,
-    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortOrder: 0, foundIn: "SRC99" }],
+    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortKey: "000000", foundIn: "SRC99" }],
     blocks: [],
     claims: [],
   });
@@ -1779,7 +1779,7 @@ test("reverseEvent found_in_set: restores the displaced source", () => {
 test("applyEvent found_in_cleared: clears task.foundIn", () => {
   const before = initialFrame({
     headEventId: 0,
-    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortOrder: 0, foundIn: "SRC99" }],
+    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortKey: "000000", foundIn: "SRC99" }],
     blocks: [],
     claims: [],
   });
@@ -1797,7 +1797,7 @@ test("applyEvent found_in_cleared: clears task.foundIn", () => {
 test("reverseEvent found_in_cleared: restores the source it cleared", () => {
   const frame = initialFrame({
     headEventId: 43,
-    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortOrder: 0 }],
+    tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });

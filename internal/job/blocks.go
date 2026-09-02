@@ -244,7 +244,7 @@ func GetBlockers(db *sql.DB, shortID string) ([]*Task, error) {
 	}
 
 	rows, err := db.Query(`
-		SELECT t.id, t.short_id, t.parent_id, t.title, t.description, t.status, t.sort_order,
+		SELECT t.id, t.short_id, t.parent_id, t.title, t.description, t.status, t.sort_key,
 		       t.claimed_by, t.claim_expires_at, t.completion_note, t.created_at, t.updated_at, t.deleted_at, t.kind
 		FROM blocks b
 		JOIN tasks t ON t.id = b.blocker_id
@@ -279,7 +279,7 @@ func GetBlocked(db *sql.DB, shortID string) ([]*Task, error) {
 	}
 
 	rows, err := db.Query(`
-		SELECT t.id, t.short_id, t.parent_id, t.title, t.description, t.status, t.sort_order,
+		SELECT t.id, t.short_id, t.parent_id, t.title, t.description, t.status, t.sort_key,
 		       t.claimed_by, t.claim_expires_at, t.completion_note, t.created_at, t.updated_at, t.deleted_at, t.kind
 		FROM blocks b
 		JOIN tasks t ON t.id = b.blocked_id

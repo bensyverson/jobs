@@ -6,7 +6,7 @@
   on every tick. The frame cache is doubly linked: applyEvent applies
   one event's delta forward; reverseEvent uses the prior-state
   breadcrumbs (was_status, was_claimed_by, was_expires_at, plus the
-  per-event old_title, old_desc, old_sort_order, from_status, and
+  per-event old_title, old_desc, old_sort_key, from_status, and
   existing-labels payload fields the server already carries) to undo
   a delta.
 
@@ -67,7 +67,7 @@ function defaultTask(shortId) {
     description: "",
     status: "available",
     parentShortId: null,
-    sortOrder: 0,
+    sortKey: "",
     labels: new Set(),
     notes: [],
     criteria: [],
@@ -148,7 +148,7 @@ const FORWARD = {
       title: detail.title ?? "",
       description: detail.description ?? "",
       parentShortId: detail.parent_id ? detail.parent_id : null,
-      sortOrder: detail.sort_order ?? 0,
+      sortKey: detail.sort_key ?? "",
       status: "available",
       labels: new Set(),
     });
@@ -230,7 +230,7 @@ const FORWARD = {
     const detail = event.detail ?? {};
     const t = frame.tasks.get(event.task_id);
     if (!t) return;
-    if (detail.new_sort_order !== undefined) t.sortOrder = detail.new_sort_order;
+    if (detail.sort_key !== undefined) t.sortKey = detail.sort_key;
   },
 
   noted(frame, event) {
@@ -450,8 +450,8 @@ const REVERSE = {
     const detail = event.detail ?? {};
     const t = frame.tasks.get(event.task_id);
     if (!t) return true;
-    if (detail.old_sort_order === undefined) return false;
-    t.sortOrder = detail.old_sort_order;
+    if (detail.old_sort_key === undefined) return false;
+    t.sortKey = detail.old_sort_key;
     return true;
   },
 
