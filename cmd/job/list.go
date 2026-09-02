@@ -74,16 +74,18 @@ Issue-tree roots are omitted from the default forest and summarized in one trail
 				effectiveStatus = normalized
 			}
 
+			// Resolve softly (list is read-only, never requires --as) so
+			// the read-time claim-expiry sweep below records the caller's
+			// identity on any claim_expired event it emits, the same as
+			// every other read verb.
+			actor, _ := job.ResolveIdentity(db, asFlag)
+
 			var claimedByFilter string
 			if mine {
-				name, err := job.ResolveIdentity(db, asFlag)
-				if err != nil {
-					return err
-				}
-				if name == "" {
+				if actor == "" {
 					return fmt.Errorf("no identity to scope to. Use --as <name> or set a default identity.")
 				}
-				claimedByFilter = name
+				claimedByFilter = actor
 			} else if claimedBy != "" {
 				claimedByFilter = claimedBy
 			}
@@ -132,6 +134,7 @@ Issue-tree roots are omitted from the default forest and summarized in one trail
 
 			filter := job.ListFilter{
 				ParentID:            parentShortID,
+				Actor:               actor,
 				ShowAll:             showAll,
 				Label:               labelFilter,
 				ClaimedByActor:      claimedByFilter,

@@ -89,7 +89,12 @@ func newStatusCmd() *cobra.Command {
 
 				job.RenderSummary(out, rollup)
 
-				nodes, err := job.RunListFiltered(db, job.ListFilter{ParentID: target.ShortID})
+				// Resolve softly (status is read-only, never requires --as)
+				// so the read-time claim-expiry sweep this list triggers
+				// records the caller's identity, not "" — the same reason
+				// the forest branch below resolves `actor` for BuildRollup.
+				actor, _ := job.ResolveIdentity(db, asFlag)
+				nodes, err := job.RunListFiltered(db, job.ListFilter{ParentID: target.ShortID, Actor: actor})
 				if err != nil {
 					return err
 				}
