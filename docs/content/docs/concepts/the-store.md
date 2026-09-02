@@ -134,7 +134,7 @@ Criterion ids are three characters, and they are unique **per task** rather than
 
 A `.jobs.db` from before the log existed has no log to rebuild from: its event rows carry payloads that were never replayable, and the state they produced lives only in the cache. Converting one happens automatically, on the first command that opens it, the same way a schema migration does — there is no verb, and it prints one line saying what it did.
 
-Every old event row becomes a log line marked `legacy`. Those are recorded and rendered exactly as before by `job log`, `job show`, `job tail` and the dashboard's scrubber, and they touch no state table. One `snapshot` line carries the state itself: every task, block, label, criterion, provenance row and user. The cache is then rebuilt from the result and compared table by table against the original.
+Every old event row becomes a log line marked `legacy`. Those are recorded and rendered exactly as before by `job log`, `job show`, `job tail` and the dashboard's scrubber, and they touch no state table. One `snapshot` line carries the state itself: every task, block, label, criterion, provenance row and user. The cache is then rebuilt from the result and compared table by table against the original. The same conversion runs again, on the new rows only, when [`job merge`](../../reference/setup/#merge) later writes another copy's tail into an already-adopted cache: those rows become `legacy` lines and a second snapshot pins the merged state.
 
 **Any difference aborts.** No line is appended, no file is renamed, and the diff is written to `.jobs.db.adopt-failed`. The legacy database keeps working exactly as it did — a failed conversion is never an outage.
 

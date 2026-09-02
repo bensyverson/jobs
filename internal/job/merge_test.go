@@ -309,15 +309,19 @@ func TestMerge_TaskOnlyInOtherArrivesWhole(t *testing.T) {
 }
 
 // A task the local side alone created must survive the merge untouched and
-// be named in the report.
+// be named in the report. The other side has to have written something too:
+// an other copy holding nothing new is an already-merged pair, whose report
+// says only that.
 func TestMerge_TaskOnlyInLocalSurvives(t *testing.T) {
 	clock := newMergeClock(t)
-	local, _, _, otherPath := divergedPair(t, func(db *sql.DB) {
+	local, other, _, otherPath := divergedPair(t, func(db *sql.DB) {
 		MustAdd(t, db, "", "Shared root")
 	})
 
 	clock.advance(time.Minute)
 	mine := MustAdd(t, local, "", "Only over here")
+	clock.advance(time.Minute)
+	MustAdd(t, other, "", "Only over there")
 
 	report, err := RunMerge(local, otherPath, false)
 	if err != nil {
@@ -665,8 +669,11 @@ func TestMerge_SecondMergeIsANoOp(t *testing.T) {
 	if got := logicalDump(t, local); got != afterFirst {
 		t.Errorf("second merge altered the database.\n--- after first ---\n%s\n--- after second ---\n%s", afterFirst, got)
 	}
-	if md := second.Markdown(); !strings.Contains(md, "Nothing changed") {
-		t.Errorf("second report should say nothing changed:\n%s", md)
+	if !second.AlreadyMerged {
+		t.Error("the second merge should report the pair as already merged")
+	}
+	if md := second.Markdown(); !strings.Contains(md, "Already merged") {
+		t.Errorf("second report should say the pair is already merged:\n%s", md)
 	}
 }
 

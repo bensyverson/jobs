@@ -286,6 +286,14 @@ func planEvents(local, other *mergeSnapshot, plan *mergePlan, report *MergeRepor
 		have[e.key()]++
 	}
 	for _, e := range other.events {
+		// A snapshot is one replica's compaction of state it already holds
+		// and a replica event names one checkout. Neither is shared history,
+		// and transcribed here adoption would carry them into this replica's
+		// log as history that never happened on this side.
+		switch EventType(e.eventType) {
+		case EventSnapshot, EventReplica:
+			continue
+		}
 		k := e.key()
 		if have[k] > 0 {
 			have[k]--

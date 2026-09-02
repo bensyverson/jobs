@@ -258,35 +258,42 @@ const (
 // classifyMergeRelation decides how the two event logs relate, and returns the
 // length of the positional prefix when there is one.
 //
+// Containment is checked before the prefix. Once a merge has been adopted,
+// this side's events are ordered by log position and the other copy's by its
+// own, and the two orders can agree for a long run before they part — a run
+// that is not a shared prefix to fold a tail against, because there is no
+// tail: everything the other side holds is already here. Reading it as a
+// prefix would report every task as touched on both sides.
+//
 // The set comparison ignores `snapshot` and `replica` events. Neither is shared
 // history: a snapshot is one replica's compaction of state it already holds,
 // and a replica event names a checkout's cache path and label. Both are minted
 // per replica, so the two sides never hold the same ones — counting them would
 // make an already-merged pair look diverged forever.
 func classifyMergeRelation(local, other []mergeEventRow) (mergeRelation, int) {
-	n := 0
-	for n < len(local) && n < len(other) && local[n].key() == other[n].key() {
-		n++
-	}
-	if n > 0 || len(local) == 0 || len(other) == 0 {
-		return mergeSharedPrefix, n
+	if len(local) == 0 || len(other) == 0 {
+		return mergeSharedPrefix, 0
 	}
 
 	localKeys := sharedHistoryKeys(local)
 	otherKeys := sharedHistoryKeys(other)
-	if len(localKeys) == 0 || len(otherKeys) == 0 {
-		return mergeUnrelated, 0
-	}
-
 	common := 0
 	for k := range otherKeys {
 		if localKeys[k] {
 			common++
 		}
 	}
-	switch {
-	case common == len(otherKeys):
+	if len(otherKeys) > 0 && common == len(otherKeys) {
 		return mergeAlreadyApplied, 0
+	}
+
+	n := 0
+	for n < len(local) && n < len(other) && local[n].key() == other[n].key() {
+		n++
+	}
+	switch {
+	case n > 0:
+		return mergeSharedPrefix, n
 	case common > 0:
 		return mergeDivergedTail, 0
 	default:

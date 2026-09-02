@@ -1,7 +1,9 @@
 package job
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -204,24 +206,34 @@ func adopt(path string) (*AdoptReport, error) {
 }
 
 // mintAdoptionEnvelopes builds the lines adoption will append: the legacy
-// history, then the snapshot.
+// history the log does not hold yet, then a snapshot of the state.
 //
-// It returns nothing when the log already carries a snapshot, which means an
-// earlier attempt appended and then failed to swap the cache. The lines are
-// already the record; re-minting them would double the history.
+// Only unpositioned rows the log has no legacy line for are minted. That
+// distinguishes the two ways a cache can hold such rows after the log already
+// carries a snapshot. After an earlier attempt appended and then failed to
+// swap, every row is already in the log, the lines are the record, and
+// re-minting them would double the history — so nothing is minted. After
+// `job merge` wrote another copy's tail into an adopted cache, those rows are
+// new, and the merged state has to be pinned by a second snapshot placed after
+// everything the log holds, or the rebuild lands on the pre-merge state.
 func mintAdoptionEnvelopes(db *sql.DB, path string, state *LocalState, existing []eventlog.Envelope) ([]eventlog.Envelope, *eventlog.Clock, error) {
 	clock := eventlog.NewClockWith(func() time.Time { return CurrentNowFunc() })
 	clock.Load(state.LastSeen)
+	adoptedBefore := false
 	for _, e := range existing {
 		clock.Observe(e.TS)
 		if EventType(e.Type) == EventSnapshot {
-			return nil, clock, nil
+			adoptedBefore = true
 		}
 	}
 
 	legacy, err := legacyEnvelopes(db)
 	if err != nil {
 		return nil, nil, err
+	}
+	legacy = withoutLoggedLegacy(legacy, existing)
+	if adoptedBefore && len(legacy) == 0 {
+		return nil, clock, nil
 	}
 	for _, e := range legacy {
 		clock.Observe(e.TS)
@@ -233,7 +245,11 @@ func mintAdoptionEnvelopes(db *sql.DB, path string, state *LocalState, existing 
 	if adoptMutateSnapshot != nil {
 		adoptMutateSnapshot(payload)
 	}
-	snap, err := snapshotEnvelope(payload, snapshotTS(existing, clock))
+	ts := snapshotTS(existing, clock)
+	if adoptedBefore {
+		ts = clock.Now()
+	}
+	snap, err := snapshotEnvelope(payload, ts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -282,4 +298,47 @@ func snapshotTS(existing []eventlog.Envelope, clock *eventlog.Clock) int64 {
 		return earliest - 1
 	}
 	return clock.Now()
+}
+
+// withoutLoggedLegacy drops every translated row the log already carries as a
+// legacy line. Lines are matched on the content a legacy line has — task,
+// type, actor, ts and payload — counted, so a history that genuinely holds one
+// event twice keeps both.
+func withoutLoggedLegacy(rows, existing []eventlog.Envelope) []eventlog.Envelope {
+	logged := map[string]int{}
+	for _, e := range existing {
+		if e.Legacy {
+			logged[legacyLineKey(e)]++
+		}
+	}
+	if len(logged) == 0 {
+		return rows
+	}
+	var out []eventlog.Envelope
+	for _, e := range rows {
+		k := legacyLineKey(e)
+		if logged[k] > 0 {
+			logged[k]--
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func legacyLineKey(e eventlog.Envelope) string {
+	return fmt.Sprintf("%s\x00%s\x00%s\x00%d\x00%s", e.Task, e.Type, e.Actor, e.TS, compactJSON(e.Data))
+}
+
+// compactJSON renders a payload without whitespace, so a line read back from
+// the log matches the row it was translated from however either was encoded.
+func compactJSON(data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, data); err != nil {
+		return string(data)
+	}
+	return buf.String()
 }
