@@ -21,11 +21,17 @@ const (
 )
 
 // MergeReport is the whole account of one merge: what arrived, what stayed,
-// what was reconciled and what was discarded.
+// what was reconciled and what was discarded. AlreadyMerged is the one report
+// that describes a merge that did not happen: the other database's events are
+// all here already, so the report is the whole of it.
 type MergeReport struct {
-	OtherPath       string           `json:"other_path"`
-	DryRun          bool             `json:"dry_run"`
-	Changed         bool             `json:"changed"`
+	OtherPath string `json:"other_path"`
+	DryRun    bool   `json:"dry_run"`
+	Changed   bool   `json:"changed"`
+	// AlreadyMerged means the other database holds nothing this one does not.
+	// SharedEvents then counts the other side's whole history rather than a
+	// prefix, and every other field is empty.
+	AlreadyMerged   bool             `json:"already_merged"`
 	SharedEvents    int              `json:"shared_events"`
 	LocalTailEvents int              `json:"local_tail_events"`
 	OtherTailEvents int              `json:"other_tail_events"`
@@ -201,6 +207,11 @@ func (r *MergeReport) Markdown() string {
 	var b strings.Builder
 	b.WriteString("# Merge report\n\n")
 	fmt.Fprintf(&b, "Merging `%s` into this database.\n", r.OtherPath)
+	if r.AlreadyMerged {
+		fmt.Fprintf(&b, "\nAlready merged: all %d of the other database's events are in this one, nothing to do.\n",
+			r.SharedEvents)
+		return b.String()
+	}
 	fmt.Fprintf(&b, "Shared history: %d events. This side added %d since the copy; the other added %d.\n",
 		r.SharedEvents, r.LocalTailEvents, r.OtherTailEvents)
 

@@ -2,6 +2,7 @@ package job
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 )
 
@@ -233,17 +234,85 @@ func scanRows(db *sql.DB, query string, fn func(scanner) error) error {
 	return rows.Err()
 }
 
-// commonEventPrefix counts the leading events the two databases agree on. A
-// zero-length prefix with events on both sides means the files were never
-// one database, which is the one situation merge must refuse: interleaving
-// two unrelated histories produces a store that is nobody's.
-func commonEventPrefix(local, other []mergeEventRow) (int, error) {
+// mergeRelation is how two databases' event logs relate to each other. The
+// positional prefix answers it whenever it exists; when it does not, the two
+// key SETS do, and they distinguish three situations a bare "no prefix" cannot.
+type mergeRelation int
+
+const (
+	// mergeSharedPrefix: the logs agree from the first event. The prefix is
+	// the moment of the copy, and each side's tail is what it added since.
+	mergeSharedPrefix mergeRelation = iota
+	// mergeAlreadyApplied: no positional prefix, but every event the other
+	// side holds is already here. This is a merge that has already been run:
+	// its result was adopted into the store, and the rebuild reordered this
+	// side's events by log position rather than by row id.
+	mergeAlreadyApplied
+	// mergeDivergedTail: the two histories overlap but neither lines up nor
+	// contains the other — the other copy was written to after the merge.
+	mergeDivergedTail
+	// mergeUnrelated: nothing in common. These were never one database.
+	mergeUnrelated
+)
+
+// classifyMergeRelation decides how the two event logs relate, and returns the
+// length of the positional prefix when there is one.
+//
+// The set comparison ignores `snapshot` and `replica` events. Neither is shared
+// history: a snapshot is one replica's compaction of state it already holds,
+// and a replica event names a checkout's cache path and label. Both are minted
+// per replica, so the two sides never hold the same ones — counting them would
+// make an already-merged pair look diverged forever.
+func classifyMergeRelation(local, other []mergeEventRow) (mergeRelation, int) {
 	n := 0
 	for n < len(local) && n < len(other) && local[n].key() == other[n].key() {
 		n++
 	}
-	if n == 0 && len(local) > 0 && len(other) > 0 {
-		return 0, fmt.Errorf("these databases are unrelated: their event logs differ from the first event, so they are not two copies of one database")
+	if n > 0 || len(local) == 0 || len(other) == 0 {
+		return mergeSharedPrefix, n
 	}
-	return n, nil
+
+	localKeys := sharedHistoryKeys(local)
+	otherKeys := sharedHistoryKeys(other)
+	if len(localKeys) == 0 || len(otherKeys) == 0 {
+		return mergeUnrelated, 0
+	}
+
+	common := 0
+	for k := range otherKeys {
+		if localKeys[k] {
+			common++
+		}
+	}
+	switch {
+	case common == len(otherKeys):
+		return mergeAlreadyApplied, 0
+	case common > 0:
+		return mergeDivergedTail, 0
+	default:
+		return mergeUnrelated, 0
+	}
+}
+
+// sharedHistoryKeys is the set of event keys two copies of one database would
+// both hold — everything except each replica's own bookkeeping.
+func sharedHistoryKeys(events []mergeEventRow) map[string]bool {
+	keys := map[string]bool{}
+	for _, e := range events {
+		switch EventType(e.eventType) {
+		case EventSnapshot, EventReplica:
+			continue
+		}
+		keys[e.key()] = true
+	}
+	return keys
+}
+
+func errMergeUnrelated() error {
+	return errors.New("these databases are unrelated: their event logs differ from the first event, so they are not two copies of one database")
+}
+
+func errMergeDivergedTail() error {
+	return errors.New("merge cannot fold this tail: the two databases share history, but this one has since been adopted into the store and the other has been written to since the merge, so there is no shared prefix left to merge against.\n" +
+		"Adopt the other copy in its own checkout and share the log through git instead — see docs/content/docs/getting-started/across-machines.md")
 }

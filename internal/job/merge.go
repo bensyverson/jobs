@@ -188,9 +188,22 @@ func RunMerge(db *sql.DB, otherPath string, dryRun bool) (*MergeReport, error) {
 		return nil, err
 	}
 
-	prefix, err := commonEventPrefix(localSnap.events, otherSnap.events)
-	if err != nil {
-		return nil, err
+	relation, prefix := classifyMergeRelation(localSnap.events, otherSnap.events)
+	switch relation {
+	case mergeUnrelated:
+		return nil, errMergeUnrelated()
+	case mergeDivergedTail:
+		return nil, errMergeDivergedTail()
+	case mergeAlreadyApplied:
+		// Every event the other side holds is already here, so there is
+		// nothing to plan and nothing to write: merging the same pair twice
+		// changes nothing, even after the first merge was adopted.
+		return &MergeReport{
+			OtherPath:     otherPath,
+			DryRun:        dryRun,
+			AlreadyMerged: true,
+			SharedEvents:  len(sharedHistoryKeys(otherSnap.events)),
+		}, nil
 	}
 
 	report := &MergeReport{
