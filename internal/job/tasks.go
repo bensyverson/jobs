@@ -7,25 +7,6 @@ import (
 	"strings"
 )
 
-type ClosedResult struct {
-	ShortID             string
-	Title               string
-	Note                string
-	CascadeClosed       []string
-	AutoClosedAncestors []AutoClosedAncestor
-}
-
-// AutoClosedAncestor names an ancestor that was auto-closed by the
-// leaf-frontier cascade (when its last open child closed). Walking from
-// the closer upward; the first entry is the direct parent. Status is
-// "done" or "canceled" — the destination the cascade chose for this
-// ancestor based on its sibling mix.
-type AutoClosedAncestor struct {
-	ShortID string
-	Title   string
-	Status  string
-}
-
 // AddResult carries the outcome of RunAdd. ShortID is always set on
 // success; AutoReleasedParent is set when the add triggered an auto-release
 // of a claimed parent (leaf-frontier semantics — a parent with an open
@@ -53,134 +34,122 @@ func RunAddKind(db *sql.DB, parentShortID, title, desc, beforeShortID string, la
 		return nil, fmt.Errorf("kind %q is only valid on a root task; %q was given a parent", kind, title)
 	}
 
-	tx, err := db.Begin()
+	result := &AddResult{}
+	err := commit(db, func(tx dbtx, b *eventBatch) error {
+		var parent *Task
+		var parentID *int64
+		if parentShortID != "" {
+			p, err := GetTaskByShortID(tx, parentShortID)
+			if err != nil {
+				return err
+			}
+			if p == nil {
+				return fmt.Errorf("task %q not found", parentShortID)
+			}
+			parent = p
+			parentID = &p.ID
+		}
+
+		shortID, err := generateShortID(tx)
+		if err != nil {
+			return err
+		}
+
+		var sortKey string
+		if beforeShortID != "" {
+			beforeTask, err := GetTaskByShortID(tx, beforeShortID)
+			if err != nil {
+				return err
+			}
+			if beforeTask == nil {
+				return fmt.Errorf("task %q not found", beforeShortID)
+			}
+			if (beforeTask.ParentID == nil) != (parentID == nil) {
+				return fmt.Errorf("task %q is not a sibling of the new task", beforeShortID)
+			}
+			if beforeTask.ParentID != nil && parentID != nil && *beforeTask.ParentID != *parentID {
+				return fmt.Errorf("task %q is not a sibling of the new task", beforeShortID)
+			}
+			sortKey, err = sortKeyBeforeSibling(tx, parentID, beforeTask, noSortKeyExclusion)
+			if err != nil {
+				return err
+			}
+		} else {
+			sortKey, err = appendSortKey(tx, parentID, noSortKeyExclusion)
+			if err != nil {
+				return err
+			}
+		}
+
+		createdPayload := CreatedPayload{
+			ShortID:     shortID,
+			ParentID:    parentShortID,
+			Title:       title,
+			Description: desc,
+			SortKey:     sortKey,
+		}
+		if kind.IsIssue() {
+			createdPayload.Kind = string(kind)
+		}
+		if err := b.emit(tx, EventCreated, shortID, actor, createdPayload); err != nil {
+			return err
+		}
+		result.ShortID = shortID
+
+		if len(labels) > 0 {
+			normalized, err := normalizeLabelNames(labels)
+			if err != nil {
+				return err
+			}
+			taskID, ok, err := taskRowID(tx, shortID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("task %s vanished between create and label", shortID)
+			}
+			// Labels are the relations family (leaf fnD3D): the write and the
+			// event move onto apply together there, not here.
+			if _, _, err := insertLabels(tx, taskID, normalized); err != nil {
+				return err
+			}
+			if err := recordEvent(tx, taskID, EventLabeled, actor, LabeledPayload{
+				Names:    normalized,
+				Existing: []string{},
+			}); err != nil {
+				return err
+			}
+		}
+
+		// Leaf-frontier auto-release: adding an open child to a claimed parent
+		// releases the parent's claim. The parent has no executable work of its
+		// own — its work is in its children — so the lock has no referent.
+		if parent != nil && parent.Status == "claimed" {
+			prior := ""
+			if parent.ClaimedBy != nil {
+				prior = *parent.ClaimedBy
+			}
+			var priorExpires int64
+			if parent.ClaimExpiresAt != nil {
+				priorExpires = *parent.ClaimExpiresAt
+			}
+			if err := b.emit(tx, EventReleased, parent.ShortID, actor, ReleasedPayload{
+				AutoReleased:     true,
+				TriggeredByChild: shortID,
+				WasClaimedBy:     prior,
+				WasExpiresAt:     priorExpires,
+			}); err != nil {
+				return err
+			}
+			result.AutoReleasedParent = parent.ShortID
+			result.AutoReleasedByActor = prior
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
-
-	var parent *Task
-	var parentID *int64
-	if parentShortID != "" {
-		p, err := GetTaskByShortID(tx, parentShortID)
-		if err != nil {
-			return nil, err
-		}
-		if p == nil {
-			return nil, fmt.Errorf("task %q not found", parentShortID)
-		}
-		parent = p
-		parentID = &p.ID
-	}
-
-	shortID, err := generateShortID(tx)
-	if err != nil {
-		return nil, err
-	}
-
-	var sortKey string
-	if beforeShortID != "" {
-		beforeTask, err := GetTaskByShortID(tx, beforeShortID)
-		if err != nil {
-			return nil, err
-		}
-		if beforeTask == nil {
-			return nil, fmt.Errorf("task %q not found", beforeShortID)
-		}
-		if (beforeTask.ParentID == nil) != (parentID == nil) {
-			return nil, fmt.Errorf("task %q is not a sibling of the new task", beforeShortID)
-		}
-		if beforeTask.ParentID != nil && parentID != nil && *beforeTask.ParentID != *parentID {
-			return nil, fmt.Errorf("task %q is not a sibling of the new task", beforeShortID)
-		}
-		sortKey, err = sortKeyBeforeSibling(tx, parentID, beforeTask, noSortKeyExclusion)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		sortKey, err = appendSortKey(tx, parentID, noSortKeyExclusion)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	now := CurrentNowFunc().Unix()
-	var taskID int64
-	err = tx.QueryRow(`
-		INSERT INTO tasks (short_id, parent_id, title, description, status, sort_key, created_at, updated_at, kind)
-		VALUES (?, ?, ?, ?, 'available', ?, ?, ?, ?)
-		RETURNING id
-	`, shortID, parentID, title, desc, sortKey, now, now, string(kind)).Scan(&taskID)
-	if err != nil {
-		return nil, err
-	}
-
-	eventParentID := ""
-	if parentShortID != "" {
-		eventParentID = parentShortID
-	}
-	createdPayload := CreatedPayload{
-		ParentID:    eventParentID,
-		Title:       title,
-		Description: desc,
-		SortKey:     sortKey,
-	}
-	if kind.IsIssue() {
-		createdPayload.Kind = string(kind)
-	}
-	if err := recordEvent(tx, taskID, EventCreated, actor, createdPayload); err != nil {
-		return nil, err
-	}
-
-	if len(labels) > 0 {
-		normalized, err := normalizeLabelNames(labels)
-		if err != nil {
-			return nil, err
-		}
-		if _, _, err := insertLabels(tx, taskID, normalized); err != nil {
-			return nil, err
-		}
-		if err := recordEvent(tx, taskID, EventLabeled, actor, LabeledPayload{
-			Names:    normalized,
-			Existing: []string{},
-		}); err != nil {
-			return nil, err
-		}
-	}
-
-	result := &AddResult{ShortID: shortID}
-
-	// Leaf-frontier auto-release: adding an open child to a claimed parent
-	// releases the parent's claim. The parent has no executable work of its
-	// own — its work is in its children — so the lock has no referent.
-	if parent != nil && parent.Status == "claimed" {
-		prior := ""
-		if parent.ClaimedBy != nil {
-			prior = *parent.ClaimedBy
-		}
-		var priorExpires int64
-		if parent.ClaimExpiresAt != nil {
-			priorExpires = *parent.ClaimExpiresAt
-		}
-		if _, err := tx.Exec(
-			"UPDATE tasks SET status = 'available', claimed_by = NULL, claim_expires_at = NULL, updated_at = ? WHERE id = ?",
-			now, parent.ID,
-		); err != nil {
-			return nil, err
-		}
-		if err := recordEvent(tx, parent.ID, EventReleased, actor, ReleasedPayload{
-			AutoReleased:     true,
-			TriggeredByChild: shortID,
-			WasClaimedBy:     prior,
-			WasExpiresAt:     priorExpires,
-		}); err != nil {
-			return nil, err
-		}
-		result.AutoReleasedParent = parent.ShortID
-		result.AutoReleasedByActor = prior
-	}
-
-	return result, tx.Commit()
+	return result, nil
 }
 
 // ListFilter holds all filtering parameters for RunListFiltered.
@@ -415,570 +384,42 @@ func filterByClaimedActor(nodes []*TaskNode, actor string) []*TaskNode {
 	return out
 }
 
-// cascadeAutoCloseAncestors walks the ancestor chain from taskID upward,
-// auto-closing each ancestor whose open children have all been closed
-// (status is now "done" or "canceled"). Destination per ancestor is
-// status-aware: if any sibling closed as "done", the ancestor cascades
-// to "done"; if every sibling is "canceled", the ancestor cascades to
-// "canceled". triggerKind labels the event ("done" or "cancel") so the
-// log can distinguish the two cascade flavours. The cascade never closes an
-// issue-tree root — it stops there instead, leaving the root open — since an
-// issue tree is open-ended by design. Returns the ordered list of
-// auto-closed ancestors, nearest-parent first.
-func cascadeAutoCloseAncestors(tx dbtx, taskID int64, triggerShortID, triggerKind, actor string, now int64) ([]AutoClosedAncestor, error) {
-	var result []AutoClosedAncestor
-	cursorID := taskID
-	for {
-		var parentID *int64
-		if err := tx.QueryRow(
-			"SELECT parent_id FROM tasks WHERE id = ?", cursorID,
-		).Scan(&parentID); err != nil {
-			return nil, err
-		}
-		if parentID == nil {
-			return result, nil
-		}
-
-		row := tx.QueryRow(`
-			SELECT id, short_id, parent_id, title, description, status, sort_key,
-			       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
-			FROM tasks WHERE id = ?`, *parentID)
-		p, err := scanTask(row)
-		if err != nil {
-			return nil, err
-		}
-		// If the parent is already done/canceled, stop the cascade — nothing
-		// to do, and we shouldn't walk past it.
-		if p.Status == "done" || p.Status == "canceled" {
-			return result, nil
-		}
-
-		open, err := countOpenChildren(tx, p.ID)
-		if err != nil {
-			return nil, err
-		}
-		if open > 0 {
-			return result, nil
-		}
-
-		// An issue-tree root is open-ended by design (see tree-kinds docs):
-		// its lifetime is not bounded by the plan that surfaced it. The
-		// cascade stops here without closing it — a bug filed under it later
-		// must land on a still-open root. Intermediate parents inside an
-		// issue tree (an issue with its own task children) are not roots and
-		// still auto-close normally; only the root itself is exempt. An
-		// explicit `job done`/`job cancel` on the root is unaffected — that
-		// path never goes through this cascade.
-		if p.ParentID == nil && p.Kind.IsIssue() {
-			return result, nil
-		}
-
-		// Destination: any done sibling → "done"; otherwise "canceled".
-		destination := "canceled"
-		var doneSiblings int
-		if err := tx.QueryRow(
-			"SELECT COUNT(*) FROM tasks WHERE parent_id = ? AND status = 'done' AND deleted_at IS NULL",
-			p.ID,
-		).Scan(&doneSiblings); err != nil {
-			return nil, err
-		}
-		if doneSiblings > 0 {
-			destination = "done"
-		}
-
-		wasStatus := p.Status
-		if _, err := tx.Exec(
-			"UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
-			destination, now, p.ID,
-		); err != nil {
-			return nil, err
-		}
-		// Event type mirrors destination so audit logs show the same verb
-		// the status landed on. detail carries both trigger_kind and
-		// cascade_status so consumers can tell apart done-triggered vs
-		// cancel-triggered cascades without inspecting sibling history.
-		var wasClaimedBy string
-		var wasExpiresAt int64
-		// Auto-closed parents are typically not claimed (adding any open
-		// child auto-releases a parent's claim), but record the
-		// breadcrumbs anyway in case some path skipped that release.
-		if wasStatus == "claimed" {
-			if p.ClaimedBy != nil {
-				wasClaimedBy = *p.ClaimedBy
-			}
-			if p.ClaimExpiresAt != nil {
-				wasExpiresAt = *p.ClaimExpiresAt
-			}
-		}
-		if destination == "done" {
-			if err := recordEvent(tx, p.ID, EventDone, actor, DonePayload{
-				AutoClosed:    true,
-				TriggerKind:   triggerKind,
-				TriggeredBy:   triggerShortID,
-				CascadeStatus: destination,
-				WasStatus:     wasStatus,
-				WasClaimedBy:  wasClaimedBy,
-				WasExpiresAt:  wasExpiresAt,
-			}); err != nil {
-				return nil, err
-			}
-			if err := recordBlocksUnblockedOn(tx, p.ID, p.ShortID, actor); err != nil {
-				return nil, err
-			}
-		} else {
-			if err := recordEvent(tx, p.ID, EventCanceled, actor, CanceledPayload{
-				AutoClosed:    true,
-				TriggerKind:   triggerKind,
-				TriggeredBy:   triggerShortID,
-				CascadeStatus: destination,
-				WasStatus:     wasStatus,
-				WasClaimedBy:  wasClaimedBy,
-				WasExpiresAt:  wasExpiresAt,
-			}); err != nil {
-				return nil, err
-			}
-			if err := recordBlocksUnblockedOnCancel(tx, p.ID, p.ShortID, actor); err != nil {
-				return nil, err
-			}
-		}
-
-		result = append(result, AutoClosedAncestor{ShortID: p.ShortID, Title: p.Title, Status: destination})
-		cursorID = p.ID
-	}
-}
-
-// strictCloseTarget is the minimal pair the strict-close error formatter
-// needs from each target — the operator-facing short ID plus the title used
-// in the per-task header line.
-type strictCloseTarget struct {
-	ShortID string
-	Title   string
-}
-
-// formatStrictCloseError builds the multi-line refusal returned by the
-// strict-default close gate. The leading line uses a stable "cannot close:
-// N pending criteria" prefix so retry-with-override automation can grep for
-// it; the body lists each unmarked criterion under its task header so the
-// override is informed; the trailing line names the override flag.
-func formatStrictCloseError(targets []strictCloseTarget, pending map[string][]string) error {
-	total := 0
-	for _, labels := range pending {
-		total += len(labels)
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "cannot close: %d pending criteria", total)
-	if len(pending) > 1 {
-		fmt.Fprintf(&b, " across %d tasks", len(pending))
-	}
-	for _, tgt := range targets {
-		labels := pending[tgt.ShortID]
-		if len(labels) == 0 {
-			continue
-		}
-		fmt.Fprintf(&b, "\n  %s %q:", tgt.ShortID, tgt.Title)
-		for _, l := range labels {
-			fmt.Fprintf(&b, "\n    [ ] %s", l)
-		}
-	}
-	b.WriteString("\nOverride: --force-close-with-pending")
-	return fmt.Errorf("%s", b.String())
-}
-
-// RunDone closes one or more tasks atomically. If cascade is true, each target
-// expands to include all open descendants. If a target has unmarked pending
-// criteria and cascade is false, RunDone refuses with a "cannot close: N
-// pending criteria" error unless forceCloseWithPending is true; in that case
-// the unmarked labels are persisted on the done event under "criteria_waived"
-// so a reviewer can see what was deferred. When bulkCriteriaState is non-
-// empty, it is recorded on the done event under "criteria_bulk_state" so the
-// close shape (e.g. "all marked passed via --all-passed") survives in the
-// event log. Returns per-target results, a list of already-done targets that
-// were skipped, or an error (all-or-nothing).
-func RunDone(db *sql.DB, ids []string, cascade bool, note string, result json.RawMessage, actor string, forceCloseWithPending bool, bulkCriteriaState string) (closed []*ClosedResult, alreadyDone []string, err error) {
-	if len(ids) == 0 {
-		return nil, nil, fmt.Errorf("done requires at least one task id")
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		return nil, nil, err
-	}
-	defer tx.Rollback()
-
-	if err := expireStaleClaimsInTx(tx, actor); err != nil {
-		return nil, nil, err
-	}
-
-	// Phase A: validate every id and resolve to a task, partition already-done.
-	type target struct {
-		shortID string
-		task    *Task
-	}
-	var targets []target
-	seenExplicit := make(map[int64]bool)
-	for _, id := range ids {
-		if err := checkClaimOwnership(tx, id, actor); err != nil {
-			return nil, nil, err
-		}
-		t, err := GetTaskByShortID(tx, id)
-		if err != nil {
-			return nil, nil, err
-		}
-		if t == nil {
-			return nil, nil, fmt.Errorf("task %q not found", id)
-		}
-		if t.Status == "done" {
-			alreadyDone = append(alreadyDone, id)
-			continue
-		}
-		if seenExplicit[t.ID] {
-			continue
-		}
-		seenExplicit[t.ID] = true
-		targets = append(targets, target{shortID: id, task: t})
-	}
-
-	// Phase A.2: for each target, validate or expand via cascade.
-	type plan struct {
-		target        target
-		cascadeTasks  []*Task
-		cascadeShorts []string
-	}
-	var plans []plan
-	seenCascade := make(map[int64]bool)
-	for _, tgt := range targets {
-		incomplete, err := findIncompleteDescendants(tx, tgt.task.ID)
-		if err != nil {
-			return nil, nil, err
-		}
-		if len(incomplete) > 0 && !cascade {
-			var descs []string
-			for _, t := range incomplete {
-				descs = append(descs, fmt.Sprintf("%s (%s)", t.ShortID, t.Title))
-			}
-			return nil, nil, fmt.Errorf("task %s has incomplete subtasks: %s (run 'job done --cascade %s' to close all).",
-				tgt.shortID, strings.Join(descs, ", "), tgt.shortID)
-		}
-		var cTasks []*Task
-		var cShorts []string
-		if cascade {
-			for _, d := range incomplete {
-				if seenExplicit[d.ID] || seenCascade[d.ID] {
-					continue
-				}
-				seenCascade[d.ID] = true
-				cTasks = append(cTasks, d)
-				cShorts = append(cShorts, d.ShortID)
-			}
-		}
-		plans = append(plans, plan{target: tgt, cascadeTasks: cTasks, cascadeShorts: cShorts})
-	}
-
-	// Strict-default close gate: refuse if a target has pending criteria,
-	// unless --cascade is set ("children own the criteria") or the operator
-	// has opted in to the override. Override callers carry the unmarked
-	// labels through to the done-event detail as a recorded waiver.
-	pendingByTarget := make(map[string][]string, len(targets))
-	if !cascade {
-		for _, tgt := range targets {
-			cs, err := GetCriteria(tx, tgt.task.ID)
-			if err != nil {
-				return nil, nil, err
-			}
-			for _, c := range cs {
-				if c.State == CriterionPending {
-					pendingByTarget[tgt.shortID] = append(pendingByTarget[tgt.shortID], c.Label)
-				}
-			}
-		}
-		if len(pendingByTarget) > 0 && !forceCloseWithPending {
-			ordered := make([]strictCloseTarget, 0, len(targets))
-			for _, tgt := range targets {
-				ordered = append(ordered, strictCloseTarget{ShortID: tgt.shortID, Title: tgt.task.Title})
-			}
-			return nil, nil, formatStrictCloseError(ordered, pendingByTarget)
-		}
-	}
-
-	now := CurrentNowFunc().Unix()
-
-	var noteVal any
-	if note != "" {
-		noteVal = note
-	}
-
-	var resultVal any
-	if len(result) > 0 {
-		var parsed any
-		if err := json.Unmarshal(result, &parsed); err != nil {
-			return nil, nil, fmt.Errorf("--result: invalid JSON: %s", err)
-		}
-		resultVal = parsed
-	}
-
-	// Phase B: execute.
-	for _, p := range plans {
-		// Close cascaded descendants first.
-		for _, child := range p.cascadeTasks {
-			childPayload := DonePayload{
-				Cascade:               new(true),
-				CascadeClosedByParent: p.target.shortID,
-				WasStatus:             child.Status,
-			}
-			if child.Status == "claimed" {
-				if child.ClaimedBy != nil {
-					childPayload.WasClaimedBy = *child.ClaimedBy
-				}
-				if child.ClaimExpiresAt != nil {
-					childPayload.WasExpiresAt = *child.ClaimExpiresAt
-				}
-			}
-			if _, err := tx.Exec(
-				"UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?",
-				now, child.ID,
-			); err != nil {
-				return nil, nil, err
-			}
-			if err := recordEvent(tx, child.ID, EventDone, actor, childPayload); err != nil {
-				return nil, nil, err
-			}
-			if err := recordBlocksUnblockedOn(tx, child.ID, child.ShortID, actor); err != nil {
-				return nil, nil, err
-			}
-		}
-
-		// Close the explicit target.
-		targetTask := p.target.task
-		wasStatus := targetTask.Status
-		if _, err := tx.Exec(
-			"UPDATE tasks SET status = 'done', completion_note = ?, updated_at = ? WHERE id = ?",
-			noteVal, now, targetTask.ID,
-		); err != nil {
-			return nil, nil, err
-		}
-		note, _ := noteVal.(string)
-		payload := DonePayload{
-			Note:          note,
-			Cascade:       new(cascade),
-			CascadeClosed: p.cascadeShorts,
-			WasStatus:     wasStatus,
-		}
-		if wasStatus == "claimed" {
-			if targetTask.ClaimedBy != nil {
-				payload.WasClaimedBy = *targetTask.ClaimedBy
-			}
-			if targetTask.ClaimExpiresAt != nil {
-				payload.WasExpiresAt = *targetTask.ClaimExpiresAt
-			}
-		}
-		if resultVal != nil {
-			payload.Result = resultVal
-		}
-		if waived := pendingByTarget[p.target.shortID]; len(waived) > 0 {
-			payload.CriteriaWaived = waived
-		}
-		if bulkCriteriaState != "" {
-			payload.CriteriaBulkState = bulkCriteriaState
-		}
-		if err := recordEvent(tx, targetTask.ID, EventDone, actor, payload); err != nil {
-			return nil, nil, err
-		}
-		if err := recordBlocksUnblockedOn(tx, p.target.task.ID, p.target.shortID, actor); err != nil {
-			return nil, nil, err
-		}
-
-		// Leaf-frontier cascade: after closing this target, auto-close any
-		// ancestors whose last open child has just been closed.
-		autoClosed, err := cascadeAutoCloseAncestors(tx, p.target.task.ID, p.target.shortID, "done", actor, now)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		closed = append(closed, &ClosedResult{
-			ShortID:             p.target.shortID,
-			Title:               p.target.task.Title,
-			Note:                note,
-			CascadeClosed:       p.cascadeShorts,
-			AutoClosedAncestors: autoClosed,
-		})
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, nil, err
-	}
-	return closed, alreadyDone, nil
-}
-
-func recordBlocksUnblockedOn(tx dbtx, blockerID int64, blockerShortID, actor string) error {
-	rows, err := tx.Query("SELECT blocked_id FROM blocks WHERE blocker_id = ?", blockerID)
-	if err != nil {
-		return err
-	}
-	var unblockedIDs []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return err
-		}
-		unblockedIDs = append(unblockedIDs, id)
-	}
-	rows.Close()
-	if len(unblockedIDs) == 0 {
-		return nil
-	}
-	if _, err := tx.Exec("DELETE FROM blocks WHERE blocker_id = ?", blockerID); err != nil {
-		return err
-	}
-	for _, id := range unblockedIDs {
-		var blockedShortID string
-		if err := tx.QueryRow("SELECT short_id FROM tasks WHERE id = ?", id).Scan(&blockedShortID); err != nil {
-			return err
-		}
-		if err := recordEvent(tx, id, EventUnblocked, actor, UnblockedPayload{
-			BlockedID: blockedShortID,
-			BlockerID: blockerShortID,
-			Reason:    "blocker_done",
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func RunReopen(db *sql.DB, shortID string, cascade bool, actor string) ([]string, error) {
-	tx, err := db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	if err := expireStaleClaimsInTx(tx, actor); err != nil {
-		return nil, err
-	}
-	if err := checkClaimOwnership(tx, shortID, actor); err != nil {
-		return nil, err
-	}
-
-	task, err := GetTaskByShortID(tx, shortID)
-	if err != nil {
-		return nil, err
-	}
-	if task == nil {
-		return nil, fmt.Errorf("task %q not found", shortID)
-	}
-	if task.Status != "done" && task.Status != "canceled" {
-		return nil, fmt.Errorf("task %s is not done or canceled (status: %s)", shortID, task.Status)
-	}
-	fromStatus := task.Status
-
-	now := CurrentNowFunc().Unix()
-
-	var reopenedChildren []string
-	if cascade {
-		descendants, err := findClosedDescendants(tx, task.ID)
-		if err != nil {
-			return nil, err
-		}
-		for _, d := range descendants {
-			if _, err := tx.Exec(
-				"UPDATE tasks SET status = 'available', completion_note = NULL, updated_at = ? WHERE id = ?",
-				now, d.ID,
-			); err != nil {
-				return nil, err
-			}
-			if err := recordEvent(tx, d.ID, EventReopened, actor, ReopenedPayload{
-				Cascade:          false,
-				ReopenedChildren: []string{},
-				FromStatus:       d.Status,
-			}); err != nil {
-				return nil, err
-			}
-			reopenedChildren = append(reopenedChildren, d.ShortID)
-		}
-	}
-
-	if _, err := tx.Exec(
-		"UPDATE tasks SET status = 'available', completion_note = NULL, updated_at = ? WHERE id = ?",
-		now, task.ID,
-	); err != nil {
-		return nil, err
-	}
-
-	if err := recordEvent(tx, task.ID, EventReopened, actor, ReopenedPayload{
-		Cascade:          cascade,
-		ReopenedChildren: reopenedChildren,
-		FromStatus:       fromStatus,
-	}); err != nil {
-		return nil, err
-	}
-
-	return reopenedChildren, tx.Commit()
-}
-
 func RunEdit(db *sql.DB, shortID string, newTitle, newDesc *string, actor string) error {
 	if newTitle == nil && newDesc == nil {
 		return fmt.Errorf("edit requires --title and/or --desc")
 	}
 
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if err := expireStaleClaimsInTx(tx, actor); err != nil {
-		return err
-	}
-	if err := checkClaimOwnership(tx, shortID, actor); err != nil {
-		return err
-	}
-
-	task, err := GetTaskByShortID(tx, shortID)
-	if err != nil {
-		return err
-	}
-	if task == nil {
-		return fmt.Errorf("task %q not found", shortID)
-	}
-
-	now := CurrentNowFunc().Unix()
-	payload := EditedPayload{}
-
-	if newTitle != nil && *newTitle != task.Title {
-		if _, err := tx.Exec(
-			"UPDATE tasks SET title = ?, updated_at = ? WHERE id = ?",
-			*newTitle, now, task.ID,
-		); err != nil {
+	return commit(db, func(tx dbtx, b *eventBatch) error {
+		if err := expireStaleClaimsInTx(tx, actor); err != nil {
 			return err
 		}
-		payload.OldTitle = new(task.Title)
-		payload.NewTitle = newTitle
-	} else if newTitle != nil {
-		payload.OldTitle = new(task.Title)
-		payload.NewTitle = newTitle
-	}
-
-	if newDesc != nil {
-		if _, err := tx.Exec(
-			"UPDATE tasks SET description = ?, updated_at = ? WHERE id = ?",
-			*newDesc, now, task.ID,
-		); err != nil {
+		if err := checkClaimOwnership(tx, shortID, actor); err != nil {
 			return err
 		}
-		payload.OldDesc = new(task.Description)
-		payload.NewDesc = newDesc
-	}
 
-	if err := recordEvent(tx, task.ID, EventEdited, actor, payload); err != nil {
-		return err
-	}
+		task, err := GetTaskByShortID(tx, shortID)
+		if err != nil {
+			return err
+		}
+		if task == nil {
+			return fmt.Errorf("task %q not found", shortID)
+		}
 
-	if err := maybeExtendClaim(tx, task.ID, actor); err != nil {
-		return err
-	}
+		payload := EditedPayload{}
+		if newTitle != nil {
+			payload.OldTitle = new(task.Title)
+			payload.NewTitle = newTitle
+		}
+		if newDesc != nil {
+			payload.OldDesc = new(task.Description)
+			payload.NewDesc = newDesc
+		}
 
-	return tx.Commit()
+		if err := b.emit(tx, EventEdited, shortID, actor, payload); err != nil {
+			return err
+		}
+		return maybeExtendClaim(tx, task.ID, actor)
+	})
 }
 
 func RunNote(db *sql.DB, shortID, text string, result json.RawMessage, actor string) error {
@@ -995,118 +436,84 @@ func RunNote(db *sql.DB, shortID, text string, result json.RawMessage, actor str
 		resultVal = parsed
 	}
 
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	return commit(db, func(tx dbtx, b *eventBatch) error {
+		if err := expireStaleClaimsInTx(tx, actor); err != nil {
+			return err
+		}
+		if err := checkClaimOwnership(tx, shortID, actor); err != nil {
+			return err
+		}
 
-	if err := expireStaleClaimsInTx(tx, actor); err != nil {
-		return err
-	}
-	if err := checkClaimOwnership(tx, shortID, actor); err != nil {
-		return err
-	}
+		task, err := GetTaskByShortID(tx, shortID)
+		if err != nil {
+			return err
+		}
+		if task == nil {
+			return fmt.Errorf("task %q not found", shortID)
+		}
 
-	task, err := GetTaskByShortID(tx, shortID)
-	if err != nil {
-		return err
-	}
-	if task == nil {
-		return fmt.Errorf("task %q not found", shortID)
-	}
-
-	now := CurrentNowFunc().Unix()
-	if _, err := tx.Exec(
-		"UPDATE tasks SET updated_at = ? WHERE id = ?",
-		now, task.ID,
-	); err != nil {
-		return err
-	}
-
-	payload := NotedPayload{Text: text}
-	if resultVal != nil {
-		payload.Result = resultVal
-	}
-	if err := recordEvent(tx, task.ID, EventNoted, actor, payload); err != nil {
-		return err
-	}
-
-	if err := maybeExtendClaim(tx, task.ID, actor); err != nil {
-		return err
-	}
-
-	return tx.Commit()
+		payload := NotedPayload{Text: text}
+		if resultVal != nil {
+			payload.Result = resultVal
+		}
+		if err := b.emit(tx, EventNoted, shortID, actor, payload); err != nil {
+			return err
+		}
+		return maybeExtendClaim(tx, task.ID, actor)
+	})
 }
 
 func RunMove(db *sql.DB, shortID, direction, relativeToShortID, actor string) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	return commit(db, func(tx dbtx, b *eventBatch) error {
+		if err := expireStaleClaimsInTx(tx, actor); err != nil {
+			return err
+		}
+		if err := checkClaimOwnership(tx, shortID, actor); err != nil {
+			return err
+		}
 
-	if err := expireStaleClaimsInTx(tx, actor); err != nil {
-		return err
-	}
-	if err := checkClaimOwnership(tx, shortID, actor); err != nil {
-		return err
-	}
+		task, err := GetTaskByShortID(tx, shortID)
+		if err != nil {
+			return err
+		}
+		if task == nil {
+			return fmt.Errorf("task %q not found", shortID)
+		}
 
-	task, err := GetTaskByShortID(tx, shortID)
-	if err != nil {
-		return err
-	}
-	if task == nil {
-		return fmt.Errorf("task %q not found", shortID)
-	}
+		relative, err := GetTaskByShortID(tx, relativeToShortID)
+		if err != nil {
+			return err
+		}
+		if relative == nil {
+			return fmt.Errorf("task %q not found", relativeToShortID)
+		}
 
-	relative, err := GetTaskByShortID(tx, relativeToShortID)
-	if err != nil {
-		return err
-	}
-	if relative == nil {
-		return fmt.Errorf("task %q not found", relativeToShortID)
-	}
+		if (task.ParentID == nil) != (relative.ParentID == nil) {
+			return fmt.Errorf("%s and %s are not siblings (different parents)", shortID, relativeToShortID)
+		}
+		if task.ParentID != nil && relative.ParentID != nil && *task.ParentID != *relative.ParentID {
+			return fmt.Errorf("%s and %s are not siblings (different parents)", shortID, relativeToShortID)
+		}
 
-	if (task.ParentID == nil) != (relative.ParentID == nil) {
-		return fmt.Errorf("%s and %s are not siblings (different parents)", shortID, relativeToShortID)
-	}
-	if task.ParentID != nil && relative.ParentID != nil && *task.ParentID != *relative.ParentID {
-		return fmt.Errorf("%s and %s are not siblings (different parents)", shortID, relativeToShortID)
-	}
+		// The moving task is excluded from the neighbour search: it is leaving
+		// its old position, and no other row's key is touched.
+		var newSortKey string
+		if direction == "before" {
+			newSortKey, err = sortKeyBeforeSibling(tx, task.ParentID, relative, task.ID)
+		} else {
+			newSortKey, err = sortKeyAfterSibling(tx, task.ParentID, relative, task.ID)
+		}
+		if err != nil {
+			return err
+		}
 
-	// The moving task is excluded from the neighbour search: it is leaving
-	// its old position, and no other row's key is touched.
-	oldSortKey := task.SortKey
-	var newSortKey string
-	if direction == "before" {
-		newSortKey, err = sortKeyBeforeSibling(tx, task.ParentID, relative, task.ID)
-	} else {
-		newSortKey, err = sortKeyAfterSibling(tx, task.ParentID, relative, task.ID)
-	}
-	if err != nil {
-		return err
-	}
-
-	now := CurrentNowFunc().Unix()
-	if _, err := tx.Exec(
-		"UPDATE tasks SET sort_key = ?, updated_at = ? WHERE id = ?",
-		newSortKey, now, task.ID,
-	); err != nil {
-		return err
-	}
-
-	if err := recordEvent(tx, task.ID, EventMoved, actor, MovedPayload{
-		Direction:  direction,
-		RelativeTo: relativeToShortID,
-		SortKey:    newSortKey,
-		OldSortKey: oldSortKey,
-	}); err != nil {
-		return err
-	}
-
-	return tx.Commit()
+		return b.emit(tx, EventMoved, shortID, actor, MovedPayload{
+			Direction:  direction,
+			RelativeTo: relativeToShortID,
+			SortKey:    newSortKey,
+			OldSortKey: task.SortKey,
+		})
+	})
 }
 
 // SplitResult carries the outcome of RunSplit.
@@ -1165,161 +572,141 @@ func RunSplit(db *sql.DB, parentShortID string, titles []string, actor string) (
 // supplied, the task is positioned before or after that sibling within the
 // new parent; otherwise it is appended at the end.
 func RunReparent(db *sql.DB, shortID, newParentShortID, direction, relativeToShortID, actor string) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if err := expireStaleClaimsInTx(tx, actor); err != nil {
-		return err
-	}
-	if err := checkClaimOwnership(tx, shortID, actor); err != nil {
-		return err
-	}
-
-	task, err := GetTaskByShortID(tx, shortID)
-	if err != nil {
-		return err
-	}
-	if task == nil {
-		return fmt.Errorf("task %q not found", shortID)
-	}
-
-	var newParentID *int64
-	var newParentShortOut string
-	if newParentShortID != "" {
-		// An issue root that gains a parent stops being a root, and its kind
-		// would silently stop meaning anything. Refuse rather than reset:
-		// the reset is one explicit `job kind <id> task` away, and that
-		// conversion belongs in the event log where a silent one would not be.
-		if task.ParentID == nil && task.Kind.IsIssue() {
-			return fmt.Errorf(
-				"%s is an issue-tree root; tree kind is root-only. Run 'job kind %s task' first if you mean to fold it into another tree.",
-				shortID, shortID,
-			)
+	return commit(db, func(tx dbtx, b *eventBatch) error {
+		if err := expireStaleClaimsInTx(tx, actor); err != nil {
+			return err
 		}
-		newParent, err := GetTaskByShortID(tx, newParentShortID)
+		if err := checkClaimOwnership(tx, shortID, actor); err != nil {
+			return err
+		}
+
+		task, err := GetTaskByShortID(tx, shortID)
 		if err != nil {
 			return err
 		}
-		if newParent == nil {
-			return fmt.Errorf("task %q not found", newParentShortID)
+		if task == nil {
+			return fmt.Errorf("task %q not found", shortID)
 		}
-		if newParent.ID == task.ID {
-			return fmt.Errorf("cannot reparent %s under itself", shortID)
+
+		var newParentID *int64
+		var newParentShortOut string
+		if newParentShortID != "" {
+			// An issue root that gains a parent stops being a root, and its kind
+			// would silently stop meaning anything. Refuse rather than reset:
+			// the reset is one explicit `job kind <id> task` away, and that
+			// conversion belongs in the event log where a silent one would not be.
+			if task.ParentID == nil && task.Kind.IsIssue() {
+				return fmt.Errorf(
+					"%s is an issue-tree root; tree kind is root-only. Run 'job kind %s task' first if you mean to fold it into another tree.",
+					shortID, shortID,
+				)
+			}
+			newParent, err := GetTaskByShortID(tx, newParentShortID)
+			if err != nil {
+				return err
+			}
+			if newParent == nil {
+				return fmt.Errorf("task %q not found", newParentShortID)
+			}
+			if newParent.ID == task.ID {
+				return fmt.Errorf("cannot reparent %s under itself", shortID)
+			}
+			descendants, err := findAllDescendants(tx, task.ID)
+			if err != nil {
+				return err
+			}
+			for _, d := range descendants {
+				if d.ID == newParent.ID {
+					return fmt.Errorf("cannot reparent %s under its own descendant %s", shortID, newParentShortID)
+				}
+			}
+			newParentID = &newParent.ID
+			newParentShortOut = newParent.ShortID
 		}
-		descendants, err := findAllDescendants(tx, task.ID)
-		if err != nil {
-			return err
-		}
-		for _, d := range descendants {
-			if d.ID == newParent.ID {
-				return fmt.Errorf("cannot reparent %s under its own descendant %s", shortID, newParentShortID)
+
+		priorParentShort := ""
+		if task.ParentID != nil {
+			priorParent, err := getTaskByID(tx, *task.ParentID)
+			if err != nil {
+				return err
+			}
+			if priorParent != nil {
+				priorParentShort = priorParent.ShortID
 			}
 		}
-		newParentID = &newParent.ID
-		newParentShortOut = newParent.ShortID
-	}
 
-	priorParentShort := ""
-	if task.ParentID != nil {
-		priorParent, err := getTaskByID(tx, *task.ParentID)
-		if err != nil {
-			return err
-		}
-		if priorParent != nil {
-			priorParentShort = priorParent.ShortID
-		}
-	}
-
-	var newSortKey string
-	if direction == "" {
-		newSortKey, err = appendSortKey(tx, newParentID, task.ID)
-		if err != nil {
-			return err
-		}
-	} else {
-		if direction != "before" && direction != "after" {
-			return fmt.Errorf("direction must be 'before' or 'after', got %q", direction)
-		}
-		relative, err := GetTaskByShortID(tx, relativeToShortID)
-		if err != nil {
-			return err
-		}
-		if relative == nil {
-			return fmt.Errorf("task %q not found", relativeToShortID)
-		}
-		if (relative.ParentID == nil) != (newParentID == nil) {
-			return fmt.Errorf("%s is not a child of the new parent", relativeToShortID)
-		}
-		if relative.ParentID != nil && newParentID != nil && *relative.ParentID != *newParentID {
-			return fmt.Errorf("%s is not a child of the new parent", relativeToShortID)
-		}
-		if direction == "before" {
-			newSortKey, err = sortKeyBeforeSibling(tx, newParentID, relative, task.ID)
+		var newSortKey string
+		if direction == "" {
+			newSortKey, err = appendSortKey(tx, newParentID, task.ID)
+			if err != nil {
+				return err
+			}
 		} else {
-			newSortKey, err = sortKeyAfterSibling(tx, newParentID, relative, task.ID)
+			if direction != "before" && direction != "after" {
+				return fmt.Errorf("direction must be 'before' or 'after', got %q", direction)
+			}
+			relative, err := GetTaskByShortID(tx, relativeToShortID)
+			if err != nil {
+				return err
+			}
+			if relative == nil {
+				return fmt.Errorf("task %q not found", relativeToShortID)
+			}
+			if (relative.ParentID == nil) != (newParentID == nil) {
+				return fmt.Errorf("%s is not a child of the new parent", relativeToShortID)
+			}
+			if relative.ParentID != nil && newParentID != nil && *relative.ParentID != *newParentID {
+				return fmt.Errorf("%s is not a child of the new parent", relativeToShortID)
+			}
+			if direction == "before" {
+				newSortKey, err = sortKeyBeforeSibling(tx, newParentID, relative, task.ID)
+			} else {
+				newSortKey, err = sortKeyAfterSibling(tx, newParentID, relative, task.ID)
+			}
+			if err != nil {
+				return err
+			}
 		}
-		if err != nil {
+
+		payload := ReparentedPayload{
+			PriorParentID: priorParentShort,
+			NewParentID:   newParentShortOut,
+			SortKey:       newSortKey,
+			OldSortKey:    task.SortKey,
+		}
+		if direction != "" {
+			payload.Direction = direction
+			payload.RelativeTo = relativeToShortID
+		}
+		if err := b.emit(tx, EventReparented, shortID, actor, payload); err != nil {
 			return err
 		}
-	}
 
-	now := CurrentNowFunc().Unix()
-	if _, err := tx.Exec(
-		"UPDATE tasks SET parent_id = ?, sort_key = ?, updated_at = ? WHERE id = ?",
-		newParentID, newSortKey, now, task.ID,
-	); err != nil {
-		return err
-	}
-
-	payload := ReparentedPayload{
-		PriorParentID: priorParentShort,
-		NewParentID:   newParentShortOut,
-		SortKey:       newSortKey,
-		OldSortKey:    task.SortKey,
-	}
-	if direction != "" {
-		payload.Direction = direction
-		payload.RelativeTo = relativeToShortID
-	}
-	if err := recordEvent(tx, task.ID, EventReparented, actor, payload); err != nil {
-		return err
-	}
-
-	if newParentID != nil {
+		if newParentID == nil {
+			return nil
+		}
 		newParent, err := getTaskByID(tx, *newParentID)
 		if err != nil {
 			return err
 		}
-		if newParent != nil && newParent.Status == "claimed" {
-			prior := ""
-			if newParent.ClaimedBy != nil {
-				prior = *newParent.ClaimedBy
-			}
-			var priorExpires int64
-			if newParent.ClaimExpiresAt != nil {
-				priorExpires = *newParent.ClaimExpiresAt
-			}
-			if _, err := tx.Exec(
-				"UPDATE tasks SET status = 'available', claimed_by = NULL, claim_expires_at = NULL, updated_at = ? WHERE id = ?",
-				now, newParent.ID,
-			); err != nil {
-				return err
-			}
-			if err := recordEvent(tx, newParent.ID, EventReleased, actor, ReleasedPayload{
-				AutoReleased:     true,
-				TriggeredByChild: task.ShortID,
-				WasClaimedBy:     prior,
-				WasExpiresAt:     priorExpires,
-			}); err != nil {
-				return err
-			}
+		if newParent == nil || newParent.Status != "claimed" {
+			return nil
 		}
-	}
-
-	return tx.Commit()
+		prior := ""
+		if newParent.ClaimedBy != nil {
+			prior = *newParent.ClaimedBy
+		}
+		var priorExpires int64
+		if newParent.ClaimExpiresAt != nil {
+			priorExpires = *newParent.ClaimExpiresAt
+		}
+		return b.emit(tx, EventReleased, newParent.ShortID, actor, ReleasedPayload{
+			AutoReleased:     true,
+			TriggeredByChild: task.ShortID,
+			WasClaimedBy:     prior,
+			WasExpiresAt:     priorExpires,
+		})
+	})
 }
 
 type DoneContext struct {

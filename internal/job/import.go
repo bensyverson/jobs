@@ -468,7 +468,11 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 		shortIDByParsed[node] = sid
 		dbIDByParsed[node] = id
 
+		// Import still writes the tables itself — it moves onto apply with the
+		// relations family — but its created events carry the new id anyway,
+		// so nothing in the log is a payload apply would reject.
 		createdPayload := CreatedPayload{
+			ShortID:     sid,
 			ParentID:    parentShort,
 			Title:       node.Title,
 			Description: node.Desc,

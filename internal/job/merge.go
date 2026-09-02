@@ -127,10 +127,15 @@ func applyMergePlan(db *sql.DB, plan *mergePlan) error {
 	// history rather than making it, so no actor is invented for them and
 	// the merge itself leaves no event behind.
 	for _, e := range plan.events {
+		// Transcribed rows keep rep '' and seq 0 — the legacy marker, since
+		// merge works on two caches and neither side's position survives the
+		// copy — but ts is derived from created_at so they still sort into the
+		// timeline rather than piling up at position zero.
 		if _, err := tx.Exec(`
-			INSERT INTO events (task_id, event_type, actor, detail, created_at)
-			VALUES ((SELECT id FROM tasks WHERE short_id = ?), ?, ?, ?, ?)`,
-			nullIfEmpty(e.taskShortID), e.eventType, e.actor, e.detail, e.createdAt); err != nil {
+			INSERT INTO events (task_id, event_type, actor, detail, created_at, ts)
+			VALUES ((SELECT id FROM tasks WHERE short_id = ?), ?, ?, ?, ?, ?)`,
+			nullIfEmpty(e.taskShortID), e.eventType, e.actor, e.detail, e.createdAt,
+			e.createdAt*1000); err != nil {
 			return fmt.Errorf("insert event %s: %w", e.eventType, err)
 		}
 	}

@@ -38,7 +38,12 @@ const (
 
 // CreatedPayload is recorded by RunAdd and the import inserter. ParentID is
 // "" for a root task.
+//
+// ShortID is the new task's own id. Apply never mints one — ids are minted by
+// the handler and travel in the event, because a replay on another machine
+// has to land on the same id the note and the commit message cite.
 type CreatedPayload struct {
+	ShortID     string `json:"short_id"`
 	ParentID    string `json:"parent_id"`
 	Title       string `json:"title"`
 	Description string `json:"description"`

@@ -151,15 +151,18 @@ func TestRunUsage_Windowed_ScopesEventsAndDoneInWindow(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	setNow(t, now)
 
+	// Time only moves forward. An event's timestamp is now the hybrid logical
+	// clock's, max(wall, last_seen+1), so a replica's own events never go
+	// backwards and back-dating by rewinding the wall clock no longer works:
+	// the out-of-window work has to happen first.
+	setNow(t, now.Add(-72*time.Hour))
 	root := MustAdd(t, db, "", "Root")
 	keepOpen(t, db, root)
-	// Close one task long ago (before the window)
-	origNowOuter := CurrentNowFunc
-	CurrentNowFunc = func() time.Time { return now.Add(-72 * time.Hour) }
 	old := MustAdd(t, db, root, "Old done")
 	MustDone(t, db, old)
-	CurrentNowFunc = origNowOuter
+
 	// Close one task recently (inside the 24h window)
+	setNow(t, now)
 	recent := MustAdd(t, db, root, "Recent done")
 	MustDone(t, db, recent)
 
@@ -221,15 +224,15 @@ func TestRunUsage_Velocity_AllTime_OverCalendarSpan(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	setNow(t, now)
 
+	// Start 100 days ago and walk forward: the hybrid clock never lets a
+	// replica's own events move backwards.
+	setNow(t, now.Add(-100*24*time.Hour))
 	root := MustAdd(t, db, "", "Root")
 	keepOpen(t, db, root)
-	// Set the first event 100 days ago.
-	origNow := CurrentNowFunc
-	CurrentNowFunc = func() time.Time { return now.Add(-100 * 24 * time.Hour) }
 	d1 := MustAdd(t, db, root, "Done 1") // emits a "created" event pinned at -100d
 	MustDone(t, db, d1)
-	CurrentNowFunc = origNow
 
+	setNow(t, now)
 	for range 9 {
 		d := MustAdd(t, db, root, "More done")
 		MustDone(t, db, d)
@@ -257,19 +260,21 @@ func TestRunUsage_Velocity_WindowedOverWindowDays(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	setNow(t, now)
 
+	// One done outside the window (100 days ago), first: the hybrid clock
+	// never lets a replica's own events move backwards, so the older work has
+	// to be written before time advances.
+	setNow(t, now.Add(-100*24*time.Hour))
 	root := MustAdd(t, db, "", "Root")
 	keepOpen(t, db, root)
+	old := MustAdd(t, db, root, "Old done")
+	MustDone(t, db, old)
+
 	// Window: last 30 days. Close 3 tasks inside the window.
+	setNow(t, now)
 	for range 3 {
 		d := MustAdd(t, db, root, "Recent done")
 		MustDone(t, db, d)
 	}
-	// Also one done outside the window (100 days ago).
-	origNow := CurrentNowFunc
-	CurrentNowFunc = func() time.Time { return now.Add(-100 * 24 * time.Hour) }
-	old := MustAdd(t, db, root, "Old done")
-	MustDone(t, db, old)
-	CurrentNowFunc = origNow
 
 	since := now.Add(-30 * 24 * time.Hour).Unix()
 	u, err := RunUsage(db, nil, &since)

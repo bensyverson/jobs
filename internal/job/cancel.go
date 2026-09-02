@@ -3,7 +3,6 @@ package job
 import (
 	"database/sql"
 	"fmt"
-	"slices"
 )
 
 type CanceledResult struct {
@@ -43,39 +42,29 @@ func RunCancel(
 		return nil, nil, nil, fmt.Errorf(`cancel requires --reason "<text>"`)
 	}
 
-	tx, err := db.Begin()
+	err = commit(db, func(tx dbtx, b *eventBatch) error {
+		canceled, alreadyCanceled, purged = nil, nil, nil
+		if err := expireStaleClaimsInTx(tx, actor); err != nil {
+			return err
+		}
+		if purge {
+			var err error
+			purged, err = executePurge(tx, b, ids, reason, cascade, yes, actor)
+			return err
+		}
+		var err error
+		canceled, alreadyCanceled, err = executeCancel(tx, b, ids, reason, cascade, actor)
+		return err
+	})
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	defer tx.Rollback()
-
-	if err := expireStaleClaimsInTx(tx, actor); err != nil {
-		return nil, nil, nil, err
-	}
-
-	if purge {
-		purged, err = executePurge(tx, ids, reason, cascade, yes, actor)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		if err := tx.Commit(); err != nil {
-			return nil, nil, nil, err
-		}
-		return nil, nil, purged, nil
-	}
-
-	canceled, alreadyCanceled, err = executeCancel(tx, ids, reason, cascade, actor)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, nil, nil, err
-	}
-	return canceled, alreadyCanceled, nil, nil
+	return canceled, alreadyCanceled, purged, nil
 }
 
 func executeCancel(
 	tx dbtx,
+	b *eventBatch,
 	ids []string,
 	reason string,
 	cascade bool,
@@ -139,8 +128,6 @@ func executeCancel(
 		plans = append(plans, plan{target: tgt, cascadeTasks: cTasks, cascadeShorts: cShorts})
 	}
 
-	now := CurrentNowFunc().Unix()
-
 	for _, p := range plans {
 		// Cancel cascaded descendants first.
 		for _, child := range p.cascadeTasks {
@@ -159,13 +146,7 @@ func executeCancel(
 					childPayload.WasExpiresAt = *child.ClaimExpiresAt
 				}
 			}
-			if _, err := tx.Exec(
-				"UPDATE tasks SET status = 'canceled', claimed_by = NULL, claim_expires_at = NULL, updated_at = ? WHERE id = ?",
-				now, child.ID,
-			); err != nil {
-				return nil, nil, err
-			}
-			if err := recordEvent(tx, child.ID, EventCanceled, actor, childPayload); err != nil {
+			if err := b.emit(tx, EventCanceled, child.ShortID, actor, childPayload); err != nil {
 				return nil, nil, err
 			}
 			if err := recordBlocksUnblockedOnCancel(tx, child.ID, child.ShortID, actor); err != nil {
@@ -189,13 +170,7 @@ func executeCancel(
 				targetPayload.WasExpiresAt = *targetTask.ClaimExpiresAt
 			}
 		}
-		if _, err := tx.Exec(
-			"UPDATE tasks SET status = 'canceled', claimed_by = NULL, claim_expires_at = NULL, updated_at = ? WHERE id = ?",
-			now, targetTask.ID,
-		); err != nil {
-			return nil, nil, err
-		}
-		if err := recordEvent(tx, targetTask.ID, EventCanceled, actor, targetPayload); err != nil {
+		if err := b.emit(tx, EventCanceled, p.target.shortID, actor, targetPayload); err != nil {
 			return nil, nil, err
 		}
 		if err := recordBlocksUnblockedOnCancel(tx, p.target.task.ID, p.target.shortID, actor); err != nil {
@@ -206,7 +181,7 @@ func executeCancel(
 		// the last open child of an ancestor, the ancestor auto-closes too.
 		// Destination per ancestor is status-aware — see
 		// cascadeAutoCloseAncestors.
-		autoClosed, err := cascadeAutoCloseAncestors(tx, p.target.task.ID, p.target.shortID, "cancel", actor, now)
+		autoClosed, err := cascadeAutoCloseAncestors(tx, b, p.target.task.ID, p.target.shortID, "cancel", actor)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -264,6 +239,7 @@ func recordBlocksUnblockedOnCancel(tx dbtx, blockerID int64, blockerShortID, act
 
 func executePurge(
 	tx dbtx,
+	b *eventBatch,
 	ids []string,
 	reason string,
 	cascade, yes bool,
@@ -337,8 +313,6 @@ func executePurge(
 			eventsErased += n
 		}
 
-		// Record the audit event before deletion. Stored on the parent or as
-		// an orphan event when the purged task is a root.
 		payload := PurgedPayload{
 			Reason:        reason,
 			PurgedID:      tg.shortID,
@@ -349,42 +323,20 @@ func executePurge(
 		if payload.CascadePurged == nil {
 			payload.CascadePurged = []string{}
 		}
+		// The tombstone hangs on the purged task's parent, or on nothing at
+		// all when a root is purged — an orphan event, the one shape whose
+		// envelope carries no task. Applying it erases the subtree.
+		tombstoneTask := ""
 		if tg.task.ParentID != nil {
-			if err := recordEvent(tx, *tg.task.ParentID, EventPurged, actor, payload); err != nil {
+			parent, err := getTaskByID(tx, *tg.task.ParentID)
+			if err != nil {
 				return nil, err
 			}
-		} else {
-			if err := recordOrphanEvent(tx, EventPurged, actor, payload); err != nil {
-				return nil, err
-			}
-		}
-
-		// Erase event rows, block rows, then task rows for the subtree.
-		for _, tid := range allIDs {
-			if _, err := tx.Exec("DELETE FROM events WHERE task_id = ?", tid); err != nil {
-				return nil, err
-			}
-			if _, err := tx.Exec("DELETE FROM blocks WHERE blocker_id = ? OR blocked_id = ?", tid, tid); err != nil {
-				return nil, err
-			}
-			// found-in survives every status change of either end, but not
-			// purge: the task row itself is erased, so the reference has
-			// nothing left to point at. Deleted explicitly rather than left
-			// to ON DELETE CASCADE, because `PRAGMA foreign_keys=ON` is set
-			// on one pooled connection and may not be in force here — the
-			// same reason the blocks delete above is explicit.
-			if _, err := tx.Exec("DELETE FROM found_in WHERE task_id = ? OR source_id = ?", tid, tid); err != nil {
-				return nil, err
+			if parent != nil {
+				tombstoneTask = parent.ShortID
 			}
 		}
-		// Children first to satisfy foreign-key chain (descendants are listed
-		// in pre-order; reverse to delete leaves first).
-		for _, v := range slices.Backward(tg.descendants) {
-			if _, err := tx.Exec("DELETE FROM tasks WHERE id = ?", v.ID); err != nil {
-				return nil, err
-			}
-		}
-		if _, err := tx.Exec("DELETE FROM tasks WHERE id = ?", tg.task.ID); err != nil {
+		if err := b.emit(tx, EventPurged, tombstoneTask, actor, payload); err != nil {
 			return nil, err
 		}
 

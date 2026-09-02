@@ -15,7 +15,8 @@ var eventPayloadSamples = []struct {
 	Payload any
 }{
 	{EventCreated, CreatedPayload{
-		ParentID: "AbC12", Title: "Root task", Description: "desc", SortKey: "V00001", Kind: "issue",
+		ShortID: "Qr7Tm9", ParentID: "AbC12", Title: "Root task", Description: "desc",
+		SortKey: "V00001", Kind: "issue",
 	}},
 	{EventLabeled, LabeledPayload{Names: []string{"web", "bug"}, Existing: []string{}}},
 	{EventUnlabeled, UnlabeledPayload{Names: []string{"web"}, Absent: []string{"bug"}}},

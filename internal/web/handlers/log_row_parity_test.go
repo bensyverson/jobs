@@ -289,11 +289,16 @@ func TestLiveSubscribesToEveryEmittedEventType(t *testing.T) {
 	}
 }
 
-// scrapeEmittedEventTypes reads every event type passed to recordEvent /
-// recordOrphanEvent in internal/job, resolving the handful that are
-// named by a const. Every call site keeps its event-type argument on one
-// line; the count check below fails loudly if that stops being true
-// rather than letting the scraper quietly under-report.
+// scrapeEmittedEventTypes reads every event type internal/job can emit,
+// resolving the handful that are named by a const.
+//
+// There are two call forms. A family that has moved onto apply emits through
+// the event batch — `b.emit(tx, EventDone, task, actor, payload)` — and every
+// family that has not yet still calls recordEvent / recordOrphanEvent
+// directly. Both are scraped, because either one puts a frame on the wire.
+// Every call site keeps its event-type argument on one line; the count check
+// below fails loudly if that stops being true rather than letting the scraper
+// quietly under-report.
 func scrapeEmittedEventTypes(t *testing.T) []string {
 	t.Helper()
 	dir := "../../job"
@@ -325,11 +330,14 @@ func scrapeEmittedEventTypes(t *testing.T) []string {
 	var out []string
 	var calls, resolved int
 	for _, src := range sources {
-		calls += strings.Count(src, "recordEvent(") + strings.Count(src, "recordOrphanEvent(")
-		for _, m := range append(
+		calls += strings.Count(src, "recordEvent(") + strings.Count(src, "recordOrphanEvent(") +
+			strings.Count(src, ".emit(")
+		matches := append(
 			recordEventRe.FindAllStringSubmatch(src, -1),
 			recordOrphanRe.FindAllStringSubmatch(src, -1)...,
-		) {
+		)
+		matches = append(matches, emitRe.FindAllStringSubmatch(src, -1)...)
+		for _, m := range matches {
 			arg := m[1]
 			var et string
 			switch {
@@ -364,9 +372,9 @@ func scrapeEmittedEventTypes(t *testing.T) []string {
 // at runtime rather than written as a literal, mapped to a note on what
 // they can be. Each must only ever take values that some literal call
 // site already contributes, or the scraped vocabulary is incomplete.
-var dynamicEventTypeArgs = map[string]string{
-	"destination": `the cascade-close verb in internal/job/tasks.go: "done" or "canceled", both emitted literally elsewhere`,
-}
+// It is empty today: the leaf-frontier cascade used to pass its runtime
+// `destination` verb, and now emits EventDone or EventCanceled literally.
+var dynamicEventTypeArgs = map[string]string{}
 
 var (
 	recordDeclRe = regexp.MustCompile(`(?m)^func record(?:Orphan)?Event\(.*$`)
@@ -377,6 +385,9 @@ var (
 	eventConstRe   = regexp.MustCompile(`(?m)^\s*(Event[A-Za-z]+)\s+EventType\s*=\s*"([a-z_]+)"`)
 	recordEventRe  = regexp.MustCompile(`\brecordEvent\([^,()]+,[^,()]+,\s*("[a-z_]+"|[A-Za-z][A-Za-z0-9]*)\s*,`)
 	recordOrphanRe = regexp.MustCompile(`\brecordOrphanEvent\([^,()]+,\s*("[a-z_]+"|[A-Za-z][A-Za-z0-9]*)\s*,`)
+	// emitRe reads the apply path's call form, `b.emit(tx, EventXxx, task,
+	// actor, payload)`: the event type is the second argument.
+	emitRe = regexp.MustCompile(`\.emit\([^,()]+,\s*("[a-z_]+"|[A-Za-z][A-Za-z0-9]*)\s*,`)
 )
 
 // TestLogRowParity_ActorPageMatchesClient extends the parity check to
