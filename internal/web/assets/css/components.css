@@ -1887,6 +1887,21 @@ peek-sheet[data-state="open"] .c-peek-sheet {
   font-family: var(--font-mono);
 }
 
+/* An inline link inside prose. The global `a` rule leaves a link
+   indistinguishable from its sentence until hover, which is fine for a row
+   that is entirely a link and wrong for one word inside a paragraph: a
+   quiet standing underline in the outline color says "link" without
+   turning a note into a field of blue. Hover adds the color; the global
+   `a:hover` rule already owns the border. A linked id keeps its code
+   styling — only the underline is added. */
+.c-prose a {
+  border-bottom-color: var(--color-outline-strong);
+}
+
+.c-prose a:hover {
+  color: var(--color-primary);
+}
+
 /* ---------- Criterion icons ---------- */
 
 /* Inline SVGs replace the older [x]/[ ]/[-]/[!] ASCII glyphs. The disc

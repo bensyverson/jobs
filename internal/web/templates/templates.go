@@ -145,9 +145,12 @@ func buildFuncMap(manifest *assets.Manifest) template.FuncMap {
 	return template.FuncMap{
 		// prose renders a description or note body as escaped HTML blocks.
 		// The body is markdown prose (see internal/job/prose.go); no raw
-		// HTML in the source survives, so the result is safe to mark.
-		"prose": func(text string) template.HTML {
-			return template.HTML(job.RenderProseHTML(text))
+		// HTML in the source survives, so the result is safe to mark. The
+		// second argument is the page's resolver: the short ids the inline
+		// pass may turn into links, built once per page by
+		// job.ResolveProseLinks. Pass a nil ProseLinks to link nothing.
+		"prose": func(text string, links job.ProseLinks) template.HTML {
+			return template.HTML(job.RenderProseHTML(text, links))
 		},
 		"asset": func(logicalPath string) (string, error) {
 			u := manifest.URL(logicalPath)

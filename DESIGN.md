@@ -384,7 +384,7 @@ Each column is the actor's own little world — the same task can appear in two 
 - **Do** pair every status color with an icon and a word.
 - **Do** treat the avatar circle as the canonical actor primitive at every scale.
 - **Do** keep fill and ring on separate semantic axes in graph nodes: fill = who, ring = what state.
-- **Do** render descriptions and notes as prose (`.c-prose`): they are markdown paragraphs, so hard-wrapped source reflows into `<p>`, bullets become lists, and only a fenced block keeps its whitespace in monospace. (This supersedes the vision doc's "notes as code blocks" — 2026-09-02, project/2026-09-02-prose-rendering.md.)
+- **Do** render descriptions and notes as prose (`.c-prose`): they are markdown paragraphs, so hard-wrapped source reflows into `<p>`, bullets become lists, and only a fenced block keeps its whitespace in monospace. Inline, a backticked span is `--font-mono` at the surrounding size, and a link — written `[text](url)` or produced by mentioning a task or criterion id the store recognises — takes a standing `outline-strong` underline rather than the global link's hover-only one, because one word inside a paragraph has to announce itself. (This supersedes the vision doc's "notes as code blocks" — 2026-09-02, project/2026-09-02-prose-rendering.md.)
 - **Do** keep the footer thin and persistent on every view — it is the "is it alive" affordance.
 - **Do** use the accent sparingly. A screen should rarely show more than a handful of `primary` instances.
 - **Do** use LTR flow for graph views and TTB indented flow for the plan view. The difference reinforces what each view is *for*.

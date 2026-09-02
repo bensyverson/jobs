@@ -33,6 +33,7 @@ import {
   buildPlanNodes,
   planURL,
   toggleLabel,
+  proseLinksFromFrame,
 } from "./plan-scrub-build.mjs";
 import { renderPlanSection, renderFilterBar } from "./plan-scrub-render.mjs";
 
@@ -118,12 +119,19 @@ function composePlanSectionHTML(frame, { selected, show }, nowSec, view = {}) {
   let roots = filterRootsByShow(allRoots, show);
   roots = filterForestByLabels(roots, selected);
   const planNodes = buildPlanNodes(roots, frame, nowSec, { selected, show, base });
-  return renderPlanSection(planNodes, {
-    label: view.sectionLabel ?? "Plan",
-    kind,
-    base,
-    emptyText: view.emptyText ?? "No active tasks.",
-  });
+  return renderPlanSection(
+    planNodes,
+    {
+      label: view.sectionLabel ?? "Plan",
+      kind,
+      base,
+      emptyText: view.emptyText ?? "No active tasks.",
+    },
+    // Built from the whole frame, not the filtered roots: a description
+    // may name a task the current filter hides, and the link should still
+    // work.
+    proseLinksFromFrame(frame),
+  );
 }
 
 // readViewFromDOM recovers the per-view config the server rendered.

@@ -247,6 +247,36 @@ func noteTextFromDetail(detail string) string {
 	return strings.TrimSpace(s)
 }
 
+// attachProseLinks resolves the short ids mentioned in every row
+// description on the page and hands the one resulting map to every node.
+// Plan rows render notes as verbatim <pre>, so descriptions are the only
+// prose the view carries.
+func attachProseLinks(db *sql.DB, nodes []*PlanNode) error {
+	var descs []string
+	var walk func([]*PlanNode)
+	walk = func(ns []*PlanNode) {
+		for _, n := range ns {
+			descs = append(descs, n.Description)
+			walk(n.Children)
+		}
+	}
+	walk(nodes)
+
+	links, err := job.ResolveProseLinks(db, descs)
+	if err != nil {
+		return err
+	}
+	var assign func([]*PlanNode)
+	assign = func(ns []*PlanNode) {
+		for _, n := range ns {
+			n.Links = links
+			assign(n.Children)
+		}
+	}
+	assign(nodes)
+	return nil
+}
+
 // inClause builds `prefix (?,?,?,…)` for a fixed-length id slice and
 // returns the bound args. Callers append their own ORDER BY / LIMIT.
 // Kept local to plan.go because the log view's equivalent is trivial

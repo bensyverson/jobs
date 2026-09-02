@@ -69,3 +69,7 @@ Also: sleepy renders offscreen with `document.visibilityState === "hidden"`, so 
 ## 2026-09-02 — Chrome for Testing writes the screenshot and then never exits
 
 **Headless Chrome for Testing (`--headless=new --screenshot=…`) writes the PNG and then hangs in this harness**, so a foreground call times out with no output and looks like a failure. macOS has no `timeout`, and `--timeout=` does not make it quit. Run it detached or in the background, wait for the PNG to appear, then `pkill -f "Chrome for Testing"`, and read the PNG. `job serve` needs `--bind 127.0.0.1:<port>` for a fixed port and must be started detached (`nohup … & disown`) unsandboxed; kill it by port afterwards.
+
+## 2026-09-02 — `$` in a template partial is the partial's argument, not the page
+
+**`{{template "row" .}}` rebinds `$` to the row**, so `{{prose .Text $.Links}}` inside a partial reads a field off the row, not the page, and a recursive partial (`plan-node`) never sees the page at all. Page-wide values a partial needs (the prose link resolver) are copied onto each row struct as the same shared map — see `TaskProgressNote.Links` and `PlanNode.Links`.

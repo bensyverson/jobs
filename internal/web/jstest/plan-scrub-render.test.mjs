@@ -377,3 +377,52 @@ test("renderPlanSection: row description renders as prose blocks", () => {
     html,
   );
 });
+
+// --- prose links on scrubbed rows ---
+
+test("renderPlanSection: a row description links the ids in the links map", () => {
+  const node = {
+    shortID: "ABC12",
+    url: "/tasks/ABC12",
+    title: "Mentions another task",
+    description: "blocked on XY9Qr2 until `XY9Qr2` lands; banana is not a task",
+    displayStatus: "todo",
+    actor: "",
+    labels: [],
+    relTime: "5m",
+    isoTime: "2026-04-26T12:00:00.000Z",
+    blockedBy: [],
+    notes: [],
+    children: [],
+    depth: 0,
+    hasChildren: false,
+    collapsible: true,
+    collapsed: false,
+  };
+  const html = renderPlanSection([node], {}, { XY9Qr2: "/tasks/XY9Qr2" });
+  assert.match(html, /blocked on <a href="\/tasks\/XY9Qr2">XY9Qr2<\/a> until/);
+  assert.match(html, /<a href="\/tasks\/XY9Qr2"><code>XY9Qr2<\/code><\/a>/);
+  assert.doesNotMatch(html, /banana<\/a>/);
+});
+
+test("renderPlanSection: without a links map a description links nothing", () => {
+  const node = {
+    shortID: "ABC12",
+    url: "/tasks/ABC12",
+    title: "t",
+    description: "blocked on XY9Qr2",
+    displayStatus: "todo",
+    actor: "",
+    labels: [],
+    relTime: "",
+    isoTime: "",
+    blockedBy: [],
+    notes: [],
+    children: [],
+    depth: 0,
+    hasChildren: false,
+    collapsible: true,
+    collapsed: false,
+  };
+  assert.match(renderPlanSection([node]), /<p>blocked on XY9Qr2<\/p>/);
+});

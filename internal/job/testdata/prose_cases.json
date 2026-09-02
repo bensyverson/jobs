@@ -142,5 +142,109 @@
     "input": "one\r\ntwo\r\n\r\nthree",
     "text": "one two\n\nthree",
     "html": "<p>one two</p><p>three</p>"
+  },
+  {
+    "name": "code span",
+    "input": "run `go test ./...` first",
+    "text": "run `go test ./...` first",
+    "html": "<p>run <code>go test ./...</code> first</p>"
+  },
+  {
+    "name": "code span escapes its content",
+    "input": "hostile: `<script>alert(1)</script>`",
+    "text": "hostile: `<script>alert(1)</script>`",
+    "html": "<p>hostile: <code>&lt;script&gt;alert(1)&lt;/script&gt;</code></p>"
+  },
+  {
+    "name": "double backtick run closes on a double run",
+    "input": "``a ` b`` c",
+    "text": "``a ` b`` c",
+    "html": "<p><code>a ` b</code> c</p>"
+  },
+  {
+    "name": "unclosed backtick run is literal",
+    "input": "a ``b c",
+    "text": "a ``b c",
+    "html": "<p>a ``b c</p>"
+  },
+  {
+    "name": "link with an http url",
+    "input": "see [the docs](https://example.com/a?b=1&c=2) now",
+    "text": "see [the docs](https://example.com/a?b=1&c=2) now",
+    "html": "<p>see <a href=\"https://example.com/a?b=1&amp;c=2\">the docs</a> now</p>"
+  },
+  {
+    "name": "javascript scheme stays literal",
+    "input": "[click](javascript:alert(1))",
+    "text": "[click](javascript:alert(1))",
+    "html": "<p>[click](javascript:alert(1))</p>"
+  },
+  {
+    "name": "site-relative link",
+    "input": "see [the plan](/plan?show=all)",
+    "text": "see [the plan](/plan?show=all)",
+    "html": "<p>see <a href=\"/plan?show=all\">the plan</a></p>"
+  },
+  {
+    "name": "protocol-relative link stays literal",
+    "input": "[x](//evil.example/a)",
+    "text": "[x](//evil.example/a)",
+    "html": "<p>[x](//evil.example/a)</p>"
+  },
+  {
+    "name": "link text renders code spans but no nested link",
+    "input": "[run `mk4Qz1` now](/plan)",
+    "links": { "mk4Qz1": "/tasks/mk4Qz1" },
+    "text": "[run `mk4Qz1` now](/plan)",
+    "html": "<p><a href=\"/plan\">run <code>mk4Qz1</code> now</a></p>"
+  },
+  {
+    "name": "bare task id links",
+    "input": "blocked on mk4Qz1 until Friday",
+    "links": { "mk4Qz1": "/tasks/mk4Qz1" },
+    "text": "blocked on mk4Qz1 until Friday",
+    "html": "<p>blocked on <a href=\"/tasks/mk4Qz1\">mk4Qz1</a> until Friday</p>"
+  },
+  {
+    "name": "backticked task id links around the code span",
+    "input": "blocked on `mk4Qz1`",
+    "links": { "mk4Qz1": "/tasks/mk4Qz1" },
+    "text": "blocked on `mk4Qz1`",
+    "html": "<p>blocked on <a href=\"/tasks/mk4Qz1\"><code>mk4Qz1</code></a></p>"
+  },
+  {
+    "name": "backticked criterion id links",
+    "input": "criterion `Bp7` is green",
+    "links": { "Bp7": "/tasks/mk4Qz1#crit-Bp7" },
+    "text": "criterion `Bp7` is green",
+    "html": "<p>criterion <a href=\"/tasks/mk4Qz1#crit-Bp7\"><code>Bp7</code></a> is green</p>"
+  },
+  {
+    "name": "bare criterion id does not link",
+    "input": "criterion Bp7 is green",
+    "links": { "Bp7": "/tasks/mk4Qz1#crit-Bp7" },
+    "text": "criterion Bp7 is green",
+    "html": "<p>criterion Bp7 is green</p>"
+  },
+  {
+    "name": "id inside a fenced block does not link",
+    "input": "```\njob show mk4Qz1\n```",
+    "links": { "mk4Qz1": "/tasks/mk4Qz1" },
+    "text": "```\njob show mk4Qz1\n```",
+    "html": "<pre><code>job show mk4Qz1\n</code></pre>"
+  },
+  {
+    "name": "id-shaped word absent from the resolver stays plain",
+    "input": "the word banana is not a task",
+    "links": { "mk4Qz1": "/tasks/mk4Qz1" },
+    "text": "the word banana is not a task",
+    "html": "<p>the word banana is not a task</p>"
+  },
+  {
+    "name": "ids inside list items link",
+    "input": "- see mk4Qz1\n- and `Bp7`",
+    "links": { "mk4Qz1": "/tasks/mk4Qz1", "Bp7": "/tasks/mk4Qz1#crit-Bp7" },
+    "text": "- see mk4Qz1\n- and `Bp7`",
+    "html": "<ul><li>see <a href=\"/tasks/mk4Qz1\">mk4Qz1</a></li><li>and <a href=\"/tasks/mk4Qz1#crit-Bp7\"><code>Bp7</code></a></li></ul>"
   }
 ]

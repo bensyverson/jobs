@@ -115,7 +115,7 @@
 {{if .Description}}
 <section class="c-section">
   <h2 class="c-section__label t-label-caps">Description</h2>
-  <div class="c-note c-prose">{{prose .Description}}</div>
+  <div class="c-note c-prose">{{prose .Description .Links}}</div>
 </section>
 {{end}}
 
@@ -140,14 +140,14 @@
 {{if .CompletionNote}}
 <section class="c-section">
   <h2 class="c-section__label t-label-caps">Completion note</h2>
-  <div class="c-note c-prose">{{prose .CompletionNote}}</div>
+  <div class="c-note c-prose">{{prose .CompletionNote .Links}}</div>
 </section>
 {{end}}
 
 {{if .CancelReason}}
 <section class="c-section">
   <h2 class="c-section__label t-label-caps">Cancel reason</h2>
-  <div class="c-note c-prose">{{prose .CancelReason}}</div>
+  <div class="c-note c-prose">{{prose .CancelReason .Links}}</div>
 </section>
 {{end}}
 
@@ -177,7 +177,11 @@
 </article>
 {{end}}
 
-{{- /* Inline partial: one criterion row. Renders an inline SVG icon
+{{- /* Inline partial: one criterion row. The row carries id="crit-<short
+     id>" so a criterion mentioned in prose links straight to it; the peek
+     sheet's copy deliberately has no id, since it renders over another
+     task's page and two tasks may each carry a criterion with the same
+     three characters. Renders an inline SVG icon
      for each of the four states (passed disc+check, pending outline
      circle, skipped disc+dash, failed disc+×), the label, and a quiet
      trailing state badge for screen-readers / color-blind users.
@@ -185,7 +189,7 @@
      coloring (via currentColor on the icon) and tests. */ -}}
 {{define "criterion-row"}}
   {{- $s := .State -}}
-  <li class="c-criterion" data-criterion-state="{{$s}}">
+  <li class="c-criterion" id="crit-{{.ShortID}}" data-criterion-state="{{$s}}">
     {{template "criterion-icon" $s}}
     <span class="c-criterion__label">{{.Label}}</span>
     {{- if .StateBadge -}}
@@ -223,7 +227,7 @@
       <strong>{{.Actor}}</strong>
     </a>
     <time class="t-dim t-data-id" datetime="{{.ISOTime}}">{{.RelTime}} ago</time>
-    <div class="c-progress-note__body c-prose">{{prose .Text}}</div>
+    <div class="c-progress-note__body c-prose">{{prose .Text .Links}}</div>
   </div>
 {{end}}
 

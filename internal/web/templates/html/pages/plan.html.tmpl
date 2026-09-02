@@ -57,7 +57,7 @@
       <a href="{{.URL}}" data-peek class="c-id-pill">{{.ShortID}}</a>
       {{range .Labels}}<a href="{{.URL}}" class="c-label-pill" data-label="{{.Name}}" style="--label-color: {{.Color}}">{{.Name}}</a>{{end}}
     </div>
-    {{if .Description}}<div class="c-plan-row__desc c-prose">{{prose .Description}}</div>{{end}}
+    {{if .Description}}<div class="c-plan-row__desc c-prose">{{prose .Description .Links}}</div>{{end}}
   </div>
   <span class="c-plan-row__avatar-slot">
     {{- if .Actor}}<span class="c-avatar c-avatar-sm" data-actor="{{.Actor}}"></span>{{end -}}

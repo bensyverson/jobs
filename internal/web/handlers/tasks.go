@@ -51,6 +51,10 @@ type TaskPageData struct {
 	// is a property of the root only, so a child reports its root's
 	// kind. Drives the p-task--issue page variant.
 	IsIssue bool
+	// Links is the prose resolver for every body this page renders —
+	// the short ids the inline pass may turn into links, resolved once
+	// against the store rather than per body.
+	Links job.ProseLinks
 }
 
 // TaskProgressNote is one row in the "Progress notes" section, ordered
@@ -62,6 +66,10 @@ type TaskProgressNote struct {
 	Text     string
 	RelTime  string
 	ISOTime  string
+	// Links is the page's prose resolver, copied onto every row because
+	// the note body renders inside a partial, where the page's own data
+	// is out of scope. One map, shared by every row.
+	Links job.ProseLinks
 }
 
 // TaskCriterion is one row in the Criteria checklist on the task page
@@ -71,6 +79,10 @@ type TaskProgressNote struct {
 // blank when the row is pending and the section just shows the empty
 // glyph.
 type TaskCriterion struct {
+	// ShortID is the criterion's stable 3-char handle. The task page
+	// renders it as the row's id attribute so prose elsewhere can link
+	// to /tasks/<task>#crit-<short id>.
+	ShortID    string
 	Label      string
 	State      string
 	StateBadge string
@@ -226,9 +238,29 @@ func loadTaskPageData(deps Deps, w http.ResponseWriter, r *http.Request) (TaskPa
 		InternalError(deps, w, "task initial frame", err)
 		return TaskPageData{}, false
 	}
+	cancelReason := buildCancelReason(task.Status, events)
+
+	notes := buildProgressNotes(events)
+	// One resolver per page, built from every body the page will render,
+	// then handed to each of them. The note rows carry their own copy
+	// because they render inside a partial.
+	bodies := make([]string, 0, len(notes)+3)
+	bodies = append(bodies, task.Description, derefString(task.CompletionNote), cancelReason)
+	for _, n := range notes {
+		bodies = append(bodies, n.Text)
+	}
+	links, err := job.ResolveProseLinks(deps.DB, bodies)
+	if err != nil {
+		InternalError(deps, w, "prose links", err)
+		return TaskPageData{}, false
+	}
+	for i := range notes {
+		notes[i].Links = links
+	}
 
 	return TaskPageData{
 		Chrome:         chrome,
+		Links:          links,
 		ShortID:        task.ShortID,
 		Title:          task.Title,
 		Description:    task.Description,
@@ -239,9 +271,9 @@ func loadTaskPageData(deps Deps, w http.ResponseWriter, r *http.Request) (TaskPa
 		Blocking:       taskRefs(blocking, relBlockers),
 		Criteria:       buildTaskCriteria(criteria),
 		CompletionNote: derefString(task.CompletionNote),
-		CancelReason:   buildCancelReason(task.Status, events),
+		CancelReason:   cancelReason,
 		ClaimedBy:      derefString(task.ClaimedBy),
-		ProgressNotes:  buildProgressNotes(events),
+		ProgressNotes:  notes,
 		History:        buildHistory(events),
 		FoundIn:        taskRefOrNil(foundIn, relBlockers),
 		Surfaced:       taskRefs(surfaced, relBlockers),
@@ -327,7 +359,7 @@ func buildTaskCriteria(items []job.Criterion) []TaskCriterion {
 		case job.CriterionFailed:
 			badge = "failed"
 		}
-		out[i] = TaskCriterion{Label: c.Label, State: state, StateBadge: badge}
+		out[i] = TaskCriterion{ShortID: c.ShortID, Label: c.Label, State: state, StateBadge: badge}
 	}
 	return out
 }

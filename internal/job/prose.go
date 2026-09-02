@@ -12,7 +12,9 @@ import (
 // ends a paragraph, list items keep their own line, and fenced code is
 // verbatim. ParseProse turns text into typed blocks; RenderProseText and
 // RenderProseHTML consume the same blocks so the console and the dashboard
-// agree. Inline syntax (backticks, emphasis, links) is left as written.
+// agree. Emphasis is left as written on both surfaces; the dashboard runs a
+// second, inline pass over paragraph text for code spans, links and short-id
+// autolinks (prose_inline.go), which the console renderer does not.
 //
 // One deliberate departure from CommonMark: an unindented line directly
 // after a list item starts a new paragraph instead of lazily continuing the
@@ -308,14 +310,16 @@ func indentLines(lines []string, indent string) string {
 
 // RenderProseHTML renders prose as escaped HTML: <p>, <ul>/<ol> and
 // <pre><code>. Every character of the source is escaped; no raw HTML passes
-// through.
-func RenderProseHTML(text string) string {
+// through. Paragraph and list-item text also gets the inline pass — code
+// spans, links, and autolinks for the short ids in links (see
+// prose_inline.go). A nil links map renders ids as plain text.
+func RenderProseHTML(text string, links ProseLinks) string {
 	var sb strings.Builder
-	renderBlocksHTML(&sb, ParseProse(text), false)
+	renderBlocksHTML(&sb, ParseProse(text), links, false)
 	return sb.String()
 }
 
-func renderBlocksHTML(sb *strings.Builder, blocks []ProseBlock, tight bool) {
+func renderBlocksHTML(sb *strings.Builder, blocks []ProseBlock, links ProseLinks, tight bool) {
 	for _, b := range blocks {
 		switch b.Kind {
 		case ProseCode:
@@ -341,7 +345,7 @@ func renderBlocksHTML(sb *strings.Builder, blocks []ProseBlock, tight bool) {
 			sb.WriteString(">")
 			for _, item := range b.Items {
 				sb.WriteString("<li>")
-				renderBlocksHTML(sb, item, !b.Loose)
+				renderBlocksHTML(sb, item, links, !b.Loose)
 				sb.WriteString("</li>")
 			}
 			sb.WriteString("</" + tag + ">")
@@ -353,7 +357,7 @@ func renderBlocksHTML(sb *strings.Builder, blocks []ProseBlock, tight bool) {
 				if i > 0 {
 					sb.WriteString("<br>")
 				}
-				sb.WriteString(html.EscapeString(l))
+				renderInlineHTML(sb, l, links, true)
 			}
 			if !tight {
 				sb.WriteString("</p>")

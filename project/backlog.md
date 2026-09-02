@@ -26,6 +26,14 @@ Once `.jobs/log/*.jsonl` is the record (see [2026-09-01-git-native-event-log.md]
 
 **Un-park when:** the format is first bumped past 1, or a second machine runs a binary that is routinely behind.
 
-## 2026-09-02 — full markdown rendering in the dashboard
+## 2026-09-02 — emphasis in dashboard prose
 
-Descriptions and notes are markdown prose, but only the block subset is rendered: paragraphs, lists, fenced code, hard breaks (`internal/job/prose.go`, `assets/js/prose.mjs`, project/2026-09-02-prose-rendering.md). Inline syntax — backticks, emphasis, links — stays literal. Parked because a full parser is a dependency on both surfaces (goldmark for Go, a JS twin for the scrubber) plus a sanitization surface, and the subset already fixes the reflow pain. Un-park when someone wants inline code or links rendered on the dashboard; goldmark is the pick, being what the docs site's Hugo already uses, and the block subset is forward-compatible with it.
+Descriptions and notes render the block subset (paragraphs, lists, fenced code, hard breaks) plus an inline pass for code spans, `[text](url)` links and short-id autolinks (`internal/job/prose.go`, `internal/job/prose_inline.go`, `assets/js/prose.mjs`, project/2026-09-02-prose-rendering.md). Emphasis — `*bold*`, `_italic_` — is the one inline construct still left literal, and headings, block quotes, images and raw HTML remain out of scope.
+
+**Why parked:** emphasis is decoration, where every construct already rendered carries information (a command, a destination, a task). Its delimiters are also the fiddly part of CommonMark — flanking rules, intraword underscores, nesting with code spans — and every rule has to be written twice, once in Go and once in the JS twin, with the parity test as the only thing holding them together.
+
+**Un-park when:** someone writes emphasis in a note and the raw asterisks read as noise on the dashboard, or when a second inline construct (a heading, a table) is wanted at the same time — at which point pulling in goldmark for the server and reconsidering what the scrubber renders beats hand-writing a third pass. Goldmark is the pick, being what the docs site's Hugo already uses; the subset rendered today is forward-compatible with it.
+
+## 2026-09-02 — criterion autolinks in the plan scrubber
+
+Scrubbed plan rows autolink task ids only. The head-frame island (`internal/web/initial`'s `CriterionState`) carries each criterion's label and state but not its short id, so a replayed frame cannot resolve a backticked criterion id, and linking only the ones added by a replayed `criteria_added` event would be inconsistent. Un-park when scrubbed rows need parity with the server-rendered page: add `short_id` to the island's criterion shape and have `proseLinksFromFrame` map criteria to `/tasks/<task>#crit-<id>` when exactly one task owns the id.

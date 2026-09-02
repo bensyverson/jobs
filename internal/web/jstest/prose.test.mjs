@@ -22,9 +22,19 @@ test("fixtures are present", () => {
 
 for (const c of cases) {
   test(`renderProseHTML: ${c.name}`, () => {
-    assert.equal(renderProseHTML(c.input), c.html);
+    assert.equal(renderProseHTML(c.input, c.links), c.html);
   });
 }
+
+test("renderProseHTML: inherited object properties are not link URLs", () => {
+  // `links` is a plain object built by the caller; a bare `links[token]`
+  // lookup would find Object.prototype.toString and link to a function.
+  assert.equal(renderProseHTML("call toString twice", {}), "<p>call toString twice</p>");
+  assert.equal(
+    renderProseHTML("call `toString` twice", {}),
+    "<p>call <code>toString</code> twice</p>",
+  );
+});
 
 test("parseProse: structure of a mixed document", () => {
   const blocks = parseProse("intro\n\n- a\n  - b\n\n```go\nx\n```");
@@ -40,4 +50,8 @@ test("parseProse: structure of a mixed document", () => {
 test("renderProseHTML: null and undefined render empty", () => {
   assert.equal(renderProseHTML(null), "");
   assert.equal(renderProseHTML(undefined), "");
+});
+
+test("renderProseHTML: a missing links argument links nothing", () => {
+  assert.equal(renderProseHTML("see mk4Qz1"), "<p>see mk4Qz1</p>");
 });

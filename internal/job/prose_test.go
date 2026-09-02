@@ -8,11 +8,14 @@ import (
 
 // proseCase is one row of testdata/prose_cases.json, shared with the
 // dashboard's JS twin so the two renderers cannot drift.
+// Links is the resolver the inline pass consults; absent means "no id in
+// this case resolves", which is the common case.
 type proseCase struct {
-	Name  string `json:"name"`
-	Input string `json:"input"`
-	Text  string `json:"text"`
-	HTML  string `json:"html"`
+	Name  string     `json:"name"`
+	Input string     `json:"input"`
+	Links ProseLinks `json:"links"`
+	Text  string     `json:"text"`
+	HTML  string     `json:"html"`
 }
 
 func loadProseCases(t *testing.T) []proseCase {
@@ -90,7 +93,7 @@ func TestParseProse_HardBreakSplitsLines(t *testing.T) {
 func TestRenderProseHTML_Fixtures(t *testing.T) {
 	for _, c := range loadProseCases(t) {
 		t.Run(c.Name, func(t *testing.T) {
-			if got := RenderProseHTML(c.Input); got != c.HTML {
+			if got := RenderProseHTML(c.Input, c.Links); got != c.HTML {
 				t.Errorf("\n got: %q\nwant: %q", got, c.HTML)
 			}
 		})

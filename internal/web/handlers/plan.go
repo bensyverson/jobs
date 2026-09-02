@@ -99,6 +99,10 @@ type PlanNode struct {
 	// CSS hides the description, blocked-by, notes, and subtree on
 	// collapsed rows. Later phases attach a JS toggle.
 	Collapsed bool
+	// Links is the page's prose resolver, the same map on every node:
+	// the row template is recursive, so the page's own data is out of
+	// scope by the time a description renders.
+	Links job.ProseLinks
 }
 
 // PlanNote is one note entry rendered under a task as a c-plan-note row.
@@ -201,6 +205,10 @@ func planHandler(deps Deps, view planView) http.Handler {
 		now := time.Now()
 		addLabelURLs := buildAddLabelURLs(view.BasePath, roots, labels, selected, show)
 		planRoots := buildPlanNodes(roots, labels, blockers, notes, actors, titlesByShortID, addLabelURLs, now, 0)
+		if err := attachProseLinks(deps.DB, planRoots); err != nil {
+			InternalError(deps, w, "prose links", err)
+			return
+		}
 
 		chrome, err := newChrome(r.Context(), deps, view.ActiveTab, now)
 		if err != nil {

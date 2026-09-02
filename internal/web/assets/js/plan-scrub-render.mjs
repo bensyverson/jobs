@@ -151,7 +151,7 @@ function renderNotes(node) {
   );
 }
 
-function renderNode(node) {
+function renderNode(node, links) {
   const collapsedAttr = node.collapsible
     ? ` data-collapsed="${node.collapsed ? "true" : "false"}"`
     : "";
@@ -165,7 +165,7 @@ function renderNode(node) {
 
   const desc =
     node.description && node.description.trim() !== ""
-      ? `<div class="c-plan-row__desc c-prose">${renderProseHTML(node.description)}</div>`
+      ? `<div class="c-plan-row__desc c-prose">${renderProseHTML(node.description, links)}</div>`
       : "";
 
   const avatar = node.actor
@@ -194,24 +194,26 @@ function renderNode(node) {
 
   const notes = renderNotes(node);
   const subtree = node.hasChildren
-    ? `<div class="c-plan-subtree">${(node.children ?? []).map(renderNode).join("")}</div>`
+    ? `<div class="c-plan-subtree">${(node.children ?? []).map((c) => renderNode(c, links)).join("")}</div>`
     : "";
   return row + notes + subtree;
 }
 
 // renderPlanSection emits the Plan <section> the page currently shows.
+// links is the prose resolver (see proseLinksFromFrame): the short ids a
+// row description may link. Omit it and descriptions render without links.
 // The wrapping <main> stays put — the driver swaps just this section.
 // view carries the per-view attributes the SSR template emits, so the
 // scrubbed section stays findable by the same selectors: { label,
 // kind, base, emptyText }. Defaults are the Plan view's.
-export function renderPlanSection(planNodes, view = {}) {
+export function renderPlanSection(planNodes, view = {}, links = null) {
   const label = view.label ?? "Plan";
   const kind = view.kind ?? "task";
   const base = view.base ?? "/plan";
   const emptyText = view.emptyText ?? "No active tasks.";
   const inner =
     planNodes && planNodes.length > 0
-      ? `<div class="stack stack-gap-xs">${planNodes.map(renderNode).join("")}</div>`
+      ? `<div class="stack stack-gap-xs">${planNodes.map((n) => renderNode(n, links)).join("")}</div>`
       : `<div class="c-plan-empty"><span class="t-muted">${escapeHTML(emptyText)}</span></div>`;
   return `<section class="c-section" aria-label="${escapeHTML(label)}" data-plan-view="${escapeHTML(kind)}" data-plan-base="${escapeHTML(base)}">${inner}</section>`;
 }

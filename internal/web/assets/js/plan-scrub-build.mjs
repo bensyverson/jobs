@@ -277,6 +277,26 @@ export function buildPlanNodes(roots, frame, nowSec, opts = {}) {
   return walk(roots, 0);
 }
 
+// proseLinksFromFrame builds the resolver the inline prose pass consults,
+// mapping every task id the frame knows to its task URL. It stands in for
+// the server's job.ResolveProseLinks: the frame *is* the store as of the
+// cursor, so a task that does not exist yet at this moment correctly fails
+// to resolve.
+//
+// Criteria are deliberately absent. The head-frame island carries only each
+// criterion's label and state (internal/web/initial's CriterionState), not
+// its short id, so most criteria in a replayed frame have no id to key on
+// and the ones that do — added by a replayed criteria_added event — would
+// link inconsistently. Scrubbed rows therefore link task ids only; the
+// server-rendered page links both.
+export function proseLinksFromFrame(frame) {
+  const links = Object.create(null);
+  for (const shortId of frame.tasks.keys()) {
+    links[shortId] = "/tasks/" + shortId;
+  }
+  return links;
+}
+
 // --- URL helpers (mirror plan.go's planURL / toggleLabel / addLabel) ---
 
 export function toggleLabel(selected, name) {

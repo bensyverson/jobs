@@ -23,6 +23,7 @@ import {
   planURL,
   toggleLabel,
   addLabel,
+  proseLinksFromFrame,
 } from "../assets/js/plan-scrub-build.mjs";
 
 // --- displayStatus ---
@@ -420,4 +421,23 @@ test("buildPlanNodes: inline label URLs follow opts.base", () => {
     base: "/issues",
   });
   assert.equal(nodes[0].labels[0].url, "/issues?label=web");
+});
+
+// --- proseLinksFromFrame ---
+
+test("proseLinksFromFrame: every replayed task id maps to its task URL", () => {
+  const f = frameWith({
+    tasks: [
+      { shortId: "P0001", title: "P", status: "available", sortKey: "000001" },
+      { shortId: "C0001", title: "C", status: "done", parentShortId: "P0001", sortKey: "000002" },
+    ],
+  });
+  assert.deepEqual({ ...proseLinksFromFrame(f) }, {
+    P0001: "/tasks/P0001",
+    C0001: "/tasks/C0001",
+  });
+});
+
+test("proseLinksFromFrame: an empty frame resolves nothing", () => {
+  assert.deepEqual({ ...proseLinksFromFrame(frameWith({})) }, {});
 });
