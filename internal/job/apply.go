@@ -185,14 +185,23 @@ var rebuildStateTables = []string{
 // file's size no longer matches its watermark; here it is what the
 // determinism test rebuilds a shuffled log with.
 func rebuildFrom(db *sql.DB, events []eventlog.Envelope) error {
-	ordered := append([]eventlog.Envelope(nil), events...)
-	eventlog.Sort(ordered)
-
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err := rebuildFromInTx(tx, events); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// rebuildFromInTx is rebuildFrom's body, for a caller that has more to do in
+// the same transaction — the store advances every watermark there, so a cache
+// can never record that it applied a file it did not.
+func rebuildFromInTx(tx dbtx, events []eventlog.Envelope) error {
+	ordered := append([]eventlog.Envelope(nil), events...)
+	eventlog.Sort(ordered)
 
 	for _, table := range rebuildStateTables {
 		if _, err := tx.Exec("DELETE FROM " + table); err != nil {
@@ -204,5 +213,5 @@ func rebuildFrom(db *sql.DB, events []eventlog.Envelope) error {
 			return fmt.Errorf("rebuild at %s: %w", e.Position(), err)
 		}
 	}
-	return tx.Commit()
+	return nil
 }

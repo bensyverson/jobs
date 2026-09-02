@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/bensyverson/jobs/internal/eventlog"
 	"github.com/bensyverson/jobs/internal/migrations"
 	_ "modernc.org/sqlite"
 )
@@ -72,6 +73,12 @@ func findAncestorDB() string {
 		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
 			return candidate
 		}
+		// A fresh clone carries .jobs/log and no cache at all. The store is
+		// the record, so finding it is finding the project; the cache is built
+		// on the first command.
+		if info, err := os.Stat(eventlog.LogDir(eventlog.StoreDir(candidate))); err == nil && info.IsDir() {
+			return candidate
+		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			return ""
@@ -80,7 +87,39 @@ func findAncestorDB() string {
 	}
 }
 
+// OpenDB opens the cache at path, migrates it, and reconciles it with the
+// store beside it — a rebuild from .jobs/log whenever a file's size no longer
+// matches the offset the cache applied.
 func OpenDB(path string) (*sql.DB, error) {
+	db, err := openCache(path)
+	if err != nil {
+		return nil, err
+	}
+	sync, err := syncStore(db, path)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	resolved, err := CachePathOf(db)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	syncRecords.Store(resolved, sync)
+	return db, nil
+}
+
+// OpenDBForRecovery opens the cache without reconciling it with the store.
+//
+// It exists for the one verb that has to work when the rebuild is what failed:
+// `job rekey` reads the raw log and appends the decision that unblocks it.
+// Nothing else should use it — a cache opened this way may not reflect the
+// record.
+func OpenDBForRecovery(path string) (*sql.DB, error) {
+	return openCache(path)
+}
+
+func openCache(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)

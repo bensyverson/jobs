@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/bensyverson/jobs/internal/eventlog"
 )
 
 type StatusSummary struct {
@@ -18,6 +20,45 @@ type StatusSummary struct {
 	Total           int
 	IdentityDefault string
 	Strict          bool
+	Store           *StoreStatus
+}
+
+// StoreStatus is the store line: which replica this checkout is, how much log
+// there is, and what the last open did about it. The log is the record and the
+// cache is disposable, so "is the cache current?" is a question worth being
+// able to ask.
+type StoreStatus struct {
+	Rep    string
+	Files  int
+	Events int
+	State  StoreState
+}
+
+// storeStatus reads the store beside db's cache. A database with no file on
+// disk — an in-memory test database — has no store, and reports none rather
+// than failing the whole status.
+func storeStatus(db *sql.DB) *StoreStatus {
+	path, err := CachePathOf(db)
+	if err != nil {
+		return nil
+	}
+	s := &StoreStatus{State: StoreInSync}
+	if sync := StoreSyncOf(db); sync != nil {
+		s.State = sync.State
+	}
+	// The file count and the replica id are read now rather than taken from
+	// the open: this process may have minted the replica and written its first
+	// log file since.
+	if local, err := LoadLocalState(path); err == nil {
+		s.Rep = local.Rep
+	}
+	if files, err := eventlog.Files(eventlog.StoreDir(path)); err == nil {
+		s.Files = len(files)
+	}
+	if n, err := StoreEventCount(path); err == nil {
+		s.Events = n
+	}
+	return s
 }
 
 func RunStatus(db *sql.DB, actor string) (*StatusSummary, error) {
@@ -82,6 +123,7 @@ func RunStatus(db *sql.DB, actor string) (*StatusSummary, error) {
 		return nil, err
 	}
 	s.Strict = strict
+	s.Store = storeStatus(db)
 
 	return s, nil
 }
@@ -202,5 +244,21 @@ func RenderStatus(w io.Writer, s *StatusSummary) {
 		fmt.Fprintf(w, "Identity: %s (default) · strict mode %s\n", s.IdentityDefault, strictWord)
 	} else {
 		fmt.Fprintln(w, "Identity: none set · --as required on writes")
+	}
+
+	if st := s.Store; st != nil {
+		rep := st.Rep
+		if rep == "" {
+			rep = "unminted"
+		}
+		files, events := "log files", "events"
+		if st.Files == 1 {
+			files = "log file"
+		}
+		if st.Events == 1 {
+			events = "event"
+		}
+		fmt.Fprintf(w, "Store: replica %s · %d %s, %d %s · cache %s\n",
+			rep, st.Files, files, st.Events, events, st.State)
 	}
 }

@@ -34,7 +34,16 @@ const (
 	EventEdited         EventType = "edited"
 	EventMoved          EventType = "moved"
 	EventReparented     EventType = "reparented"
+	EventRekeyed        EventType = "rekeyed"
 )
+
+// ReleaseReason names why a claim ended when the holder did not ask. It is a
+// closed set, so it is a type rather than a free string in the payload.
+type ReleaseReason string
+
+// ReleaseLostMerge is the reconcile pass releasing the later of two claims
+// made on one task by two replicas that were apart.
+const ReleaseLostMerge ReleaseReason = "lost-merge"
 
 // CreatedPayload is recorded by RunAdd and the import inserter. ParentID is
 // "" for a root task.
@@ -68,11 +77,16 @@ type UnlabeledPayload struct {
 // auto-release of a claimed parent when a child is added or reparented
 // under it. AutoReleased and TriggeredByChild are set only for the
 // auto-release case.
+// Reason and LostClaim are set only by the reconcile pass: LostClaim is the
+// position "<ts>-<rep>-<seq>" of the `claimed` event this release undoes, and
+// it is what stops the next rebuild repairing the same conflict again.
 type ReleasedPayload struct {
-	AutoReleased     bool   `json:"auto_released,omitempty"`
-	TriggeredByChild string `json:"triggered_by_child,omitempty"`
-	WasClaimedBy     string `json:"was_claimed_by"`
-	WasExpiresAt     int64  `json:"was_expires_at"`
+	AutoReleased     bool          `json:"auto_released,omitempty"`
+	TriggeredByChild string        `json:"triggered_by_child,omitempty"`
+	WasClaimedBy     string        `json:"was_claimed_by"`
+	WasExpiresAt     int64         `json:"was_expires_at"`
+	Reason           ReleaseReason `json:"reason,omitempty"`
+	LostClaim        string        `json:"lost_claim,omitempty"`
 }
 
 // CanceledPayload covers a cascaded descendant cancel, an explicit cancel

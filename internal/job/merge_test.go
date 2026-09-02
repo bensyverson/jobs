@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bensyverson/jobs/internal/eventlog"
 )
 
 // ---------------------------------------------------------------------------
@@ -59,13 +61,37 @@ func copyDBFile(t *testing.T, src, dst string) {
 	}
 }
 
+// copyStoreDir duplicates the .jobs/ store beside a cache, so the copy carries
+// the same replica id and log — which is exactly the situation `job merge`
+// exists for: one checkout copied to a second machine and then written on
+// both.
+func copyStoreDir(t *testing.T, srcDir, dstDir string) {
+	t.Helper()
+	src := eventlog.StoreDir(filepath.Join(srcDir, ".jobs.db"))
+	dst := eventlog.StoreDir(filepath.Join(dstDir, ".jobs.db"))
+	if err := os.CopyFS(dst, os.DirFS(src)); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("copy store %s -> %s: %v", src, dst, err)
+	}
+}
+
 // divergedPair seeds one database, closes it, copies it, and hands both back
 // open — the exact situation `job merge` exists for.
 func divergedPair(t *testing.T, seed func(db *sql.DB)) (local, other *sql.DB, localPath, otherPath string) {
 	t.Helper()
+	// Each side gets its own directory. The store is the .jobs/ beside the
+	// cache, so two caches in one directory would share one store and one
+	// replica id — which is not a copied checkout, it is one checkout with two
+	// projections of the same log.
 	dir := t.TempDir()
-	localPath = filepath.Join(dir, "local.jobs.db")
-	otherPath = filepath.Join(dir, "other.jobs.db")
+	localDir := filepath.Join(dir, "here")
+	otherDir := filepath.Join(dir, "there")
+	for _, d := range []string{localDir, otherDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", d, err)
+		}
+	}
+	localPath = filepath.Join(localDir, ".jobs.db")
+	otherPath = filepath.Join(otherDir, ".jobs.db")
 
 	seedDB, err := CreateDB(localPath)
 	if err != nil {
@@ -78,6 +104,7 @@ func divergedPair(t *testing.T, seed func(db *sql.DB)) (local, other *sql.DB, lo
 		t.Fatalf("close seed: %v", err)
 	}
 	copyDBFile(t, localPath, otherPath)
+	copyStoreDir(t, localDir, otherDir)
 
 	return mustOpenAt(t, localPath), mustOpenAt(t, otherPath), localPath, otherPath
 }

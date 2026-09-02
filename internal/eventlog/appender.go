@@ -31,11 +31,24 @@ func OpenAppender(storeDir, cachePath, rep string) (*Appender, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("eventlog: create log directory: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return nil, fmt.Errorf("eventlog: open %s: %w", path, err)
+	// The file itself is opened on the first append, not here. A command that
+	// emits nothing must not leave an empty file behind: the log is committed
+	// to git, and an empty file for a replica that has written nothing is a
+	// tracked artefact with no content and a misleading name.
+	return &Appender{rep: rep, path: path, cachePath: cachePath}, nil
+}
+
+// open lazily opens the log file for append. The caller holds the store lock.
+func (a *Appender) open() error {
+	if a.f != nil {
+		return nil
 	}
-	return &Appender{rep: rep, path: path, cachePath: cachePath, f: f}, nil
+	f, err := os.OpenFile(a.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("eventlog: open %s: %w", a.path, err)
+	}
+	a.f = f
+	return nil
 }
 
 // Rep returns the replica this appender writes for.
@@ -82,6 +95,9 @@ func (a *Appender) AppendLocked(evs []*Envelope) error {
 		}
 		buf.Write(line)
 	}
+	if err := a.open(); err != nil {
+		return err
+	}
 	// One write of whole lines: a concurrent appender under the same lock can
 	// never land between two of them.
 	if _, err := a.f.Write(buf.Bytes()); err != nil {
@@ -103,6 +119,12 @@ func (a *Appender) LastSeq() (uint64, error) {
 	defer l.Release()
 	return a.lastSeq()
 }
+
+// LastSeqLocked is LastSeq for a caller that already holds the store lock —
+// the command path takes the lock once and asks for the seq inside it, so the
+// number it mints agrees with the number AppendLocked will assign. Calling
+// LastSeq while holding the lock would deadlock.
+func (a *Appender) LastSeqLocked() (uint64, error) { return a.lastSeq() }
 
 // lastSeq re-reads the file rather than trusting a cached value: another
 // Appender or another process may have written since the last batch. The caller

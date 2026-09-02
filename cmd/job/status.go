@@ -177,6 +177,7 @@ func renderStatusForestJSON(w io.Writer, s *job.StatusSummary, rollup *job.Summa
 			"done":     s.Done,
 			"canceled": s.Canceled,
 		},
+		"store":              storeJSON(s.Store),
 		"last_activity_unix": s.LastActivity,
 		"roots":              rollupRowsJSON(rollup.DirectChildren),
 		"next":               nextJSON(rollup.Next),
@@ -186,6 +187,21 @@ func renderStatusForestJSON(w io.Writer, s *job.StatusSummary, rollup *job.Summa
 		"issues":             issuesJSON(rollup.Issues),
 	}
 	return writeJSON(w, payload)
+}
+
+// storeJSON renders the `store` object: which replica this checkout is, how
+// much log there is, and what the last open did about the cache. null when the
+// database has no file on disk and so has no store.
+func storeJSON(s *job.StoreStatus) map[string]any {
+	if s == nil {
+		return nil
+	}
+	return map[string]any{
+		"replica": s.Rep,
+		"files":   s.Files,
+		"events":  s.Events,
+		"cache":   string(s.State),
+	}
 }
 
 // issuesJSON renders the `issues` object: {open, claimed, next}, matching

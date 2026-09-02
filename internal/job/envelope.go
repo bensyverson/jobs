@@ -29,23 +29,19 @@ type recorder struct {
 	clock     *eventlog.Clock
 	cachePath string
 
-	// seq is the last sequence number handed out, primed from the cache on
-	// first use.
-	seq    uint64
-	primed bool
+	// seq is the last sequence number handed out, primed from this replica's
+	// log file at the start of the batch.
+	seq uint64
 }
 
-// newRecorder reads the replica id and the clock watermark from local.json
-// beside db's file, minting a replica id the first time this checkout writes.
+// newRecorderLocked reads the replica id and the clock watermark from
+// local.json beside cachePath, minting a replica id the first time this
+// checkout writes.
 //
-// It runs before the transaction opens: minting takes the store lock, and
-// taking a file lock while holding a SQLite write transaction would let two
-// processes deadlock across the two locks.
-func newRecorder(db dbtx) (*recorder, error) {
-	path, err := CachePathOf(db)
-	if err != nil {
-		return nil, err
-	}
+// The caller holds the store lock: the whole span from here to the append and
+// the transaction's commit runs under it, so the read-modify-write of
+// local.json must not take it again.
+func newRecorderLocked(path string) (*recorder, error) {
 	state, err := LoadLocalState(path)
 	if err != nil {
 		return nil, err
@@ -56,15 +52,9 @@ func newRecorder(db dbtx) (*recorder, error) {
 		if err != nil {
 			return nil, err
 		}
-		// Another process may have minted one between the read and the lock;
-		// whoever wrote first wins, so the id never changes under a reader.
-		if err := UpdateLocalState(path, func(s *LocalState) error {
-			if s.Rep == "" {
-				s.Rep = minted
-			}
-			rep = s.Rep
-			return nil
-		}); err != nil {
+		state.Rep = minted
+		rep = minted
+		if err := state.Save(path); err != nil {
 			return nil, err
 		}
 	}
@@ -77,11 +67,8 @@ func newRecorder(db dbtx) (*recorder, error) {
 
 // envelope mints the next envelope for this replica. task is a short id, or
 // "" for an event that belongs to no task (a purged root's tombstone).
-func (r *recorder) envelope(tx dbtx, typ EventType, task, actor string, payload any) (eventlog.Envelope, error) {
-	seq, err := r.nextSeq(tx)
-	if err != nil {
-		return eventlog.Envelope{}, err
-	}
+func (r *recorder) envelope(typ EventType, task, actor string, payload any) (eventlog.Envelope, error) {
+	seq := r.nextSeq()
 	var data json.RawMessage
 	if payload != nil {
 		b, err := json.Marshal(payload)
@@ -104,40 +91,36 @@ func (r *recorder) envelope(tx dbtx, typ EventType, task, actor string, payload 
 
 // nextSeq hands out the next gapless sequence number for this replica.
 //
-// It is derived from the cache — MAX(seq) for this rep — because the cache is
-// still where this replica's events live. The store leaf (the log files and
-// eventlog.Appender) replaces this: the appender re-scans the replica's file
-// under the store lock on every batch, which is what stops a second process
-// repeating a seq. Priming once per batch rather than once per process is the
-// same discipline, one level down.
-func (r *recorder) nextSeq(tx dbtx) (uint64, error) {
-	if !r.primed {
-		var max sql.NullInt64
-		if err := tx.QueryRow("SELECT MAX(seq) FROM events WHERE rep = ?", r.rep).Scan(&max); err != nil {
-			return 0, fmt.Errorf("read last seq for replica %s: %w", r.rep, err)
-		}
-		if max.Valid && max.Int64 > 0 {
-			r.seq = uint64(max.Int64)
-		}
-		r.primed = true
-	}
+// The count is primed from the replica's LOG FILE, not from MAX(seq) in the
+// cache, and under the store lock the batch holds. The file is the record and
+// the appender re-scans it on every batch; the cache's seq has holes, because
+// purge erases the purged subtree's event rows. Priming from anything but the
+// file would mint a seq the appender then overwrote.
+func (r *recorder) nextSeq() uint64 {
 	r.seq++
-	return r.seq, nil
+	return r.seq
 }
 
-// persist writes the clock's watermark back to local.json. Called once per
-// batch, after the transaction commits, so a crash mid-command cannot leave
-// the clock ahead of the events it stamped.
-func (r *recorder) persist() error {
-	return UpdateLocalState(r.cachePath, func(s *LocalState) error {
-		if s.Rep == "" {
-			s.Rep = r.rep
-		}
-		if v := r.clock.Save(); v > s.LastSeen {
-			s.LastSeen = v
-		}
-		return nil
-	})
+// primeSeq sets the last seq handed out, read from the log file by the caller
+// under the store lock.
+func (r *recorder) primeSeq(last uint64) { r.seq = last }
+
+// persistLocked writes the clock's watermark back to local.json. Called once
+// per batch, after the transaction commits and while the store lock is still
+// held, so a crash mid-command cannot leave the clock ahead of the events it
+// stamped.
+func (r *recorder) persistLocked() error {
+	s, err := LoadLocalState(r.cachePath)
+	if err != nil {
+		return err
+	}
+	if s.Rep == "" {
+		s.Rep = r.rep
+	}
+	if v := r.clock.Save(); v > s.LastSeen {
+		s.LastSeen = v
+	}
+	return s.Save(r.cachePath)
 }
 
 // eventBatch collects the events one command means, applying each as it is
@@ -155,7 +138,7 @@ type eventBatch struct {
 
 // emit mints an envelope for the event and applies it.
 func (b *eventBatch) emit(tx dbtx, typ EventType, task, actor string, payload any) error {
-	e, err := b.rec.envelope(tx, typ, task, actor, payload)
+	e, err := b.rec.envelope(typ, task, actor, payload)
 	if err != nil {
 		return err
 	}
@@ -166,18 +149,51 @@ func (b *eventBatch) emit(tx dbtx, typ EventType, task, actor string, payload an
 	return nil
 }
 
-// commit runs one command as a batch of events: it mints the recorder, opens
-// the transaction, lets fn validate and emit, commits, and persists the clock.
+// commit runs one command as a batch of events. The whole span — mint the
+// recorder, open the transaction, let fn validate and emit, append to the log
+// file, advance the watermark, commit, persist the clock — runs under one
+// store lock, so parallel `job` processes on this machine serialize there.
 //
-// The store lock goes around this whole span once the log files exist — the
-// append to .jobs/log/<rep>.jsonl belongs between the recorder and the
-// transaction, and the watermark update belongs inside it. Until then, SQLite's
-// own locking serializes concurrent `job` processes on one machine.
+// The order is the design's, not an accident. The log is the record, so the
+// events reach .jobs/log/<rep>.jsonl BEFORE the transaction that applies them
+// commits: a failure to append rolls the whole command back, and a crash
+// between the append and the commit leaves the file longer than the watermark,
+// which is exactly what the next open rebuilds from. The reverse order would
+// let the cache hold a change no log line describes, and no later open could
+// tell.
+//
+// commit never nests: AcquireLock opens a fresh descriptor each time, so two
+// locks in one process contend exactly as two processes do.
 func commit(db *sql.DB, fn func(tx dbtx, b *eventBatch) error) error {
-	rec, err := newRecorder(db)
+	path, err := CachePathOf(db)
 	if err != nil {
 		return err
 	}
+	lock, err := eventlog.AcquireLock(path)
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+
+	rec, err := newRecorderLocked(path)
+	if err != nil {
+		return err
+	}
+	appender, err := eventlog.OpenAppender(eventlog.StoreDir(path), path, rec.rep)
+	if err != nil {
+		return err
+	}
+	defer appender.Close()
+
+	// The seq comes from the file, under the lock, so the number minted here
+	// and the number AppendLocked assigns are the same number; the check after
+	// the append asserts that rather than trusting it.
+	last, err := appender.LastSeqLocked()
+	if err != nil {
+		return err
+	}
+	rec.primeSeq(last)
+
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -188,8 +204,33 @@ func commit(db *sql.DB, fn func(tx dbtx, b *eventBatch) error) error {
 	if err := fn(tx, batch); err != nil {
 		return err
 	}
+
+	if len(batch.events) > 0 {
+		minted := make([]uint64, len(batch.events))
+		refs := make([]*eventlog.Envelope, len(batch.events))
+		for i := range batch.events {
+			minted[i] = batch.events[i].Seq
+			refs[i] = &batch.events[i]
+		}
+		if err := appender.AppendLocked(refs); err != nil {
+			return err
+		}
+		for i, e := range batch.events {
+			if e.Seq != minted[i] {
+				return fmt.Errorf("log and cache disagree on seq for replica %s: applied %d, appended %d", rec.rep, minted[i], e.Seq)
+			}
+		}
+		size, err := logFileSize(appender.Path())
+		if err != nil {
+			return err
+		}
+		if err := setWatermark(tx, rec.rep, size); err != nil {
+			return err
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	return rec.persist()
+	return rec.persistLocked()
 }

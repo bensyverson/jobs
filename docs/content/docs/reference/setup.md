@@ -86,3 +86,41 @@ Two promises worth relying on. **The other file is never written** — it is cop
 `merge` needs no `--as` and records no event of its own. It transcribes history rather than making it, so there is no actor to attribute — the events it copies keep the actors they already had.
 
 Two things `merge` deliberately leaves alone. **Machine-local settings don't travel**: the default identity, strict mode and focus live in each checkout's own `.jobs/local.json`, not in the database, so `merge` never touches them. And **unions do not remember deletions**: a label removed or a blocker cleared on one side comes back if the other side still holds it, because a union has no way to tell "never had it" from "had it and dropped it". Re-run `job label remove` or `job block remove` after a merge if that matters.
+
+## `rebuild`
+
+Throws the cache away and replays the log into a fresh one.
+
+```sh
+job rebuild
+```
+
+`.jobs/log/*.jsonl` is the record; `.jobs.db` is a cache of it that can be deleted at any time. The cache records a **watermark** for each log file — the byte offset it has applied — and every `job` command checks it: sizes equal everywhere and no unknown file means there is nothing to do, which costs one `stat` per file. Anything else rebuilds automatically. So there is no `job sync`: sync is `git pull`, and the next command notices.
+
+`rebuild` forces that replay. Reach for it after a crash, or when you suspect the cache. It cannot lose anything, because the cache holds nothing the log does not.
+
+**Reconcile.** A rebuild that ingested another replica's events also repairs the invariants a single machine would have kept. Applying an event never *derives* anything — a cascade close is an explicit event the handler emitted — so a trigger split across two machines leaves the invariant broken, because neither machine saw the other's half. Reconcile finds those and appends the repairing events, which propagate like any others:
+
+- a parent whose children have all closed, but whose last child closed on the other machine, is closed;
+- a task whose parent was purged elsewhere is purged;
+- two claims made on one task while the machines were apart leave the **earlier** one standing, and the later is released with reason `lost-merge`.
+
+Every repair is printed, and the losing claimant is named.
+
+A database that predates the store is refused with a notice rather than rebuilt: its cache holds history no log line reproduces, and replaying would lose it. Converting one is adoption's job, and it runs on its own.
+
+`rebuild` needs no `--as`: it records nothing except the repairs, which are attributed to `reconcile`.
+
+## `rekey`
+
+Resolves a short id that two replicas minted independently.
+
+```sh
+job rekey k7Qx2m:VBF5uQ --as ben
+```
+
+Task ids are six random base62 characters minted locally, so two machines working apart can, rarely, mint the same one. That is not something to merge silently: both sides have already written the id into notes and commit messages. The rebuild fails instead, naming both replicas and both titles, and printing the exact `job rekey` command to run.
+
+`rekey` mints a fresh id for the named replica's task and records a `rekeyed` event in this replica's log. Every machine that pulls the log applies the same rename, so nobody decides twice. The **earlier** task keeps the id — it is the one the existing notes point at — and the log names both, so a reader can tell what happened.
+
+It reads `.jobs/log` directly rather than the cache, since the cache is what refused to build, and rebuilds when it is done. Commit `.jobs/log` afterwards to carry the rename to the other machine.

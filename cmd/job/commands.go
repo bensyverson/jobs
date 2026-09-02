@@ -202,6 +202,8 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newTailCmd())
 	cmd.AddCommand(newImportCmd())
 	cmd.AddCommand(newMergeCmd())
+	cmd.AddCommand(newRebuildCmd())
+	cmd.AddCommand(newRekeyCmd())
 	cmd.AddCommand(newSchemaCmd())
 	cmd.AddCommand(newStatusCmd())
 	cmd.AddCommand(newOrientCmd())
@@ -331,7 +333,11 @@ func renderClaimBriefing(w io.Writer, db *sql.DB, shortID string) {
 func openDBFromCmd() (*sql.DB, error) {
 	path := job.ResolveDBPath(dbPath)
 	if _, err := os.Stat(path); err != nil {
-		return nil, fmt.Errorf("no job database found in %s. Run `job init` or specify a database with --db", path)
+		// A clone carries .jobs/log and no cache: the log is the record, so
+		// the first command builds the cache rather than refusing.
+		if !job.HasStore(path) {
+			return nil, fmt.Errorf("no job database found in %s. Run `job init` or specify a database with --db", path)
+		}
 	}
 	return job.OpenDB(path)
 }

@@ -14,9 +14,19 @@ import (
 // counterpart of the library's divergedPair.
 func mergeCLIPair(t *testing.T) (localPath, otherPath, sharedID, otherOnlyID string) {
 	t.Helper()
+	// Each side lives in its own directory: the store is the .jobs/ beside the
+	// cache, so two caches in one directory would share one log and one
+	// replica id rather than being two copies of a checkout.
 	dir := t.TempDir()
-	localPath = filepath.Join(dir, "local.jobs.db")
-	otherPath = filepath.Join(dir, "other.jobs.db")
+	localDir := filepath.Join(dir, "here")
+	otherDir := filepath.Join(dir, "there")
+	for _, d := range []string{localDir, otherDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	localPath = filepath.Join(localDir, ".jobs.db")
+	otherPath = filepath.Join(otherDir, ".jobs.db")
 
 	db, err := job.CreateDB(localPath)
 	if err != nil {
@@ -34,6 +44,9 @@ func mergeCLIPair(t *testing.T) (localPath, otherPath, sharedID, otherOnlyID str
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(otherPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.CopyFS(filepath.Join(otherDir, ".jobs"), os.DirFS(filepath.Join(localDir, ".jobs"))); err != nil {
 		t.Fatal(err)
 	}
 

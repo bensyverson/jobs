@@ -416,14 +416,20 @@ func TestStatus_Identity_RenderedOnSecondLine(t *testing.T) {
 	var buf bytes.Buffer
 	job.RenderStatus(&buf, s)
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("expected 2 lines, got %d:\n%s", len(lines), buf.String())
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d:\n%s", len(lines), buf.String())
 	}
 	if !strings.Contains(lines[0], "1 open") {
 		t.Errorf("line 1 should be the counts summary:\n%s", lines[0])
 	}
 	if !strings.HasPrefix(lines[1], "Identity: ") {
 		t.Errorf("line 2 should start with 'Identity: ':\n%s", lines[1])
+	}
+	// The store line: the log is the record and the cache is disposable, so
+	// which replica this is and whether the cache is current belong in the
+	// session preamble.
+	if !strings.HasPrefix(lines[2], "Store: replica ") {
+		t.Errorf("line 3 should be the store line:\n%s", lines[2])
 	}
 }
 
