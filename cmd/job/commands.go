@@ -171,7 +171,11 @@ func newRootCmd() *cobra.Command {
 		Long:          rootLongHelp,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// Cobra turns Version into a --version flag; `job version` is the
+		// same line as a verb.
+		Version: versionLine(),
 	}
+	cmd.SetVersionTemplate("{{.Version}}\n")
 	cmd.PersistentFlags().StringVar(&dbPath, "db", "", "path to job database (default: .jobs.db)")
 	cmd.PersistentFlags().StringVar(&asFlag, "as", "", "identity to use for writes (e.g. --as alice)")
 	cmd.AddCommand(newInitCmd())
@@ -211,6 +215,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newOrientCmd())
 	cmd.AddCommand(newFocusCmd())
 	cmd.AddCommand(newServeCmd())
+	cmd.AddCommand(newVersionCmd())
 	return cmd
 }
 

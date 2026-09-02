@@ -48,10 +48,6 @@ type LocalState struct {
 	Strict bool `json:"strict,omitempty"`
 	// Focus maps actor to that actor's focused root per tree kind.
 	Focus map[string]FocusSlots `json:"focus,omitempty"`
-	// AdoptFailed records that adoption of this cache refused, so the next
-	// open says so in one line instead of rebuilding and comparing the whole
-	// database again on every command. Clearing it retries.
-	AdoptFailed bool `json:"adopt_failed,omitempty"`
 }
 
 // LocalStatePath returns the local-state file beside the cache named by

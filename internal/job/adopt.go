@@ -85,27 +85,25 @@ func adoptIfLegacy(path string) error {
 	if err != nil || !legacy {
 		return err
 	}
-	state, err := LoadLocalState(path)
-	if err != nil {
-		return err
-	}
-	if state.AdoptFailed {
+	if diff := path + adoptDiffSuffix; fileExists(diff) {
 		fmt.Fprintf(StoreNotices,
-			"note: adoption of this database failed earlier and has not been retried; see %s\n",
-			path+adoptDiffSuffix)
+			"note: adoption of this database refused earlier; the difference is in %s. Delete that file to retry.\n",
+			diff)
 		return nil
 	}
 
 	report, err := adopt(path)
 	if err != nil {
 		fmt.Fprintf(StoreNotices, "note: %v\n", err)
-		return UpdateLocalState(path, func(s *LocalState) error {
-			s.AdoptFailed = true
-			return nil
-		})
+		return nil
 	}
 	fmt.Fprintln(StoreNotices, "note: "+report.notice())
 	return nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // probeLegacy answers "does this cache hold rows the log cannot reproduce?"

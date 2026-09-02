@@ -49,7 +49,8 @@ func verifyAdoption(db *sql.DB, path string, candidate, minted []eventlog.Envelo
 		_ = os.WriteFile(diff, []byte(adoptionDiff(before, after)), 0o644)
 		return nil, fmt.Errorf(
 			"adoption aborted: the cache rebuilt from the translated log differs from this one, "+
-				"so no log line was appended and no file was renamed. The difference is in %s", diff)
+				"so no log line was appended and no file was renamed. The difference is in %s. "+
+				"Delete that file to retry.", diff)
 	}
 	if err := fresh.Close(); err != nil {
 		removeCache(target)

@@ -21,6 +21,8 @@ make run ARGS="ls --mine"
 make test
 ```
 
+`job version` prints the commit the installed binary was built from, which is how to tell a fresh install from a stale one on `PATH`.
+
 See the [Makefile](Makefile) for every target, or run `make help`.
 
 If you plan to contribute, point Git at the repo's vendored hooks once
@@ -127,6 +129,7 @@ Every command stats each log file against a watermark the cache records; if one 
 | `job identity set <name>` | Change the default writer identity. Requires `--as <name>` on the call (bootstrap discipline — the change itself is attributed). |
 | `job identity strict on\|off` | Toggle strict mode. Requires `--as`. |
 | `job schema` | Print the JSON Schema for the `job import` grammar. Useful for feeding an agent the exact shape it should produce. |
+| `job version` | Print the module version and the commit this binary was built from, e.g. `job v0.0.0-20260902142258-9b888be508f9 (commit 9b888be, 2026-09-02T14:22:58Z)`; `modified` is appended when the checkout had uncommitted changes. `job --version` prints the same line. The fastest way to confirm a `make install` on another machine took. No database, no `--as`. |
 
 Every command accepts `--db <path>` to use a different database file. You can also set `JOBS_DB`.
 

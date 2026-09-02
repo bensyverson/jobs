@@ -190,7 +190,10 @@ func (r *MergeReport) finish(plan *mergePlan) {
 	})
 
 	r.Totals.TasksAdded = len(plan.insertTasks)
-	r.Totals.TasksMerged = len(plan.updateTasks)
+	// "Reconciled" is the count of the touched section, not of task-row
+	// writes: a task touched only through its labels is reconciled, and a
+	// row rewritten to the same values is not.
+	r.Totals.TasksMerged = len(r.Merged)
 	r.Totals.UsersAdded = len(plan.users)
 	r.Changed = !plan.empty()
 }

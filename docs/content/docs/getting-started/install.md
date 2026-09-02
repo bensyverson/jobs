@@ -31,10 +31,10 @@ Add it to `~/.zshrc`, `~/.bashrc`, or whichever rc file your shell reads on star
 
 ```sh
 which job
-job --help | head -1
+job version
 ```
 
-A first-run `job --help` is the fastest sanity check that install + PATH are wired correctly.
+`job version` prints the module version and, for a binary built from a checkout, the commit it came from — the fastest check that install and `PATH` are wired correctly, and that a `make install` on a second machine actually replaced the old binary.
 
 ## From a local checkout
 

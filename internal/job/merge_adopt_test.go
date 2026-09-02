@@ -86,12 +86,7 @@ func TestAdopt_MergeIntoAnAdoptedCacheAdoptsTheTail(t *testing.T) {
 	}
 	defer reopened.Close()
 
-	state, err := LoadLocalState(localPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state.AdoptFailed {
-		diff, _ := os.ReadFile(localPath + adoptDiffSuffix)
+	if diff, err := os.ReadFile(localPath + adoptDiffSuffix); err == nil {
 		t.Fatalf("adoption of the merged cache refused:\n%s", diff)
 	}
 	if n := countLegacyRows(t, reopened); n != 0 {

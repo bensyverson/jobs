@@ -136,7 +136,7 @@ A `.jobs.db` from before the log existed has no log to rebuild from: its event r
 
 Every old event row becomes a log line marked `legacy`. Those are recorded and rendered exactly as before by `job log`, `job show`, `job tail` and the dashboard's scrubber, and they touch no state table. One `snapshot` line carries the state itself: every task, block, label, criterion, provenance row and user. The cache is then rebuilt from the result and compared table by table against the original. The same conversion runs again, on the new rows only, when [`job merge`](../../reference/setup/#merge) later writes another copy's tail into an already-adopted cache: those rows become `legacy` lines and a second snapshot pins the merged state.
 
-**Any difference aborts.** No line is appended, no file is renamed, and the diff is written to `.jobs.db.adopt-failed`. The legacy database keeps working exactly as it did — a failed conversion is never an outage.
+**Any difference aborts.** No line is appended, no file is renamed, and the diff is written to `.jobs.db.adopt-failed`. The legacy database keeps working exactly as it did — a failed conversion is never an outage. The diff file is also the memory of the refusal: while it exists each command says so in one line rather than rebuilding and comparing again, and deleting it is how you ask for another attempt.
 
 On success the original cache is kept as **`.jobs.db.pre-adopt`**, covered by the `.jobs.db*` ignore pattern. Delete it once you are satisfied. `JOBS_NO_ADOPT=1` reads a legacy database as-is for one command without converting it.
 

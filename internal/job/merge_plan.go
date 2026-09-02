@@ -91,6 +91,15 @@ func planMerge(local, other *mergeSnapshot, now int64, report *MergeReport) *mer
 
 	for _, id := range shared {
 		l, o := local.tasks[id], other.tasks[id]
+		if *l == *o {
+			// The same row on both sides has nothing to reconcile. Running
+			// the claim rules over it would still normalise an expired
+			// lease away and count the task as merged.
+			report.stageMerged(id, MergedTask{ShortID: id, Title: l.title,
+				RowWinner: MergeSideLocal, LocalUpdatedAt: l.updatedAt,
+				OtherUpdatedAt: o.updatedAt, rowsIdentical: true})
+			continue
+		}
 		merged, winner, drops := mergeTaskRows(l, o, now)
 		entry := MergedTask{
 			ShortID:        id,
