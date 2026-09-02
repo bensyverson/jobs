@@ -41,7 +41,7 @@ var eventPayloadSamples = []struct {
 		Duration: "30m", ExpiresAt: 1234, WasClaimedBy: "bob", WasExpiresAt: 5678,
 	}},
 	{EventCriteriaAdded, CriteriaAddedPayload{Criteria: []CriterionEntry{
-		{Label: "tests pass", State: "pending", ShortID: "aB3"},
+		{Label: "tests pass", State: "pending", ShortID: "aB3", SortKey: "V0001"},
 	}}},
 	{EventCriterionState, CriterionStatePayload{
 		Label: "tests pass", State: "passed", Prior: "pending", ShortID: "aB3",

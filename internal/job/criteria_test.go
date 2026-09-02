@@ -6,24 +6,21 @@ import (
 	"testing"
 )
 
-func TestInsertAndGetCriteria(t *testing.T) {
+// The criteria handlers write no rows themselves: RunAddCriteria mints the
+// short id and the sort key, emits criteria_added, and applyCriteriaAdded
+// inserts. These exercise that path — there is no longer a low-level
+// insertCriteria/SetCriterionState to call with a bare transaction.
+
+func TestAddAndGetCriteria(t *testing.T) {
 	db := SetupTestDB(t)
 	parent := MustAdd(t, db, "", "Gate")
 	pt := MustGet(t, db, parent)
 
-	tx, err := db.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := insertCriteria(tx, pt.ID, []Criterion{
+	if _, err := RunAddCriteria(db, parent, []Criterion{
 		{Label: "Tests pass"},
 		{Label: "Docs updated", State: CriterionSkipped},
-	}); err != nil {
-		tx.Rollback()
-		t.Fatalf("insertCriteria: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatalf("commit: %v", err)
+	}, TestActor); err != nil {
+		t.Fatalf("RunAddCriteria: %v", err)
 	}
 
 	got, err := GetCriteria(db, pt.ID)
@@ -44,76 +41,58 @@ func TestInsertAndGetCriteria(t *testing.T) {
 	}
 }
 
-func TestInsertCriteria_RejectsEmptyLabel(t *testing.T) {
+func TestAddCriteria_RejectsEmptyLabel(t *testing.T) {
 	db := SetupTestDB(t)
 	parent := MustAdd(t, db, "", "Gate")
-	pt := MustGet(t, db, parent)
 
-	tx, _ := db.Begin()
-	defer tx.Rollback()
-
-	if _, err := insertCriteria(tx, pt.ID, []Criterion{{Label: "  "}}); err == nil {
+	if _, err := RunAddCriteria(db, parent, []Criterion{{Label: "  "}}, TestActor); err == nil {
 		t.Fatal("expected error on empty label")
+	}
+	if n := countRows(t, db, "task_criteria"); n != 0 {
+		t.Errorf("task_criteria rows = %d, want 0 after a rejected batch", n)
 	}
 }
 
-func TestInsertCriteria_RejectsInvalidState(t *testing.T) {
+func TestAddCriteria_RejectsInvalidState(t *testing.T) {
 	db := SetupTestDB(t)
 	parent := MustAdd(t, db, "", "Gate")
-	pt := MustGet(t, db, parent)
 
-	tx, _ := db.Begin()
-	defer tx.Rollback()
-
-	if _, err := insertCriteria(tx, pt.ID, []Criterion{{Label: "X", State: "bogus"}}); err == nil {
+	if _, err := RunAddCriteria(db, parent, []Criterion{{Label: "X", State: "bogus"}}, TestActor); err == nil {
 		t.Fatal("expected error on bogus state")
 	}
 }
 
-func TestSetCriterionState(t *testing.T) {
+func TestRunSetCriterion_ByLabel(t *testing.T) {
 	db := SetupTestDB(t)
 	parent := MustAdd(t, db, "", "Gate")
 	pt := MustGet(t, db, parent)
 
-	tx, _ := db.Begin()
-	if _, err := insertCriteria(tx, pt.ID, []Criterion{{Label: "Tests pass"}}); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
+	if _, err := RunAddCriteria(db, parent, []Criterion{{Label: "Tests pass"}}, TestActor); err != nil {
 		t.Fatal(err)
 	}
 
-	tx2, _ := db.Begin()
-	resolved, prior, err := SetCriterionState(tx2, pt.ID, "Tests pass", CriterionPassed)
+	prior, err := RunSetCriterion(db, parent, "Tests pass", CriterionPassed, TestActor)
 	if err != nil {
-		tx2.Rollback()
-		t.Fatalf("SetCriterionState: %v", err)
+		t.Fatalf("RunSetCriterion: %v", err)
 	}
 	if prior != CriterionPending {
 		t.Errorf("prior = %q, want pending", prior)
-	}
-	if resolved.Label != "Tests pass" || resolved.ShortID == "" {
-		t.Errorf("resolved: got %+v, want non-empty short_id and matching label", resolved)
-	}
-	if err := tx2.Commit(); err != nil {
-		t.Fatal(err)
 	}
 
 	got, _ := GetCriteria(db, pt.ID)
 	if got[0].State != CriterionPassed {
 		t.Errorf("state = %q, want passed", got[0].State)
 	}
+	if got[0].ShortID == "" {
+		t.Error("criterion has no short id")
+	}
 }
 
-func TestSetCriterionState_NotFound(t *testing.T) {
+func TestRunSetCriterion_NotFound(t *testing.T) {
 	db := SetupTestDB(t)
 	parent := MustAdd(t, db, "", "Gate")
-	pt := MustGet(t, db, parent)
 
-	tx, _ := db.Begin()
-	defer tx.Rollback()
-	if _, _, err := SetCriterionState(tx, pt.ID, "nope", CriterionPassed); err == nil {
+	if _, err := RunSetCriterion(db, parent, "nope", CriterionPassed, TestActor); err == nil {
 		t.Fatal("expected error for missing criterion")
 	}
 }
@@ -233,16 +212,11 @@ func TestCountPendingCriteria(t *testing.T) {
 	parent := MustAdd(t, db, "", "Gate")
 	pt := MustGet(t, db, parent)
 
-	tx, _ := db.Begin()
-	if _, err := insertCriteria(tx, pt.ID, []Criterion{
+	if _, err := RunAddCriteria(db, parent, []Criterion{
 		{Label: "A"},
 		{Label: "B", State: CriterionPassed},
 		{Label: "C"},
-	}); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
+	}, TestActor); err != nil {
 		t.Fatal(err)
 	}
 

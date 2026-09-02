@@ -207,33 +207,6 @@ func backfillCriteriaShortIDs(db *sql.DB) error {
 	return tx.Commit()
 }
 
-// recordEvent writes an event whose family has not moved onto apply yet.
-//
-// The task family goes through eventBatch.emit → apply, which stamps the
-// envelope's rep, seq and ts. Everything still here — claims (leaf eZF00),
-// relations, criteria, provenance and kind (leaf fnD3D), and import — keeps
-// writing its state table directly, so it has no envelope and no position:
-// rep stays empty and seq 0, the same marker legacy rows carry, and ts is
-// derived from created_at so the row still sorts into the timeline. Giving
-// these a seq before their state write moves would make the log claim to
-// describe changes a rebuild could not reproduce.
-func recordEvent(tx dbtx, taskID int64, eventType EventType, actor string, detail any) error {
-	var detailJSON string
-	if detail != nil {
-		b, err := json.Marshal(detail)
-		if err != nil {
-			return fmt.Errorf("marshal event detail: %w", err)
-		}
-		detailJSON = string(b)
-	}
-	at := CurrentNowFunc().Unix()
-	_, err := tx.Exec(
-		"INSERT INTO events (task_id, event_type, actor, detail, created_at, ts) VALUES (?, ?, ?, ?, ?, ?)",
-		taskID, string(eventType), actor, detailJSON, at, at*1000,
-	)
-	return err
-}
-
 func GetTaskByShortID(tx dbtx, shortID string) (*Task, error) {
 	return getTaskByShortIDFilter(tx, shortID, true)
 }

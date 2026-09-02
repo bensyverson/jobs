@@ -50,10 +50,14 @@ func validateCriterionLabel(raw string) (string, error) {
 	return label, nil
 }
 
-// insertCriteria appends each label as a new criterion at the end of taskID's
-// list, with state defaulting to pending unless overridden in the input.
-// Returns the inserted Criterion records in input order.
-func insertCriteria(tx dbtx, taskID int64, items []Criterion) ([]Criterion, error) {
+// planNewCriteria validates a batch of new criteria and mints, per row, the
+// short id and the fractional sort key that place it at the end of taskID's
+// list. It writes nothing: the values it mints travel in the criteria_added
+// event, and applyCriteriaAdded inserts the rows.
+//
+// Minting here rather than in apply is what makes criteria_added idempotent
+// by (task, short id) and its order stable under a shuffle.
+func planNewCriteria(tx dbtx, taskID int64, items []Criterion) ([]Criterion, error) {
 	if len(items) == 0 {
 		return nil, nil
 	}
@@ -65,7 +69,9 @@ func insertCriteria(tx dbtx, taskID int64, items []Criterion) ([]Criterion, erro
 		return nil, err
 	}
 
-	now := CurrentNowFunc().Unix()
+	// generateCriterionShortID checks the table, and nothing in this batch is
+	// in the table yet, so two rows could otherwise be minted the same id.
+	minted := make(map[string]bool, len(items))
 	out := make([]Criterion, 0, len(items))
 	for _, c := range items {
 		label, err := validateCriterionLabel(c.Label)
@@ -79,25 +85,22 @@ func insertCriteria(tx dbtx, taskID int64, items []Criterion) ([]Criterion, erro
 		if _, err := ValidateCriterionState(string(state)); err != nil {
 			return nil, err
 		}
-		shortID, err := generateCriterionShortID(tx, taskID)
-		if err != nil {
-			return nil, err
+		var shortID string
+		for {
+			shortID, err = generateCriterionShortID(tx, taskID)
+			if err != nil {
+				return nil, err
+			}
+			if !minted[shortID] {
+				break
+			}
 		}
+		minted[shortID] = true
 		sortKey, err := KeyBetween(lastKey, "")
 		if err != nil {
 			return nil, err
 		}
-		var id int64
-		err = tx.QueryRow(
-			`INSERT INTO task_criteria (task_id, short_id, label, state, sort_key, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-			taskID, shortID, label, string(state), sortKey, now, now,
-		).Scan(&id)
-		if err != nil {
-			return nil, err
-		}
 		out = append(out, Criterion{
-			ID:      id,
 			ShortID: shortID,
 			TaskID:  taskID,
 			Label:   label,
@@ -133,51 +136,36 @@ func GetCriteria(db dbtx, taskID int64) ([]Criterion, error) {
 	return out, rows.Err()
 }
 
-// SetCriterionState updates the state of one criterion identified by `ref`,
-// which may be either the criterion's short_id or its verbatim label
-// (short_id is tried first because it is the stable identity; label is
-// kept as a fallback so callers without the short_id — including legacy
-// `--criterion "label=state"` use — keep working). Returns the resolved
-// criterion (so the caller can record stable identifiers on the event
-// detail) and the prior state.
-func SetCriterionState(tx dbtx, taskID int64, ref string, state CriterionState) (resolved Criterion, prior CriterionState, err error) {
-	if _, err := ValidateCriterionState(string(state)); err != nil {
-		return Criterion{}, "", err
-	}
-	// Try short_id first.
+// ResolveCriterion finds one criterion on a task by `ref`, which may be
+// either its short_id or its verbatim label (short_id is tried first because
+// it is the stable identity; label is kept as a fallback for callers without
+// it, including the `--criterion "label=state"` form). It reads only: the
+// state change is a criterion_state event, and applyCriterionState writes it.
+func ResolveCriterion(tx dbtx, taskID int64, ref string) (Criterion, error) {
 	row := tx.QueryRow(
-		"SELECT id, COALESCE(short_id, ''), label, state FROM task_criteria WHERE task_id = ? AND short_id = ?",
+		"SELECT id, COALESCE(short_id, ''), label, state, sort_key FROM task_criteria WHERE task_id = ? AND short_id = ?",
 		taskID, ref,
 	)
 	var found Criterion
-	var existingState string
-	if err := row.Scan(&found.ID, &found.ShortID, &found.Label, &existingState); err != nil {
+	var state string
+	if err := row.Scan(&found.ID, &found.ShortID, &found.Label, &state, &found.SortKey); err != nil {
 		if err != sql.ErrNoRows {
-			return Criterion{}, "", err
+			return Criterion{}, err
 		}
-		// Fall back to label match (including legacy rows whose short_id
-		// pre-dates the backfill, and the historical CLI form).
 		row = tx.QueryRow(
-			"SELECT id, COALESCE(short_id, ''), label, state FROM task_criteria WHERE task_id = ? AND label = ?",
+			"SELECT id, COALESCE(short_id, ''), label, state, sort_key FROM task_criteria WHERE task_id = ? AND label = ?",
 			taskID, ref,
 		)
-		if err := row.Scan(&found.ID, &found.ShortID, &found.Label, &existingState); err != nil {
+		if err := row.Scan(&found.ID, &found.ShortID, &found.Label, &state, &found.SortKey); err != nil {
 			if err == sql.ErrNoRows {
-				return Criterion{}, "", fmt.Errorf("no criterion %q on task", ref)
+				return Criterion{}, fmt.Errorf("no criterion %q on task", ref)
 			}
-			return Criterion{}, "", err
+			return Criterion{}, err
 		}
 	}
-	now := CurrentNowFunc().Unix()
-	if _, err := tx.Exec(
-		"UPDATE task_criteria SET state = ?, updated_at = ? WHERE id = ?",
-		string(state), now, found.ID,
-	); err != nil {
-		return Criterion{}, "", err
-	}
-	found.State = state
+	found.State = CriterionState(state)
 	found.TaskID = taskID
-	return found, CriterionState(existingState), nil
+	return found, nil
 }
 
 // criteriaEventDetail shapes a list of Criterion records for inclusion in an
@@ -192,116 +180,95 @@ func criteriaEventDetail(items []Criterion) []CriterionEntry {
 			Label:   c.Label,
 			State:   string(c.State),
 			ShortID: c.ShortID,
+			SortKey: c.SortKey,
 		})
 	}
 	return out
 }
 
-// RunAddCriteria appends new criteria to an existing task, records a
+// RunAddCriteria appends new criteria to an existing task as a
 // criteria_added event, and extends the actor's claim if held.
 func RunAddCriteria(db *sql.DB, shortID string, items []Criterion, actor string) ([]Criterion, error) {
 	if len(items) == 0 {
 		return nil, fmt.Errorf("no criteria supplied")
 	}
-	tx, err := db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
+	var planned []Criterion
+	err := commit(db, func(tx dbtx, b *eventBatch) error {
+		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
+			return err
+		}
+		task, err := GetTaskByShortID(tx, shortID)
+		if err != nil {
+			return err
+		}
+		if task == nil {
+			return fmt.Errorf("task %q not found", shortID)
+		}
 
-	// TODO(relations leaf): this handler still opens its own transaction and
-	// records its own event with recordEvent. The claims family's expiry and
-	// auto-extend are on apply, so they need a real batch on this
-	// transaction; fold the whole handler into commit() and this goes away.
-	b, err := batchInTx(tx)
+		planned, err = planNewCriteria(tx, task.ID, items)
+		if err != nil {
+			return err
+		}
+		if err := b.emit(tx, EventCriteriaAdded, shortID, actor, CriteriaAddedPayload{
+			Criteria: criteriaEventDetail(planned),
+		}); err != nil {
+			return err
+		}
+		// Row ids are minted by the cache, so they exist only after apply has
+		// run; callers that hold the returned records expect them filled.
+		for i := range planned {
+			if err := tx.QueryRow(
+				"SELECT id FROM task_criteria WHERE task_id = ? AND short_id = ?",
+				task.ID, planned[i].ShortID,
+			).Scan(&planned[i].ID); err != nil {
+				return err
+			}
+		}
+		return maybeExtendClaim(tx, b, task.ShortID, actor)
+	})
 	if err != nil {
 		return nil, err
 	}
-	if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
-		return nil, err
-	}
-	task, err := GetTaskByShortID(tx, shortID)
-	if err != nil {
-		return nil, err
-	}
-	if task == nil {
-		return nil, fmt.Errorf("task %q not found", shortID)
-	}
-
-	inserted, err := insertCriteria(tx, task.ID, items)
-	if err != nil {
-		return nil, err
-	}
-	if err := recordEvent(tx, task.ID, EventCriteriaAdded, actor, CriteriaAddedPayload{
-		Criteria: criteriaEventDetail(inserted),
-	}); err != nil {
-		return nil, err
-	}
-	if err := maybeExtendClaim(tx, b, task.ShortID, actor); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	if err := b.persist(); err != nil {
-		return nil, err
-	}
-	return inserted, nil
+	return planned, nil
 }
 
-// RunSetCriterion updates one criterion's state on a task and records a
-// criterion_state event. `ref` may be either the criterion's short_id or
-// its verbatim label; the resolved criterion's stable identifiers (short
-// id + label) are recorded on the event so the JS replay-fold can match
-// by short_id while the human-readable label remains available for
-// rendering and as a legacy-event fallback.
+// RunSetCriterion records one criterion's new state as a criterion_state
+// event. `ref` may be either the criterion's short_id or its verbatim label;
+// the resolved criterion's stable identifiers (short id + label) ride on the
+// event so apply and the JS replay-fold can both match by short_id while the
+// human-readable label remains available for rendering and as a legacy
+// fallback.
 func RunSetCriterion(db *sql.DB, taskShortID, ref string, state CriterionState, actor string) (prior CriterionState, err error) {
-	tx, err := db.Begin()
+	if _, err := ValidateCriterionState(string(state)); err != nil {
+		return "", err
+	}
+	err = commit(db, func(tx dbtx, b *eventBatch) error {
+		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
+			return err
+		}
+		task, err := GetTaskByShortID(tx, taskShortID)
+		if err != nil {
+			return err
+		}
+		if task == nil {
+			return fmt.Errorf("task %q not found", taskShortID)
+		}
+		resolved, err := ResolveCriterion(tx, task.ID, ref)
+		if err != nil {
+			return err
+		}
+		prior = resolved.State
+		if err := b.emit(tx, EventCriterionState, taskShortID, actor, CriterionStatePayload{
+			Label:   resolved.Label,
+			State:   string(state),
+			Prior:   string(prior),
+			ShortID: resolved.ShortID,
+		}); err != nil {
+			return err
+		}
+		return maybeExtendClaim(tx, b, task.ShortID, actor)
+	})
 	if err != nil {
-		return "", err
-	}
-	defer tx.Rollback()
-
-	// TODO(relations leaf): this handler still opens its own transaction and
-	// records its own event with recordEvent. The claims family's expiry and
-	// auto-extend are on apply, so they need a real batch on this
-	// transaction; fold the whole handler into commit() and this goes away.
-	b, err := batchInTx(tx)
-	if err != nil {
-		return "", err
-	}
-	if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
-		return "", err
-	}
-	task, err := GetTaskByShortID(tx, taskShortID)
-	if err != nil {
-		return "", err
-	}
-	if task == nil {
-		return "", fmt.Errorf("task %q not found", taskShortID)
-	}
-	resolved, prior, err := SetCriterionState(tx, task.ID, ref, state)
-	if err != nil {
-		return "", err
-	}
-	payload := CriterionStatePayload{
-		Label: resolved.Label,
-		State: string(state),
-		Prior: string(prior),
-	}
-	if resolved.ShortID != "" {
-		payload.ShortID = resolved.ShortID
-	}
-	if err := recordEvent(tx, task.ID, EventCriterionState, actor, payload); err != nil {
-		return "", err
-	}
-	if err := maybeExtendClaim(tx, b, task.ShortID, actor); err != nil {
-		return "", err
-	}
-	if err := tx.Commit(); err != nil {
-		return "", err
-	}
-	if err := b.persist(); err != nil {
 		return "", err
 	}
 	return prior, nil

@@ -50,6 +50,18 @@ var applyTable = map[EventType]func(tx dbtx, e eventlog.Envelope) error{
 	EventReleased:     applyReleased,
 	EventClaimExpired: applyClaimExpired,
 	EventHeartbeat:    applyHeartbeat,
+
+	// The relations, criteria, provenance and kind family
+	// (apply_relations.go, apply_criteria.go).
+	EventBlocked:        applyBlocked,
+	EventUnblocked:      applyUnblocked,
+	EventLabeled:        applyLabeled,
+	EventUnlabeled:      applyUnlabeled,
+	EventCriteriaAdded:  applyCriteriaAdded,
+	EventCriterionState: applyCriterionState,
+	EventFoundInSet:     applyFoundInSet,
+	EventFoundInCleared: applyFoundInCleared,
+	EventKindChanged:    applyKindChanged,
 }
 
 // apply writes the state e means, then records e in the events table.

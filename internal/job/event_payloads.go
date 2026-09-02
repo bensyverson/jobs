@@ -121,13 +121,28 @@ type BlockedPayload struct {
 	BlockerID string `json:"blocker_id"`
 }
 
+// UnblockReason names why a block edge went away. It is a closed set — the
+// operator asked, or the blocker closed one of two ways — so it is a type
+// rather than a free string in the payload.
+type UnblockReason string
+
+const (
+	// UnblockManual is `job unblock`.
+	UnblockManual UnblockReason = "manual"
+	// UnblockBlockerDone is the edge dropped because the blocker closed.
+	UnblockBlockerDone UnblockReason = "blocker_done"
+	// UnblockBlockerCanceled is the edge dropped because the blocker was
+	// canceled.
+	UnblockBlockerCanceled UnblockReason = "blocker_canceled"
+)
+
 // UnblockedPayload is recorded when a block edge is removed — manually
 // (RunUnblockMany), or automatically because the blocker was done or
 // canceled.
 type UnblockedPayload struct {
-	BlockedID string `json:"blocked_id"`
-	BlockerID string `json:"blocker_id"`
-	Reason    string `json:"reason"`
+	BlockedID string        `json:"blocked_id"`
+	BlockerID string        `json:"blocker_id"`
+	Reason    UnblockReason `json:"reason"`
 }
 
 // PurgedPayload is recorded on the parent (or as an orphan event, for a
@@ -163,12 +178,18 @@ type ClaimedPayload struct {
 }
 
 // CriterionEntry describes one criterion within a criteria_added payload.
-// ShortID rides along so the JS replay-fold can establish the criterion's
-// stable identity at add time.
+//
+// ShortID and SortKey are what make the event replayable: apply inserts the
+// row with the id and the fractional key the handler minted, rather than
+// minting either itself, so criteria_added is idempotent by (task, short id)
+// and a rebuild lands the same order whatever sequence the events arrive in.
+// ShortID also lets the JS replay-fold establish the criterion's stable
+// identity at add time.
 type CriterionEntry struct {
 	Label   string `json:"label"`
 	State   string `json:"state"`
 	ShortID string `json:"short_id,omitempty"`
+	SortKey string `json:"sort_key,omitempty"`
 }
 
 // CriteriaAddedPayload is recorded by RunAddCriteria and the import

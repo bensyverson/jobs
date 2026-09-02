@@ -433,186 +433,160 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 		return result, nil
 	}
 
-	// Phase B: single transaction.
-	tx, err := db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
+	// Phase B: one batch of events. The whole plan is a single command, so it
+	// is a single batch — created, labeled, criteria_added per task in
+	// pre-order, then every blocked edge, then every found_in edge. The order
+	// is what apply can consume: a block names two tasks, so both ends have to
+	// have been created before the `blocked` event arrives.
 	shortIDByParsed := make(map[*parsedTask]string)
-	dbIDByParsed := make(map[*parsedTask]int64)
 	// Found-in edges resolve after every row exists, so the echo entry has to
 	// be reachable again once the source's short ID is known.
 	resultIndexByParsed := make(map[*parsedTask]int)
 
-	// Insert in pre-order DFS so parents exist before children. Each node
-	// receives an explicit sort key so findNextSibling's strict-greater
-	// comparison can distinguish imported siblings.
-	var insert func(node *parsedTask, parentDBID *int64, parentShort string, sortKey string) error
-	insert = func(node *parsedTask, parentDBID *int64, parentShort string, sortKey string) error {
-		sid, err := generateShortID(tx)
-		if err != nil {
-			return err
-		}
-		now := CurrentNowFunc().Unix()
-		var id int64
-		err = tx.QueryRow(`
-			INSERT INTO tasks (short_id, parent_id, title, description, status, sort_key, created_at, updated_at, kind)
-			VALUES (?, ?, ?, ?, 'available', ?, ?, ?, ?)
-			RETURNING id
-		`, sid, parentDBID, node.Title, node.Desc, sortKey, now, now, string(node.Kind)).Scan(&id)
-		if err != nil {
-			return err
-		}
-		shortIDByParsed[node] = sid
-		dbIDByParsed[node] = id
-
-		// Import still writes the tables itself — it moves onto apply with the
-		// relations family — but its created events carry the new id anyway,
-		// so nothing in the log is a payload apply would reject.
-		createdPayload := CreatedPayload{
-			ShortID:     sid,
-			ParentID:    parentShort,
-			Title:       node.Title,
-			Description: node.Desc,
-			SortKey:     sortKey,
-		}
-		// Mirrors `add --kind issue`: the default is silent, so a plain plan's
-		// event stream is byte-for-byte what it was.
-		if node.Kind.IsIssue() {
-			createdPayload.Kind = string(node.Kind)
-		}
-		if err := recordEvent(tx, id, EventCreated, actor, createdPayload); err != nil {
-			return err
-		}
-
-		if len(node.Labels) > 0 {
-			added, _, err := insertLabels(tx, id, node.Labels)
+	err = commit(db, func(tx dbtx, b *eventBatch) error {
+		// Insert in pre-order DFS so parents exist before children. Each node
+		// receives an explicit sort key so findNextSibling's strict-greater
+		// comparison can distinguish imported siblings.
+		var insert func(node *parsedTask, parentShort string, sortKey string) error
+		insert = func(node *parsedTask, parentShort string, sortKey string) error {
+			sid, err := generateShortID(tx)
 			if err != nil {
 				return err
 			}
-			if len(added) > 0 {
-				if err := recordEvent(tx, id, EventLabeled, actor, LabeledPayload{
-					Names:    added,
+			shortIDByParsed[node] = sid
+
+			createdPayload := CreatedPayload{
+				ShortID:     sid,
+				ParentID:    parentShort,
+				Title:       node.Title,
+				Description: node.Desc,
+				SortKey:     sortKey,
+			}
+			// Mirrors `add --kind issue`: the default is silent, so a plain
+			// plan's event stream is byte-for-byte what it was.
+			if node.Kind.IsIssue() {
+				createdPayload.Kind = string(node.Kind)
+			}
+			if err := b.emit(tx, EventCreated, sid, actor, createdPayload); err != nil {
+				return err
+			}
+
+			if len(node.Labels) > 0 {
+				if err := b.emit(tx, EventLabeled, sid, actor, LabeledPayload{
+					Names:    node.Labels,
 					Existing: []string{},
+				}); err != nil {
+					return err
+				}
+			}
+
+			if len(node.Criteria) > 0 {
+				taskID, ok, err := taskRowID(tx, sid)
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return fmt.Errorf("task %s vanished between create and criteria", sid)
+				}
+				planned, err := planNewCriteria(tx, taskID, node.Criteria)
+				if err != nil {
+					return err
+				}
+				if err := b.emit(tx, EventCriteriaAdded, sid, actor, CriteriaAddedPayload{
+					Criteria: criteriaEventDetail(planned),
+				}); err != nil {
+					return err
+				}
+			}
+
+			resultIndexByParsed[node] = len(result.Tasks)
+			result.Tasks = append(result.Tasks, ImportedTask{
+				ID:     sid,
+				Title:  node.Title,
+				Parent: parentShort,
+				Kind:   echoKind(node.Kind),
+			})
+
+			// Children of this just-inserted node have no pre-existing
+			// siblings in the DB, so their keys start at the front of the space.
+			childKeys, err := SortKeySequence("", len(node.Children))
+			if err != nil {
+				return err
+			}
+			for i, child := range node.Children {
+				if err := insert(child, sid, childKeys[i]); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+
+		var rootParentDBID *int64
+		rootParentShort := ""
+		if parentTask != nil {
+			pid := parentTask.ID
+			rootParentDBID = &pid
+			rootParentShort = parentTask.ShortID
+		}
+
+		// Offset the import's roots by any pre-existing siblings so we don't
+		// collide with existing tasks under the target parent (or at DB root
+		// when --parent is omitted).
+		rootKeys, err := sortKeysForNewChildren(tx, rootParentDBID, len(tree))
+		if err != nil {
+			return err
+		}
+		for i, root := range tree {
+			if err := insert(root, rootParentShort, rootKeys[i]); err != nil {
+				return err
+			}
+		}
+
+		// Blocked edges come after every create, because a forward reference
+		// names a task later in the document. Walk `flat` rather than the map
+		// so the events land in document order on every run.
+		for _, parsed := range flat {
+			for _, r := range blockedByResolved[parsed] {
+				blockerShort := shortIDByParsed[r.local]
+				if r.local == nil {
+					blockerShort = r.dbTask.ShortID
+				}
+				if err := b.emit(tx, EventBlocked, shortIDByParsed[parsed], actor, BlockedPayload{
+					BlockedID: shortIDByParsed[parsed],
+					BlockerID: blockerShort,
 				}); err != nil {
 					return err
 				}
 			}
 		}
 
-		if len(node.Criteria) > 0 {
-			inserted, err := insertCriteria(tx, id, node.Criteria)
+		// Found-in edges last, for the same forward-reference reason.
+		for _, parsed := range flat {
+			r, ok := foundInResolved[parsed]
+			if !ok {
+				continue
+			}
+			task, err := GetTaskByShortID(tx, shortIDByParsed[parsed])
 			if err != nil {
 				return err
 			}
-			if err := recordEvent(tx, id, EventCriteriaAdded, actor, CriteriaAddedPayload{
-				Criteria: criteriaEventDetail(inserted),
-			}); err != nil {
+			source := r.dbTask
+			if r.local != nil {
+				source, err = GetTaskByShortID(tx, shortIDByParsed[r.local])
+				if err != nil {
+					return err
+				}
+			}
+			if err := emitFoundInSet(tx, b, task, source, actor); err != nil {
 				return err
 			}
-		}
-
-		resultIndexByParsed[node] = len(result.Tasks)
-		result.Tasks = append(result.Tasks, ImportedTask{
-			ID:     sid,
-			Title:  node.Title,
-			Parent: parentShort,
-			Kind:   echoKind(node.Kind),
-		})
-
-		// Children of this just-inserted node have no pre-existing
-		// siblings in the DB, so their keys start at the front of the space.
-		childKeys, err := SortKeySequence("", len(node.Children))
-		if err != nil {
-			return err
-		}
-		for i, child := range node.Children {
-			cid := id
-			if err := insert(child, &cid, sid, childKeys[i]); err != nil {
-				return err
+			if i, ok := resultIndexByParsed[parsed]; ok {
+				result.Tasks[i].FoundIn = source.ShortID
 			}
 		}
 		return nil
-	}
-
-	var rootParentDBID *int64
-	rootParentShort := ""
-	if parentTask != nil {
-		pid := parentTask.ID
-		rootParentDBID = &pid
-		rootParentShort = parentTask.ShortID
-	}
-
-	// Offset the import's roots by any pre-existing siblings so we don't
-	// collide with existing tasks under the target parent (or at DB root
-	// when --parent is omitted).
-	rootKeys, err := sortKeysForNewChildren(tx, rootParentDBID, len(tree))
+	})
 	if err != nil {
-		return nil, err
-	}
-	for i, root := range tree {
-		if err := insert(root, rootParentDBID, rootParentShort, rootKeys[i]); err != nil {
-			return nil, err
-		}
-	}
-
-	// Resolve blockedBy after all inserts (forward references).
-	for parsed, list := range blockedByResolved {
-		blockedDBID := dbIDByParsed[parsed]
-		for _, r := range list {
-			var blockerDBID int64
-			if r.local != nil {
-				blockerDBID = dbIDByParsed[r.local]
-			} else {
-				blockerDBID = r.dbTask.ID
-			}
-			if _, err := tx.Exec(
-				"INSERT OR IGNORE INTO blocks (blocker_id, blocked_id) VALUES (?, ?)",
-				blockerDBID, blockedDBID,
-			); err != nil {
-				return nil, err
-			}
-			var blockerShort, blockedShort string
-			blockedShort = shortIDByParsed[parsed]
-			if r.local != nil {
-				blockerShort = shortIDByParsed[r.local]
-			} else {
-				blockerShort = r.dbTask.ShortID
-			}
-			if err := recordEvent(tx, blockedDBID, EventBlocked, actor, BlockedPayload{
-				BlockedID: blockedShort,
-				BlockerID: blockerShort,
-			}); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	// Record found-in edges after all inserts, for the same forward-reference
-	// reason blockedBy waits.
-	for parsed, r := range foundInResolved {
-		task, err := GetTaskByShortID(tx, shortIDByParsed[parsed])
-		if err != nil {
-			return nil, err
-		}
-		source := r.dbTask
-		if r.local != nil {
-			source, err = GetTaskByShortID(tx, shortIDByParsed[r.local])
-			if err != nil {
-				return nil, err
-			}
-		}
-		if err := setFoundInTx(tx, task, source, task.ShortID, source.ShortID, actor); err != nil {
-			return nil, err
-		}
-		if i, ok := resultIndexByParsed[parsed]; ok {
-			result.Tasks[i].FoundIn = source.ShortID
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return result, nil

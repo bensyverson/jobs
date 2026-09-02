@@ -28,96 +28,71 @@ const qualifiedTaskSelectColumns = `tasks.id, tasks.short_id, tasks.parent_id, t
 // replacing any source already recorded. A task cannot be found in itself;
 // longer loops are permitted, since nothing traverses this edge.
 func RunSetFoundIn(db *sql.DB, taskShortID, sourceShortID, actor string) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	task, err := GetTaskByShortID(tx, taskShortID)
-	if err != nil {
-		return err
-	}
-	if task == nil {
-		return fmt.Errorf("task %q not found", taskShortID)
-	}
-	source, err := GetTaskByShortID(tx, sourceShortID)
-	if err != nil {
-		return err
-	}
-	if source == nil {
-		return fmt.Errorf("task %q not found", sourceShortID)
-	}
-	if source.ID == task.ID {
-		return fmt.Errorf("a task cannot be found in itself")
-	}
-
-	if err := setFoundInTx(tx, task, source, taskShortID, sourceShortID, actor); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return commit(db, func(tx dbtx, b *eventBatch) error {
+		task, err := GetTaskByShortID(tx, taskShortID)
+		if err != nil {
+			return err
+		}
+		if task == nil {
+			return fmt.Errorf("task %q not found", taskShortID)
+		}
+		source, err := GetTaskByShortID(tx, sourceShortID)
+		if err != nil {
+			return err
+		}
+		if source == nil {
+			return fmt.Errorf("task %q not found", sourceShortID)
+		}
+		if source.ID == task.ID {
+			return fmt.Errorf("a task cannot be found in itself")
+		}
+		return emitFoundInSet(tx, b, task, source, actor)
+	})
 }
 
-// setFoundInTx writes the edge and its event inside an existing transaction.
-func setFoundInTx(tx dbtx, task, source *Task, taskShortID, sourceShortID, actor string) error {
+// emitFoundInSet records the edge inside an existing batch. The previous
+// source is read here rather than in apply, because it is a fact about the
+// moment the command ran and the scrubber rewinds the set with it.
+func emitFoundInSet(tx dbtx, b *eventBatch, task, source *Task, actor string) error {
 	previous, err := foundInSourceByID(tx, task.ID)
 	if err != nil {
 		return err
 	}
-
-	if _, err := tx.Exec(`
-		INSERT INTO found_in (task_id, source_id, created_at) VALUES (?, ?, ?)
-		ON CONFLICT(task_id) DO UPDATE SET source_id = excluded.source_id, created_at = excluded.created_at
-	`, task.ID, source.ID, CurrentNowFunc().Unix()); err != nil {
-		return err
-	}
-
 	payload := FoundInSetPayload{
-		TaskID:   taskShortID,
-		SourceID: sourceShortID,
+		TaskID:   task.ShortID,
+		SourceID: source.ShortID,
 	}
 	if previous != nil && previous.ID != source.ID {
 		payload.PreviousSourceID = previous.ShortID
 	}
-	return recordEvent(tx, task.ID, EventFoundInSet, actor, payload)
+	return b.emit(tx, EventFoundInSet, task.ShortID, actor, payload)
 }
 
 // RunClearFoundIn removes a task's found-in reference. Clearing a task that
 // has none is an error: the caller named an edge that does not exist, and
 // silently succeeding would hide a mistyped id.
 func RunClearFoundIn(db *sql.DB, taskShortID, actor string) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	return commit(db, func(tx dbtx, b *eventBatch) error {
+		task, err := GetTaskByShortID(tx, taskShortID)
+		if err != nil {
+			return err
+		}
+		if task == nil {
+			return fmt.Errorf("task %q not found", taskShortID)
+		}
 
-	task, err := GetTaskByShortID(tx, taskShortID)
-	if err != nil {
-		return err
-	}
-	if task == nil {
-		return fmt.Errorf("task %q not found", taskShortID)
-	}
-
-	previous, err := foundInSourceByID(tx, task.ID)
-	if err != nil {
-		return err
-	}
-	if previous == nil {
-		return fmt.Errorf("task %s has no found-in reference to clear", taskShortID)
-	}
-
-	if _, err := tx.Exec("DELETE FROM found_in WHERE task_id = ?", task.ID); err != nil {
-		return err
-	}
-	if err := recordEvent(tx, task.ID, EventFoundInCleared, actor, FoundInClearedPayload{
-		TaskID:   taskShortID,
-		SourceID: previous.ShortID,
-	}); err != nil {
-		return err
-	}
-	return tx.Commit()
+		previous, err := foundInSourceByID(tx, task.ID)
+		if err != nil {
+			return err
+		}
+		if previous == nil {
+			return fmt.Errorf("task %s has no found-in reference to clear", taskShortID)
+		}
+		return b.emit(tx, EventFoundInCleared, taskShortID, actor, FoundInClearedPayload{
+			TaskID:   taskShortID,
+			SourceID: previous.ShortID,
+		})
+	})
 }
 
 // GetFoundInSource returns the task that surfaced shortID, or nil when none

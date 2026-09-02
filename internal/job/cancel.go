@@ -149,7 +149,7 @@ func executeCancel(
 			if err := b.emit(tx, EventCanceled, child.ShortID, actor, childPayload); err != nil {
 				return nil, nil, err
 			}
-			if err := recordBlocksUnblockedOnCancel(tx, child.ID, child.ShortID, actor); err != nil {
+			if err := emitBlocksUnblockedOn(tx, b, child.ID, child.ShortID, UnblockBlockerCanceled, actor); err != nil {
 				return nil, nil, err
 			}
 		}
@@ -173,7 +173,7 @@ func executeCancel(
 		if err := b.emit(tx, EventCanceled, p.target.shortID, actor, targetPayload); err != nil {
 			return nil, nil, err
 		}
-		if err := recordBlocksUnblockedOnCancel(tx, p.target.task.ID, p.target.shortID, actor); err != nil {
+		if err := emitBlocksUnblockedOn(tx, b, p.target.task.ID, p.target.shortID, UnblockBlockerCanceled, actor); err != nil {
 			return nil, nil, err
 		}
 
@@ -196,45 +196,6 @@ func executeCancel(
 	}
 
 	return canceled, alreadyCanceled, nil
-}
-
-// recordBlocksUnblockedOnCancel mirrors recordBlocksUnblockedOn from tasks.go,
-// but stamps the unblock reason as "blocker_canceled".
-func recordBlocksUnblockedOnCancel(tx dbtx, blockerID int64, blockerShortID, actor string) error {
-	rows, err := tx.Query("SELECT blocked_id FROM blocks WHERE blocker_id = ?", blockerID)
-	if err != nil {
-		return err
-	}
-	var unblockedIDs []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return err
-		}
-		unblockedIDs = append(unblockedIDs, id)
-	}
-	rows.Close()
-	if len(unblockedIDs) == 0 {
-		return nil
-	}
-	if _, err := tx.Exec("DELETE FROM blocks WHERE blocker_id = ?", blockerID); err != nil {
-		return err
-	}
-	for _, id := range unblockedIDs {
-		var blockedShortID string
-		if err := tx.QueryRow("SELECT short_id FROM tasks WHERE id = ?", id).Scan(&blockedShortID); err != nil {
-			return err
-		}
-		if err := recordEvent(tx, id, EventUnblocked, actor, UnblockedPayload{
-			BlockedID: blockedShortID,
-			BlockerID: blockerShortID,
-			Reason:    "blocker_canceled",
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func executePurge(

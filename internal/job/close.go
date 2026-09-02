@@ -136,7 +136,7 @@ func cascadeAutoCloseAncestors(tx dbtx, b *eventBatch, taskID int64, triggerShor
 			}); err != nil {
 				return nil, err
 			}
-			if err := recordBlocksUnblockedOn(tx, p.ID, p.ShortID, actor); err != nil {
+			if err := emitBlocksUnblockedOn(tx, b, p.ID, p.ShortID, UnblockBlockerDone, actor); err != nil {
 				return nil, err
 			}
 		} else {
@@ -151,7 +151,7 @@ func cascadeAutoCloseAncestors(tx dbtx, b *eventBatch, taskID int64, triggerShor
 			}); err != nil {
 				return nil, err
 			}
-			if err := recordBlocksUnblockedOnCancel(tx, p.ID, p.ShortID, actor); err != nil {
+			if err := emitBlocksUnblockedOn(tx, b, p.ID, p.ShortID, UnblockBlockerCanceled, actor); err != nil {
 				return nil, err
 			}
 		}
@@ -340,7 +340,7 @@ func RunDone(db *sql.DB, ids []string, cascade bool, note string, result json.Ra
 				if err := b.emit(tx, EventDone, child.ShortID, actor, childPayload); err != nil {
 					return err
 				}
-				if err := recordBlocksUnblockedOn(tx, child.ID, child.ShortID, actor); err != nil {
+				if err := emitBlocksUnblockedOn(tx, b, child.ID, child.ShortID, UnblockBlockerDone, actor); err != nil {
 					return err
 				}
 			}
@@ -374,7 +374,7 @@ func RunDone(db *sql.DB, ids []string, cascade bool, note string, result json.Ra
 			if err := b.emit(tx, EventDone, p.target.shortID, actor, payload); err != nil {
 				return err
 			}
-			if err := recordBlocksUnblockedOn(tx, p.target.task.ID, p.target.shortID, actor); err != nil {
+			if err := emitBlocksUnblockedOn(tx, b, p.target.task.ID, p.target.shortID, UnblockBlockerDone, actor); err != nil {
 				return err
 			}
 
@@ -399,43 +399,6 @@ func RunDone(db *sql.DB, ids []string, cascade bool, note string, result json.Ra
 		return nil, nil, err
 	}
 	return closed, alreadyDone, nil
-}
-
-func recordBlocksUnblockedOn(tx dbtx, blockerID int64, blockerShortID, actor string) error {
-	rows, err := tx.Query("SELECT blocked_id FROM blocks WHERE blocker_id = ?", blockerID)
-	if err != nil {
-		return err
-	}
-	var unblockedIDs []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return err
-		}
-		unblockedIDs = append(unblockedIDs, id)
-	}
-	rows.Close()
-	if len(unblockedIDs) == 0 {
-		return nil
-	}
-	if _, err := tx.Exec("DELETE FROM blocks WHERE blocker_id = ?", blockerID); err != nil {
-		return err
-	}
-	for _, id := range unblockedIDs {
-		var blockedShortID string
-		if err := tx.QueryRow("SELECT short_id FROM tasks WHERE id = ?", id).Scan(&blockedShortID); err != nil {
-			return err
-		}
-		if err := recordEvent(tx, id, EventUnblocked, actor, UnblockedPayload{
-			BlockedID: blockedShortID,
-			BlockerID: blockerShortID,
-			Reason:    "blocker_done",
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func RunReopen(db *sql.DB, shortID string, cascade bool, actor string) ([]string, error) {

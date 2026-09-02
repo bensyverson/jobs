@@ -101,19 +101,9 @@ func RunAddKind(db *sql.DB, parentShortID, title, desc, beforeShortID string, la
 			if err != nil {
 				return err
 			}
-			taskID, ok, err := taskRowID(tx, shortID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return fmt.Errorf("task %s vanished between create and label", shortID)
-			}
-			// Labels are the relations family (leaf fnD3D): the write and the
-			// event move onto apply together there, not here.
-			if _, _, err := insertLabels(tx, taskID, normalized); err != nil {
-				return err
-			}
-			if err := recordEvent(tx, taskID, EventLabeled, actor, LabeledPayload{
+			// The new task has no labels yet, so every name is added and
+			// Existing is empty; applyLabeled does the write.
+			if err := b.emit(tx, EventLabeled, shortID, actor, LabeledPayload{
 				Names:    normalized,
 				Existing: []string{},
 			}); err != nil {

@@ -37,15 +37,15 @@ func applyDump(t *testing.T, db *sql.DB) string {
 			COALESCE(t.completion_note,'<null>'), t.created_at, t.updated_at,
 			COALESCE(t.deleted_at,0), t.kind
 			FROM tasks t LEFT JOIN tasks p ON p.id = t.parent_id ORDER BY t.short_id`},
-		{"labels", `SELECT t.short_id, l.name FROM task_labels l JOIN tasks t ON t.id = l.task_id
+		{"labels", `SELECT t.short_id, l.name, l.created_at FROM task_labels l JOIN tasks t ON t.id = l.task_id
 			ORDER BY t.short_id, l.name`},
-		{"blocks", `SELECT br.short_id, bd.short_id FROM blocks b
+		{"blocks", `SELECT br.short_id, bd.short_id, b.created_at FROM blocks b
 			JOIN tasks br ON br.id = b.blocker_id JOIN tasks bd ON bd.id = b.blocked_id
 			ORDER BY br.short_id, bd.short_id`},
 		{"criteria", `SELECT t.short_id, COALESCE(c.short_id,''), c.label, c.state, c.sort_key,
 			c.created_at, c.updated_at FROM task_criteria c JOIN tasks t ON t.id = c.task_id
 			ORDER BY t.short_id, c.short_id, c.label`},
-		{"found_in", `SELECT t.short_id, s.short_id FROM found_in f
+		{"found_in", `SELECT t.short_id, s.short_id, f.created_at FROM found_in f
 			JOIN tasks t ON t.id = f.task_id JOIN tasks s ON s.id = f.source_id ORDER BY t.short_id`},
 		{"users", `SELECT name FROM users ORDER BY name`},
 		{"events", `SELECT e.rep, e.seq, e.ts, e.created_at, e.event_type, e.actor,
@@ -482,6 +482,98 @@ func driveClaimsFamily(t *testing.T, db *sql.DB) {
 	}
 }
 
+// importPlanFixture is the plan the import determinism tests import: two
+// roots, nested children, labels, criteria, a blockedBy edge across refs and
+// a foundIn provenance edge. Every relation the import grammar can express.
+const importPlanFixture = "```yaml\n" +
+	"tasks:\n" +
+	"  - title: Import root\n" +
+	"    desc: the imported tree\n" +
+	"    labels: [store, sync]\n" +
+	"    criteria: [Rebuilds identically, Docs updated]\n" +
+	"    children:\n" +
+	"      - title: First leaf\n" +
+	"        ref: first\n" +
+	"        labels: [refactor]\n" +
+	"        criteria: [Red first]\n" +
+	"      - title: Second leaf\n" +
+	"        ref: second\n" +
+	"        blockedBy: [first]\n" +
+	"        foundIn: first\n" +
+	"      - title: Third leaf\n" +
+	"        blockedBy: [first, second]\n" +
+	"  - title: Second root\n" +
+	"    labels: [store]\n" +
+	"```\n"
+
+// mustImportFixture writes the fixture to a temp file and imports it,
+// returning the short ids in echo order.
+func mustImportFixture(t *testing.T, db *sql.DB) []string {
+	t.Helper()
+	res, err := RunImport(db, writeTempPlan(t, importPlanFixture), "", false, "agent-determinism")
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	ids := make([]string, 0, len(res.Tasks))
+	for _, task := range res.Tasks {
+		ids = append(ids, task.ID)
+	}
+	return ids
+}
+
+// driveImportedPlan imports the fixture and then edits it: criterion states,
+// a label removed, an edge unblocked by hand, a kind change, and a done whose
+// close auto-unblocks the tasks the closed task was blocking.
+func driveImportedPlan(t *testing.T, db *sql.DB) {
+	t.Helper()
+	const actor = "agent-determinism"
+
+	ids := mustImportFixture(t, db)
+	if len(ids) != 5 {
+		t.Fatalf("expected 5 imported tasks, got %d: %v", len(ids), ids)
+	}
+	root, first, second, third, secondRoot := ids[0], ids[1], ids[2], ids[3], ids[4]
+
+	rootTask := MustGet(t, db, root)
+	crits, err := GetCriteria(db, rootTask.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(crits) != 2 {
+		t.Fatalf("root criteria = %d, want 2", len(crits))
+	}
+	if _, err := RunSetCriterion(db, root, crits[0].ShortID, CriterionPassed, actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RunSetCriterion(db, root, crits[1].ShortID, CriterionSkipped, actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RunLabelRemove(db, root, []string{"sync"}, actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RunLabelAdd(db, secondRoot, []string{"late"}, actor); err != nil {
+		t.Fatal(err)
+	}
+	// Drop one edge by hand; the other two go when `first` closes.
+	if err := RunUnblockMany(db, third, []string{second}, actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RunSetKind(db, secondRoot, KindIssue, actor); err != nil {
+		t.Fatal(err)
+	}
+	firstTask := MustGet(t, db, first)
+	firstCrits, err := GetCriteria(db, firstTask.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RunSetCriterion(db, first, firstCrits[0].ShortID, CriterionPassed, actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := RunDone(db, []string{first}, false, "blocker closed", nil, actor, false, ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The claims family's criterion: a claim, a heartbeat, an expiry and a
 // release replay to the same tables from a shuffled log. This is what catches
 // an apply that reads the clock for the expiry instead of the payload's
@@ -530,5 +622,77 @@ func TestApplyDeterminism_ClaimSequenceRebuildsIdentically(t *testing.T) {
 	got := applyDump(t, rebuilt)
 	if want != got {
 		t.Errorf("rebuild from a shuffled claim log differs.\n--- original ---\n%s\n--- rebuilt ---\n%s", want, got)
+	}
+}
+
+// TestApplyDeterminism_ImportedPlanRebuildsFromAShuffledLog is the same
+// shuffle-and-compare as the task family's, over a plan carrying blocks,
+// labels, criteria and provenance.
+func TestApplyDeterminism_ImportedPlanRebuildsFromAShuffledLog(t *testing.T) {
+	source := SetupTestDB(t)
+	driveImportedPlan(t, source)
+
+	events, err := cachedEnvelopes(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Rep == "" || e.Seq == 0 || e.TS == 0 {
+			t.Fatalf("envelope %+v is missing its position", e)
+		}
+	}
+
+	rng := rand.New(rand.NewSource(20260903))
+	shuffled := append([]eventlog.Envelope(nil), events...)
+	rng.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+
+	restore := CurrentNowFunc
+	t.Cleanup(func() { CurrentNowFunc = restore })
+	CurrentNowFunc = func() time.Time { return time.Now().AddDate(1, 0, 0) }
+
+	rebuilt, err := CreateDB(filepath.Join(t.TempDir(), "rebuilt.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rebuilt.Close()
+	if err := rebuildFrom(rebuilt, shuffled); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	if want, got := applyDump(t, source), applyDump(t, rebuilt); want != got {
+		t.Errorf("rebuild from a shuffled log differs.\n--- original ---\n%s\n--- rebuilt ---\n%s", want, got)
+	}
+}
+
+// The criterion: an imported plan rebuilds identically from its events. This
+// is the plain case — import once, touch nothing, rebuild into a fresh
+// database from the log alone.
+func TestApplyDeterminism_ImportedPlanRebuildsFromItsEventsAlone(t *testing.T) {
+	source := SetupTestDB(t)
+	mustImportFixture(t, source)
+
+	events, err := cachedEnvelopes(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) < 5 {
+		t.Fatalf("import recorded only %d events", len(events))
+	}
+
+	restore := CurrentNowFunc
+	t.Cleanup(func() { CurrentNowFunc = restore })
+	CurrentNowFunc = func() time.Time { return time.Now().AddDate(1, 0, 0) }
+
+	rebuilt, err := CreateDB(filepath.Join(t.TempDir(), "rebuilt.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rebuilt.Close()
+	if err := rebuildFrom(rebuilt, events); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	if want, got := applyDump(t, source), applyDump(t, rebuilt); want != got {
+		t.Errorf("an imported plan did not rebuild from its events.\n--- original ---\n%s\n--- rebuilt ---\n%s", want, got)
 	}
 }

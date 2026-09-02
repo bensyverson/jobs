@@ -92,25 +92,12 @@ func RunSetKind(db *sql.DB, shortID string, kind TreeKind, actor string) (*KindR
 		return res, nil
 	}
 
-	tx, err := db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(
-		"UPDATE tasks SET kind = ?, updated_at = ? WHERE id = ?",
-		string(kind), CurrentNowFunc().Unix(), task.ID,
-	); err != nil {
-		return nil, err
-	}
-	if err := recordEvent(tx, task.ID, EventKindChanged, actor, KindChangedPayload{
-		From: string(task.Kind),
-		To:   string(kind),
+	if err := commit(db, func(tx dbtx, b *eventBatch) error {
+		return b.emit(tx, EventKindChanged, task.ShortID, actor, KindChangedPayload{
+			From: string(task.Kind),
+			To:   string(kind),
+		})
 	}); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	res.Changed = true

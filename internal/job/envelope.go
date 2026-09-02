@@ -193,27 +193,3 @@ func commit(db *sql.DB, fn func(tx dbtx, b *eventBatch) error) error {
 	}
 	return rec.persist()
 }
-
-// batchInTx builds an eventBatch on a transaction that is already open.
-//
-// commit() is the shape every handler should have, and every handler that has
-// been moved onto apply uses it. This exists for the few that still open
-// their own transaction — the label and criteria handlers, which the
-// relations leaf is moving — because the claims family's auto-extend runs
-// inside them and now has to emit a real, positioned heartbeat.
-//
-// Two things the caller owes it that commit() would have done: persist the
-// clock watermark after the transaction commits (batch.persist), and, once
-// the log files exist, take the store lock around the whole span. Delete this
-// when the last handler is on commit().
-func batchInTx(tx dbtx) (*eventBatch, error) {
-	rec, err := newRecorder(tx)
-	if err != nil {
-		return nil, err
-	}
-	return &eventBatch{rec: rec}, nil
-}
-
-// persist writes the batch's clock watermark back to local.json. Only the
-// batchInTx callers need it; commit() does this for its own batch.
-func (b *eventBatch) persist() error { return b.rec.persist() }

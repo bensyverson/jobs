@@ -50,53 +50,26 @@ func normalizeLabelNames(raw []string) ([]string, error) {
 	return out, nil
 }
 
-// insertLabels inserts each name for taskID using INSERT OR IGNORE and
-// returns the names that were actually inserted (added) versus already
-// present (existing). Order matches the input order.
-func insertLabels(tx dbtx, taskID int64, names []string) (added, existing []string, err error) {
+// splitLabelsByPresence reports which of names are already attached to
+// taskID and which are not, preserving input order. Handlers need this
+// before they emit: applyLabeled and applyUnlabeled are idempotent, so the
+// write cannot be what tells the caller what changed.
+func splitLabelsByPresence(tx dbtx, taskID int64, names []string) (present, absent []string, err error) {
 	for _, name := range names {
-		res, err := tx.Exec(
-			"INSERT OR IGNORE INTO task_labels (task_id, name) VALUES (?, ?)",
+		var exists bool
+		if err := tx.QueryRow(
+			"SELECT EXISTS(SELECT 1 FROM task_labels WHERE task_id = ? AND name = ?)",
 			taskID, name,
-		)
-		if err != nil {
+		).Scan(&exists); err != nil {
 			return nil, nil, err
 		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			return nil, nil, err
-		}
-		if n > 0 {
-			added = append(added, name)
-		} else {
-			existing = append(existing, name)
-		}
-	}
-	return added, existing, nil
-}
-
-// deleteLabels removes each name for taskID and returns the names that were
-// actually present (removed) versus absent.
-func deleteLabels(tx dbtx, taskID int64, names []string) (removed, absent []string, err error) {
-	for _, name := range names {
-		res, err := tx.Exec(
-			"DELETE FROM task_labels WHERE task_id = ? AND name = ?",
-			taskID, name,
-		)
-		if err != nil {
-			return nil, nil, err
-		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			return nil, nil, err
-		}
-		if n > 0 {
-			removed = append(removed, name)
+		if exists {
+			present = append(present, name)
 		} else {
 			absent = append(absent, name)
 		}
 	}
-	return removed, absent, nil
+	return present, absent, nil
 }
 
 // GetLabels returns the labels attached to taskID, sorted alphabetically
@@ -161,61 +134,41 @@ func RunLabelAdd(db *sql.DB, shortID string, names []string, actor string) (*Lab
 		return nil, fmt.Errorf("label name is empty")
 	}
 
-	tx, err := db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	// TODO(relations leaf): this handler still opens its own transaction and
-	// records its own event with recordEvent. The claims family's expiry and
-	// auto-extend are on apply, so they need a real batch on this
-	// transaction; fold the whole handler into commit() and this goes away.
-	b, err := batchInTx(tx)
-	if err != nil {
-		return nil, err
-	}
-	if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
-		return nil, err
-	}
-
-	task, err := GetTaskByShortID(tx, shortID)
-	if err != nil {
-		return nil, err
-	}
-	if task == nil {
-		return nil, fmt.Errorf("task %q not found", shortID)
-	}
-
-	added, existing, err := insertLabels(tx, task.ID, normalized)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(added) > 0 {
-		if err := recordEvent(tx, task.ID, EventLabeled, actor, LabeledPayload{
-			Names:    normalized,
-			Existing: ensureStringSlice(existing),
-		}); err != nil {
-			return nil, err
+	result := &LabelResult{ShortID: shortID}
+	err = commit(db, func(tx dbtx, b *eventBatch) error {
+		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
+			return err
 		}
-	}
+		task, err := GetTaskByShortID(tx, shortID)
+		if err != nil {
+			return err
+		}
+		if task == nil {
+			return fmt.Errorf("task %q not found", shortID)
+		}
 
-	if err := maybeExtendClaim(tx, b, task.ShortID, actor); err != nil {
-		return nil, err
-	}
+		existing, added, err := splitLabelsByPresence(tx, task.ID, normalized)
+		if err != nil {
+			return err
+		}
+		result.Added, result.Existing = added, existing
 
-	if err := tx.Commit(); err != nil {
+		if len(added) > 0 {
+			if err := b.emit(tx, EventLabeled, shortID, actor, LabeledPayload{
+				Names:    normalized,
+				Existing: ensureStringSlice(existing),
+			}); err != nil {
+				return err
+			}
+		}
+		// The claims family owns maybeExtendClaim; it still writes the claim
+		// column directly (leaf for agent-claims).
+		return maybeExtendClaim(tx, b, task.ShortID, actor)
+	})
+	if err != nil {
 		return nil, err
 	}
-	if err := b.persist(); err != nil {
-		return nil, err
-	}
-	return &LabelResult{
-		ShortID:  shortID,
-		Added:    added,
-		Existing: existing,
-	}, nil
+	return result, nil
 }
 
 func RunLabelRemove(db *sql.DB, shortID string, names []string, actor string) (*UnlabelResult, error) {
@@ -227,61 +180,39 @@ func RunLabelRemove(db *sql.DB, shortID string, names []string, actor string) (*
 		return nil, fmt.Errorf("label name is empty")
 	}
 
-	tx, err := db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	// TODO(relations leaf): this handler still opens its own transaction and
-	// records its own event with recordEvent. The claims family's expiry and
-	// auto-extend are on apply, so they need a real batch on this
-	// transaction; fold the whole handler into commit() and this goes away.
-	b, err := batchInTx(tx)
-	if err != nil {
-		return nil, err
-	}
-	if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
-		return nil, err
-	}
-
-	task, err := GetTaskByShortID(tx, shortID)
-	if err != nil {
-		return nil, err
-	}
-	if task == nil {
-		return nil, fmt.Errorf("task %q not found", shortID)
-	}
-
-	removed, absent, err := deleteLabels(tx, task.ID, normalized)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(removed) > 0 {
-		if err := recordEvent(tx, task.ID, EventUnlabeled, actor, UnlabeledPayload{
-			Names:  normalized,
-			Absent: ensureStringSlice(absent),
-		}); err != nil {
-			return nil, err
+	result := &UnlabelResult{ShortID: shortID}
+	err = commit(db, func(tx dbtx, b *eventBatch) error {
+		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
+			return err
 		}
-	}
+		task, err := GetTaskByShortID(tx, shortID)
+		if err != nil {
+			return err
+		}
+		if task == nil {
+			return fmt.Errorf("task %q not found", shortID)
+		}
 
-	if err := maybeExtendClaim(tx, b, task.ShortID, actor); err != nil {
-		return nil, err
-	}
+		removed, absent, err := splitLabelsByPresence(tx, task.ID, normalized)
+		if err != nil {
+			return err
+		}
+		result.Removed, result.Absent = removed, absent
 
-	if err := tx.Commit(); err != nil {
+		if len(removed) > 0 {
+			if err := b.emit(tx, EventUnlabeled, shortID, actor, UnlabeledPayload{
+				Names:  normalized,
+				Absent: ensureStringSlice(absent),
+			}); err != nil {
+				return err
+			}
+		}
+		return maybeExtendClaim(tx, b, task.ShortID, actor)
+	})
+	if err != nil {
 		return nil, err
 	}
-	if err := b.persist(); err != nil {
-		return nil, err
-	}
-	return &UnlabelResult{
-		ShortID: shortID,
-		Removed: removed,
-		Absent:  absent,
-	}, nil
+	return result, nil
 }
 
 // ensureStringSlice returns a non-nil slice so the recorded JSON detail
