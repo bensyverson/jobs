@@ -21,6 +21,9 @@ import (
 //     migration is NOT recorded, and RunMigrations returns an error
 //     naming it. Previously-applied migrations keep their rows.
 //   - Running with no new migrations is a no-op.
+//   - If the database records a version higher than the highest file here,
+//     it was written by a newer binary: RunMigrations refuses with a
+//     *SchemaAheadError rather than opening a schema it cannot read.
 func RunMigrations(db *sql.DB, migrationsFS fs.FS) error {
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -40,6 +43,23 @@ func RunMigrations(db *sql.DB, migrationsFS fs.FS) error {
 	applied, err := loadAppliedVersions(db)
 	if err != nil {
 		return err
+	}
+
+	shipped := 0
+	for _, name := range entries {
+		version, err := parseMigrationVersion(name)
+		if err != nil {
+			return err
+		}
+		if version > shipped {
+			shipped = version
+		}
+	}
+	// A database recording a migration this binary does not ship was written
+	// by a newer job. Refuse: proceeding would append events and rewrite the
+	// cache under a schema this binary cannot read.
+	if recorded := highestVersion(applied); recorded > shipped {
+		return &SchemaAheadError{DBVersion: recorded, BinaryVersion: shipped}
 	}
 
 	for _, name := range entries {
@@ -78,6 +98,16 @@ func loadAppliedVersions(db *sql.DB) (map[int]bool, error) {
 	return applied, rows.Err()
 }
 
+func highestVersion(versions map[int]bool) int {
+	highest := 0
+	for v := range versions {
+		if v > highest {
+			highest = v
+		}
+	}
+	return highest
+}
+
 var migrationVersionRE = regexp.MustCompile(`^(\d+)`)
 
 func parseMigrationVersion(name string) (int, error) {
@@ -113,4 +143,24 @@ func applyMigration(db *sql.DB, version int, name, sqlText string) error {
 		return fmt.Errorf("migration %s: commit: %w", name, err)
 	}
 	return nil
+}
+
+// SchemaAheadError reports a database whose recorded schema is newer than the
+// highest migration this binary ships — an old binary against a new cache.
+// Path is optional; openCache fills it in once it knows the file.
+type SchemaAheadError struct {
+	Path          string
+	DBVersion     int
+	BinaryVersion int
+}
+
+func (e *SchemaAheadError) Error() string {
+	name := e.Path
+	if name == "" {
+		name = "the database"
+	}
+	return fmt.Sprintf(
+		"%s is at schema %d but this job only knows schema %d: the binary is older than the database. Rebuild it (make install) or upgrade job.",
+		name, e.DBVersion, e.BinaryVersion,
+	)
 }

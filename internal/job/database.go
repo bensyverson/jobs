@@ -134,6 +134,11 @@ func openCache(path string) (*sql.DB, error) {
 	db.Exec("PRAGMA foreign_keys=ON")
 	if err := RunMigrations(db, migrations.FS()); err != nil {
 		db.Close()
+		// The migrator does not know which file it is looking at; name it
+		// here so the message points at the cache the user has to fix.
+		if ahead, ok := errors.AsType[*SchemaAheadError](err); ok {
+			ahead.Path = path
+		}
 		return nil, err
 	}
 	// Backfill server-generated short_ids for any criterion rows that

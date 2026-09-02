@@ -140,6 +140,17 @@ Every old event row becomes a log line marked `legacy`. Those are recorded and r
 
 On success the original cache is kept as **`.jobs.db.pre-adopt`**, covered by the `.jobs.db*` ignore pattern. Delete it once you are satisfied. `JOBS_NO_ADOPT=1` reads a legacy database as-is for one command without converting it.
 
+## When the binary is older than the cache
+
+The cache records which numbered migrations have been applied. A newer `job` may add one; an older `job` does not know it exists. Opening a cache whose recorded schema is *ahead* of the binary is refused, before anything is read or written:
+
+```text
+.jobs.db is at schema 11 but this job only knows schema 8: the binary is older
+than the database. Rebuild it (make install) or upgrade job.
+```
+
+It is a refusal rather than a warning because an older binary that carried on would append events and rewrite the cache under a schema it cannot read — and the log is the record. The fix is to catch the binary up: `make install` in a checkout, or upgrade whichever `job` is on your `PATH`. Nothing is wrong with the database.
+
 ## The one hygiene rule
 
 **Never hand-edit a log file.** It is append-only, its sequence numbers are gapless so a truncated file can be told from a complete one, and every other machine will replay exactly what you leave there. A line that fails to parse fails the rebuild, named by file and line. If you need to undo something, record the undo — `job reopen`, `job note`, `job cancel` — and let the log say what happened.
