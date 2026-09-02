@@ -1,6 +1,7 @@
 package job
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -107,5 +108,50 @@ func TestConfig_Table_IsNeverWritten(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("config rows after setting the identity: got %d, want 0", n)
+	}
+}
+
+// A database written before local.json existed holds its identity and
+// strict flag in the config table. Opening it seeds local.json from those
+// rows once, so an upgrade never costs a user their default identity, and
+// clears the rows so the seed cannot run twice.
+func TestOpenDB_SeedsLocalStateFromLegacyConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".jobs.db")
+	db, err := OpenDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kv := range [][2]string{{"default_identity", "legacy-ben"}, {"strict", "true"}} {
+		if _, err := db.Exec(`INSERT INTO config (key, value) VALUES (?, ?)`, kv[0], kv[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+
+	db, err = OpenDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	id, err := GetDefaultIdentity(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "legacy-ben" {
+		t.Errorf("identity after upgrade = %q, want legacy-ben", id)
+	}
+	strict, err := IsStrict(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strict {
+		t.Error("strict flag lost on upgrade")
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM config`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("config rows left after seeding: %d", n)
 	}
 }

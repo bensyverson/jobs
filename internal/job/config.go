@@ -1,5 +1,10 @@
 package job
 
+import (
+	"database/sql"
+	"fmt"
+)
+
 // The default writer identity and strict mode are machine-local: they say who
 // is at this keyboard, not what happened to the tasks. They live in
 // .jobs/local.json beside the cache (see local.go), never in the cache — which
@@ -73,4 +78,43 @@ func ResolveIdentity(db dbtx, flagValue string) (string, error) {
 		return "", nil
 	}
 	return s.Identity, nil
+}
+
+// seedLocalStateFromConfig moves a legacy database's default_identity and
+// strict rows from the config table into local.json and deletes them, so
+// the seed runs at most once. A database with no such rows is untouched.
+func seedLocalStateFromConfig(db *sql.DB, cachePath string) error {
+	rows, err := db.Query(`SELECT key, value FROM config WHERE key IN ('default_identity', 'strict')`)
+	if err != nil {
+		return fmt.Errorf("read legacy config: %w", err)
+	}
+	legacy := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			rows.Close()
+			return err
+		}
+		legacy[k] = v
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(legacy) == 0 {
+		return nil
+	}
+	if err := UpdateLocalState(cachePath, func(s *LocalState) error {
+		if v, ok := legacy["default_identity"]; ok && s.Identity == "" {
+			s.Identity = v
+		}
+		if v, ok := legacy["strict"]; ok {
+			s.Strict = s.Strict || v == "true"
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("seed local state from config: %w", err)
+	}
+	_, err = db.Exec(`DELETE FROM config WHERE key IN ('default_identity', 'strict')`)
+	return err
 }

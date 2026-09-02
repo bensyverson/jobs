@@ -105,6 +105,13 @@ func OpenDB(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+	// A database written before local.json existed keeps its identity and
+	// strict flag in the config table; move them across once so an upgrade
+	// never costs a user their default identity.
+	if err := seedLocalStateFromConfig(db, path); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return db, nil
 }
 
