@@ -239,7 +239,7 @@ func RenderAncestorBrief(w io.Writer, t *Task) {
 	fmt.Fprintf(w, "ID:           %s\n", t.ShortID)
 	fmt.Fprintf(w, "Title:        %s\n", t.Title)
 	if t.Description != "" {
-		fmt.Fprintf(w, "Description:  %s\n", unwrapProse(t.Description))
+		fmt.Fprintf(w, "Description:  %s\n", RenderProseTextIndented(t.Description, "              ", true))
 	}
 }
 
@@ -314,7 +314,7 @@ func RenderInfoMarkdown(w io.Writer, info *TaskInfo) {
 	fmt.Fprintf(w, "Created:      %s\n", formatTimestamp(info.Task.CreatedAt))
 
 	if info.Task.Description != "" {
-		fmt.Fprintf(w, "\nDescription:\n  %s\n", unwrapProse(info.Task.Description))
+		fmt.Fprintf(w, "\nDescription:\n%s\n", RenderProseTextIndented(info.Task.Description, "  ", false))
 	}
 
 	if len(info.Criteria) > 0 {
@@ -353,7 +353,7 @@ func RenderInfoMarkdown(w io.Writer, info *TaskInfo) {
 			} else {
 				fmt.Fprintf(w, "  [%s] @%s\n", ts, n.Actor)
 			}
-			fmt.Fprintf(w, "    %s\n", unwrapProse(n.Text))
+			fmt.Fprintf(w, "%s\n", RenderProseTextIndented(n.Text, "    ", false))
 		}
 	}
 }
@@ -370,72 +370,6 @@ func criterionGlyph(state CriterionState) string {
 	default:
 		return "[ ]"
 	}
-}
-
-// unwrapProse turns author-supplied hard-wrapped prose into terminal-
-// friendly output:
-//   - Single \n inside a paragraph collapses to a space.
-//   - Blank lines (\n\n+) are preserved as paragraph breaks.
-//   - Bullet lines (- or *) and numbered list lines (1.) keep their own
-//     line so list structure survives.
-//
-// Trailing whitespace and trailing blank lines are trimmed.
-func unwrapProse(s string) string {
-	if s == "" {
-		return ""
-	}
-	lines := strings.Split(s, "\n")
-	var out []string
-	var para []string
-
-	flush := func() {
-		if len(para) > 0 {
-			out = append(out, strings.Join(para, " "))
-			para = para[:0]
-		}
-	}
-
-	isBullet := func(line string) bool {
-		t := strings.TrimLeft(line, " \t")
-		if strings.HasPrefix(t, "- ") || strings.HasPrefix(t, "* ") || t == "-" || t == "*" {
-			return true
-		}
-		// Loose numbered-list detection: "1. " through "999. ".
-		for i := 0; i < len(t) && i < 4; i++ {
-			c := t[i]
-			if c >= '0' && c <= '9' {
-				continue
-			}
-			if c == '.' && i > 0 && i+1 < len(t) && t[i+1] == ' ' {
-				return true
-			}
-			break
-		}
-		return false
-	}
-
-	for _, line := range lines {
-		trimmed := strings.TrimRight(line, " \t")
-		if trimmed == "" {
-			flush()
-			out = append(out, "")
-			continue
-		}
-		if isBullet(trimmed) {
-			flush()
-			out = append(out, trimmed)
-			continue
-		}
-		para = append(para, trimmed)
-	}
-	flush()
-
-	// Trim trailing blank lines so descriptions that ended in newlines
-	// don't blow out the bottom of the section.
-	for len(out) > 0 && out[len(out)-1] == "" {
-		out = out[:len(out)-1]
-	}
-	return strings.Join(out, "\n")
 }
 
 func RenderInfoJSON(w io.Writer, info *TaskInfo) {

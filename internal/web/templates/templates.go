@@ -19,6 +19,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/bensyverson/jobs/internal/job"
 	"github.com/bensyverson/jobs/internal/web/assets"
 )
 
@@ -142,6 +143,12 @@ func (e *Engine) RenderFragment(w io.Writer, pageName, blockName string, data an
 // <link> at runtime.
 func buildFuncMap(manifest *assets.Manifest) template.FuncMap {
 	return template.FuncMap{
+		// prose renders a description or note body as escaped HTML blocks.
+		// The body is markdown prose (see internal/job/prose.go); no raw
+		// HTML in the source survives, so the result is safe to mark.
+		"prose": func(text string) template.HTML {
+			return template.HTML(job.RenderProseHTML(text))
+		},
 		"asset": func(logicalPath string) (string, error) {
 			u := manifest.URL(logicalPath)
 			if u == "" {

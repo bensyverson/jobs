@@ -115,7 +115,7 @@
 {{if .Description}}
 <section class="c-section">
   <h2 class="c-section__label t-label-caps">Description</h2>
-  <div class="c-note">{{.Description}}</div>
+  <div class="c-note c-prose">{{prose .Description}}</div>
 </section>
 {{end}}
 
@@ -140,14 +140,14 @@
 {{if .CompletionNote}}
 <section class="c-section">
   <h2 class="c-section__label t-label-caps">Completion note</h2>
-  <div class="c-note">{{.CompletionNote}}</div>
+  <div class="c-note c-prose">{{prose .CompletionNote}}</div>
 </section>
 {{end}}
 
 {{if .CancelReason}}
 <section class="c-section">
   <h2 class="c-section__label t-label-caps">Cancel reason</h2>
-  <div class="c-note">{{.CancelReason}}</div>
+  <div class="c-note c-prose">{{prose .CancelReason}}</div>
 </section>
 {{end}}
 
@@ -223,7 +223,7 @@
       <strong>{{.Actor}}</strong>
     </a>
     <time class="t-dim t-data-id" datetime="{{.ISOTime}}">{{.RelTime}} ago</time>
-    <p class="c-progress-note__body">{{.Text}}</p>
+    <div class="c-progress-note__body c-prose">{{prose .Text}}</div>
   </div>
 {{end}}
 

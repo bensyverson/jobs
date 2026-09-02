@@ -28,7 +28,7 @@ const schemaJSON = `{
           },
           "desc": {
             "type": "string",
-            "description": "Optional free-text description. Paragraphs separate with a blank line. Assume the reader is an agent with fresh context, so include the 'why' and supporting context. Don't hard-wrap lines; assume descriptions will be reflowed."
+            "description": "Optional description in markdown prose: a blank line separates paragraphs, a single newline is a soft break that reflows, list items and fenced code keep their lines. Assume the reader is an agent with fresh context, so include the 'why' and supporting context."
           },
           "labels": {
             "type": "array",

@@ -73,7 +73,7 @@ Only the holder can release without `--force`. If you want to take a task away f
 
 ## `note`
 
-Append a timestamped note to a task. Notes are events (actor + body), not edits to the description, and they remain visible in `show` and `log`.
+Append a timestamped note to a task. Notes are events (actor + body), not edits to the description, and they remain visible in `show` and `log`. The body is [markdown prose](../../concepts/prose/): hard-wrapped lines reflow, blank lines separate paragraphs, lists and fenced code keep their shape.
 
 ```sh
 job note abc12 "Quick observation — the schema mismatch is in column 3."

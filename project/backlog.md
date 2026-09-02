@@ -25,3 +25,7 @@ Once `.jobs/log/*.jsonl` is the record (see [2026-09-01-git-native-event-log.md]
 **Why parked:** closing it means either recording the format in the cache (a migration plus a write on every rebuild) or reading each file's first line on every command. Neither is worth it while every checkout here runs a current binary.
 
 **Un-park when:** the format is first bumped past 1, or a second machine runs a binary that is routinely behind.
+
+## 2026-09-02 — full markdown rendering in the dashboard
+
+Descriptions and notes are markdown prose, but only the block subset is rendered: paragraphs, lists, fenced code, hard breaks (`internal/job/prose.go`, `assets/js/prose.mjs`, project/2026-09-02-prose-rendering.md). Inline syntax — backticks, emphasis, links — stays literal. Parked because a full parser is a dependency on both surfaces (goldmark for Go, a JS twin for the scrubber) plus a sanitization surface, and the subset already fixes the reflow pain. Un-park when someone wants inline code or links rendered on the dashboard; goldmark is the pick, being what the docs site's Hugo already uses, and the block subset is forward-compatible with it.

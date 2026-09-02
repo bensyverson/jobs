@@ -346,3 +346,34 @@ test("renderPlanSection: takes the section attributes and empty text from the vi
   assert.match(html, /data-plan-base="\/issues\/abc12"/);
   assert.match(html, /No open issues\./);
 });
+
+// --- description prose ---
+
+test("renderPlanSection: row description renders as prose blocks", () => {
+  const html = renderPlanSection([
+    {
+      shortID: "abc12",
+      url: "/tasks/abc12",
+      title: "T",
+      description: "one\ntwo\n\n- a\n- b",
+      displayStatus: "todo",
+      actor: "",
+      labels: [],
+      relTime: "",
+      isoTime: "",
+      blockedBy: [],
+      notes: [],
+      children: [],
+      depth: 0,
+      hasChildren: false,
+      collapsible: true,
+      collapsed: false,
+    },
+  ]);
+  assert.ok(
+    html.includes(
+      `<div class="c-plan-row__desc c-prose"><p>one two</p><ul><li>a</li><li>b</li></ul></div>`,
+    ),
+    html,
+  );
+});

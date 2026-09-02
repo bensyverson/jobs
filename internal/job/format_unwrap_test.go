@@ -6,60 +6,8 @@ import (
 	"testing"
 )
 
-// R6 — Stop hard-wrapping prose in `job info`. The wrap actually comes
-// from the source text (YAML imports preserve author-supplied `\n`s),
-// not from the renderer. Fix: unwrap at render time — single newlines
-// become spaces, paragraph breaks (\n\n) are preserved, bullet lines
-// are kept structural.
-
-func TestUnwrapProse_SingleLine(t *testing.T) {
-	got := unwrapProse("hello world")
-	if got != "hello world" {
-		t.Errorf("got %q, want %q", got, "hello world")
-	}
-}
-
-func TestUnwrapProse_CollapsesSingleNewlines(t *testing.T) {
-	in := "Eight agent-facing CLI ergonomics fixes grouped under one\numbrella, drawn from the R0–R7 recommendations."
-	want := "Eight agent-facing CLI ergonomics fixes grouped under one umbrella, drawn from the R0–R7 recommendations."
-	if got := unwrapProse(in); got != want {
-		t.Errorf("\n got: %q\nwant: %q", got, want)
-	}
-}
-
-func TestUnwrapProse_PreservesParagraphBreaks(t *testing.T) {
-	in := "first paragraph\nstill first.\n\nsecond paragraph\nstill second."
-	want := "first paragraph still first.\n\nsecond paragraph still second."
-	if got := unwrapProse(in); got != want {
-		t.Errorf("\n got: %q\nwant: %q", got, want)
-	}
-}
-
-func TestUnwrapProse_PreservesBullets(t *testing.T) {
-	in := "Implemented:\n- sticky body layout\n- mini-graph hover\n- log view\nRemaining:\n- actor view"
-	got := unwrapProse(in)
-	// Each bullet should be on its own line.
-	for _, want := range []string{"- sticky body layout", "- mini-graph hover", "- log view", "- actor view"} {
-		if !strings.Contains(got, "\n"+want) && !strings.HasPrefix(got, want) {
-			t.Errorf("missing bullet %q in:\n%s", want, got)
-		}
-	}
-	// "Implemented:" and "Remaining:" introduce bullet groups; should not
-	// collapse into the bullets they precede.
-	if !strings.Contains(got, "Implemented:") {
-		t.Errorf("missing Implemented: in:\n%s", got)
-	}
-	if !strings.Contains(got, "Remaining:") {
-		t.Errorf("missing Remaining: in:\n%s", got)
-	}
-}
-
-func TestUnwrapProse_TrailingNewlinesTrimmed(t *testing.T) {
-	got := unwrapProse("hello\n\n\n")
-	if got != "hello" {
-		t.Errorf("got %q, want %q", got, "hello")
-	}
-}
+// Descriptions and notes are markdown prose (see prose.go): the console
+// reflows hard-wrapped paragraphs at render time rather than at write time.
 
 func TestRenderInfoMarkdown_UnwrapsDescription(t *testing.T) {
 	db := SetupTestDB(t)
@@ -76,18 +24,33 @@ func TestRenderInfoMarkdown_UnwrapsDescription(t *testing.T) {
 	var buf bytes.Buffer
 	RenderInfoMarkdown(&buf, info)
 	got := buf.String()
-	// The whole description body should appear on one logical line (no
-	// embedded newlines from the author's hard-wrapping). Layout puts
-	// "Description:" on its own line followed by indented body.
 	if !strings.Contains(got, "Description:\n  line one of description line two line three with words") {
 		t.Errorf("description not unwrapped:\n%s", got)
+	}
+}
+
+func TestRenderInfoMarkdown_IndentsEveryDescriptionLine(t *testing.T) {
+	db := SetupTestDB(t)
+	id, err := RunAdd(db, "", "Task", "Intro.\n\n- one\n- two", "", nil, TestActor)
+	if err != nil {
+		t.Fatalf("RunAdd: %v", err)
+	}
+	info, err := RunInfo(db, id.ShortID)
+	if err != nil {
+		t.Fatalf("RunInfo: %v", err)
+	}
+	var buf bytes.Buffer
+	RenderInfoMarkdown(&buf, info)
+	got := buf.String()
+	if !strings.Contains(got, "Description:\n  Intro.\n\n  - one\n  - two\n") {
+		t.Errorf("continuation lines not indented:\n%s", got)
 	}
 }
 
 func TestRenderInfoMarkdown_UnwrapsNoteBody(t *testing.T) {
 	db := SetupTestDB(t)
 	id := MustAdd(t, db, "", "Task")
-	body := "Implemented sticky chrome layout\nbody/page/main use 100vh\nmain has overflow-y: auto"
+	body := "Implemented sticky chrome layout\nbody/page/main use 100vh\nmain has overflow-y: auto\n\n- bullet"
 	if err := RunNote(db, id, body, nil, TestActor); err != nil {
 		t.Fatalf("note: %v", err)
 	}
@@ -99,7 +62,16 @@ func TestRenderInfoMarkdown_UnwrapsNoteBody(t *testing.T) {
 	var buf bytes.Buffer
 	RenderInfoMarkdown(&buf, info)
 	got := buf.String()
-	if strings.Contains(got, "Implemented sticky chrome layout\n    body/page/main") {
-		t.Errorf("note body should be unwrapped, not preserved as multi-line:\n%s", got)
+	if !strings.Contains(got, "    Implemented sticky chrome layout body/page/main use 100vh main has overflow-y: auto\n\n    - bullet\n") {
+		t.Errorf("note body should be reflowed and indented on every line:\n%s", got)
+	}
+}
+
+func TestRenderAncestorBrief_HangingIndent(t *testing.T) {
+	var buf bytes.Buffer
+	RenderAncestorBrief(&buf, &Task{ShortID: "abc12", Title: "T", Description: "one\ntwo\n\nthree"})
+	want := "Description:  one two\n\n              three\n"
+	if !strings.Contains(buf.String(), want) {
+		t.Errorf("got:\n%s\nwant to contain:\n%s", buf.String(), want)
 	}
 }

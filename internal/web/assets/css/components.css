@@ -1806,10 +1806,8 @@ peek-sheet[data-state="open"] .c-peek-sheet {
 
 /* ---------- Notes (Description / Completion note narrative blocks) ---------- */
 
-/* Renders agent / human narrative — paragraphs separated by newlines,
-   ad-hoc markdown-style lists indented by leading "- ". We respect the
-   newlines via white-space: pre-wrap but use the body font (not mono)
-   and cap the measure so long lines stay readable. */
+/* Renders agent / human narrative as prose blocks (see .c-prose): body
+   font, not mono, with the measure capped so long lines stay readable. */
 .c-note {
   background: var(--color-surface);
   border: 1px solid var(--color-outline);
@@ -1818,19 +1816,75 @@ peek-sheet[data-state="open"] .c-peek-sheet {
   font-size: var(--font-body-md-size);
   line-height: var(--font-body-md-line-height);
   color: var(--color-on-surface);
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-width: 38em;
   margin: 0;
 }
 
-/* Progress note bodies share the narrative-prose treatment — preserve
-   newlines, cap the measure for readable line lengths. */
+/* Progress note bodies share the narrative-prose treatment — cap the
+   measure for readable line lengths. */
 .c-progress-note__body {
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-width: 38em;
   margin: 0;
+}
+
+/* ---------- Prose (descriptions, notes, completion notes, reasons) ---------- */
+
+/* Descriptions and notes are markdown prose, rendered server-side by the
+   `prose` template func and client-side by prose.mjs into <p>, <ul>/<ol>
+   and <pre><code>. Hard-wrapped source reflows; only a fenced block keeps
+   its whitespace. Blocks are separated by a small gap, never by source
+   newlines, and the last block carries no trailing margin so the
+   container's padding stays symmetric. */
+.c-prose > * {
+  margin: 0 0 var(--space-sm);
+}
+
+.c-prose > *:last-child {
+  margin-bottom: 0;
+}
+
+.c-prose p {
+  margin-top: 0;
+}
+
+.c-prose ul,
+.c-prose ol {
+  padding-left: 1.4em;
+}
+
+.c-prose li {
+  margin: 0;
+}
+
+.c-prose li > p {
+  margin: 0 0 var(--space-xs);
+}
+
+.c-prose li > *:last-child {
+  margin-bottom: 0;
+}
+
+.c-prose li > ul,
+.c-prose li > ol {
+  margin-top: var(--space-xs);
+}
+
+.c-prose pre {
+  font-family: var(--font-mono);
+  font-size: var(--font-data-sm-size);
+  line-height: var(--font-data-sm-line-height);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-outline);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.c-prose code {
+  font-family: var(--font-mono);
 }
 
 /* ---------- Criterion icons ---------- */
@@ -2217,15 +2271,14 @@ a.c-graph-node__bug:focus-visible {
 /* Description from the task record — reads as narrative under the title.
    Inherits the row's status-tinted color so the description reinforces the
    title's state, just at a quieter register (slight opacity reduction).
-   Newlines in the description render as linebreaks (white-space: pre-wrap),
-   matching the peek sheet and full task page (.c-note). Line length caps at
-   ~40em for comfortable reading on wide monitors. */
+   The description is prose (.c-prose), matching the peek sheet and full
+   task page (.c-note). Line length caps at ~40em for comfortable reading
+   on wide monitors. */
 .c-plan-row__desc {
   font-size: var(--font-body-sm-size);
   line-height: 1.4;
   color: inherit;
   opacity: 0.75;
-  white-space: pre-wrap;
   max-width: 40em;
 }
 

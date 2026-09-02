@@ -378,9 +378,9 @@ func TestTask_CancelReasonRendersSection(t *testing.T) {
 }
 
 // TestTask_NarrativeFieldsDoNotUsePre asserts that Description and
-// Completion note render in a non-<pre> block so newlines are preserved
-// (via white-space:pre-wrap CSS) but the body font is used and content
-// soft-wraps.
+// Completion note render as prose blocks, not <pre>: the body font is used,
+// hard-wrapped lines reflow, and bullets become a real list (see
+// prose_test.go for the block shapes).
 func TestTask_NarrativeFieldsDoNotUsePre(t *testing.T) {
 	db := setupLogTestDB(t)
 	desc := "first paragraph\n\n- bullet one\n- bullet two"
@@ -395,9 +395,9 @@ func TestTask_NarrativeFieldsDoNotUsePre(t *testing.T) {
 	if strings.Contains(body, `<pre class="c-note">`) {
 		t.Errorf("Description / Completion note must not use <pre>; got body:\n%s", body)
 	}
-	// The description paragraph break and bullet markers must still be in the body.
-	mustContain(t, body, "first paragraph")
-	mustContain(t, body, "- bullet one")
+	mustContain(t, body, "<p>first paragraph</p>")
+	mustContain(t, body, "<li>bullet one</li>")
+	mustContain(t, body, "<p>wrap up second line</p>")
 }
 
 func TestTask_HistoryRendersCriteriaAddedAndCriterionStateAsHumanVerbs(t *testing.T) {

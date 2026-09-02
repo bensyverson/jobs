@@ -44,7 +44,7 @@ tasks:
 
 Notes:
 
-- `desc` is free text. Paragraphs separate with a blank line. The schema's hint to "assume the reader is an agent with fresh context" is a good rule — the description is what someone (or something) sees when they `claim` the task with no other context.
+- `desc` is [markdown prose](../concepts/prose/): paragraphs separate with a blank line, single newlines reflow, lists and fences survive. The schema's hint to "assume the reader is an agent with fresh context" is a good rule — the description is what someone (or something) sees when they `claim` the task with no other context.
 - `labels` is flat and free-form. There's no inheritance — children don't pick up their parent's labels automatically. List the ones you want on each node.
 - `children` is recursive. The same grammar applies at every level.
 - A parent should not carry its own work; if it would, model that work as a leaf child. The leaf-frontier rule (parents auto-close when their last child closes) makes that the cleanest shape.

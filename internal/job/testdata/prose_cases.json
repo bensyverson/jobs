@@ -1,0 +1,146 @@
+[
+  {
+    "name": "single line",
+    "input": "hello world",
+    "text": "hello world",
+    "html": "<p>hello world</p>"
+  },
+  {
+    "name": "hard-wrapped paragraph joins",
+    "input": "Eight agent-facing CLI ergonomics fixes grouped under one\numbrella, drawn from the R0–R7 recommendations.",
+    "text": "Eight agent-facing CLI ergonomics fixes grouped under one umbrella, drawn from the R0–R7 recommendations.",
+    "html": "<p>Eight agent-facing CLI ergonomics fixes grouped under one umbrella, drawn from the R0–R7 recommendations.</p>"
+  },
+  {
+    "name": "blank line separates paragraphs",
+    "input": "first paragraph\nstill first.\n\n\nsecond paragraph\nstill second.",
+    "text": "first paragraph still first.\n\nsecond paragraph still second.",
+    "html": "<p>first paragraph still first.</p><p>second paragraph still second.</p>"
+  },
+  {
+    "name": "trailing whitespace and blank lines trimmed",
+    "input": "hello  \n\n\n",
+    "text": "hello",
+    "html": "<p>hello</p>"
+  },
+  {
+    "name": "bullets keep their line",
+    "input": "Implemented:\n- sticky body layout\n- mini-graph hover\n- log view\nRemaining:\n- actor view",
+    "text": "Implemented:\n\n- sticky body layout\n- mini-graph hover\n- log view\n\nRemaining:\n\n- actor view",
+    "html": "<p>Implemented:</p><ul><li>sticky body layout</li><li>mini-graph hover</li><li>log view</li></ul><p>Remaining:</p><ul><li>actor view</li></ul>"
+  },
+  {
+    "name": "wrapped bullet continuation stays in the bullet",
+    "input": "- a long bullet that the author\n  wrapped onto a second line\n- second",
+    "text": "- a long bullet that the author wrapped onto a second line\n- second",
+    "html": "<ul><li>a long bullet that the author wrapped onto a second line</li><li>second</li></ul>"
+  },
+  {
+    "name": "unindented line after a bullet starts a paragraph",
+    "input": "- a bullet\nRemaining work follows\n- second",
+    "text": "- a bullet\n\nRemaining work follows\n\n- second",
+    "html": "<ul><li>a bullet</li></ul><p>Remaining work follows</p><ul><li>second</li></ul>"
+  },
+  {
+    "name": "star and plus bullets normalise to dash",
+    "input": "* one\n+ two",
+    "text": "- one\n- two",
+    "html": "<ul><li>one</li><li>two</li></ul>"
+  },
+  {
+    "name": "numbered list",
+    "input": "Steps:\n\n1. first\n2. second\n3. third",
+    "text": "Steps:\n\n1. first\n2. second\n3. third",
+    "html": "<p>Steps:</p><ol><li>first</li><li>second</li><li>third</li></ol>"
+  },
+  {
+    "name": "numbered list keeps its start",
+    "input": "4. fourth\n5. fifth",
+    "text": "4. fourth\n5. fifth",
+    "html": "<ol start=\"4\"><li>fourth</li><li>fifth</li></ol>"
+  },
+  {
+    "name": "numbered list with paren marker",
+    "input": "1) first\n2) second",
+    "text": "1. first\n2. second",
+    "html": "<ol><li>first</li><li>second</li></ol>"
+  },
+  {
+    "name": "nested list",
+    "input": "- parent\n  - child one\n  - child two\n- sibling",
+    "text": "- parent\n  - child one\n  - child two\n- sibling",
+    "html": "<ul><li>parent<ul><li>child one</li><li>child two</li></ul></li><li>sibling</li></ul>"
+  },
+  {
+    "name": "list item with a second paragraph",
+    "input": "- first item\n\n  more about the first item\n- second item",
+    "text": "- first item\n\n  more about the first item\n\n- second item",
+    "html": "<ul><li><p>first item</p><p>more about the first item</p></li><li><p>second item</p></li></ul>"
+  },
+  {
+    "name": "blank line between bullets keeps one list",
+    "input": "- one\n\n- two",
+    "text": "- one\n\n- two",
+    "html": "<ul><li><p>one</p></li><li><p>two</p></li></ul>"
+  },
+  {
+    "name": "fenced code is verbatim",
+    "input": "Run this:\n\n```sh\ngo test ./...\n  indented   line\n```\n\nthen check.",
+    "text": "Run this:\n\n```sh\ngo test ./...\n  indented   line\n```\n\nthen check.",
+    "html": "<p>Run this:</p><pre><code class=\"language-sh\">go test ./...\n  indented   line\n</code></pre><p>then check.</p>"
+  },
+  {
+    "name": "unclosed fence runs to the end",
+    "input": "```\nline one\n\nline three",
+    "text": "```\nline one\n\nline three\n```",
+    "html": "<pre><code>line one\n\nline three\n</code></pre>"
+  },
+  {
+    "name": "tilde fence",
+    "input": "~~~\nx\n~~~",
+    "text": "~~~\nx\n~~~",
+    "html": "<pre><code>x\n</code></pre>"
+  },
+  {
+    "name": "fence inside a list item",
+    "input": "- run:\n  ```\n  make\n  ```\n- done",
+    "text": "- run:\n  ```\n  make\n  ```\n- done",
+    "html": "<ul><li>run:<pre><code>make\n</code></pre></li><li>done</li></ul>"
+  },
+  {
+    "name": "backslash hard break",
+    "input": "line one\\\nline two",
+    "text": "line one\nline two",
+    "html": "<p>line one<br>line two</p>"
+  },
+  {
+    "name": "two-space hard break",
+    "input": "line one  \nline two",
+    "text": "line one\nline two",
+    "html": "<p>line one<br>line two</p>"
+  },
+  {
+    "name": "dash alone is not a bullet",
+    "input": "a - b\n-\n--- no",
+    "text": "a - b - --- no",
+    "html": "<p>a - b - --- no</p>"
+  },
+  {
+    "name": "html is escaped",
+    "input": "<script>alert(1)</script> & \"quotes\"",
+    "text": "<script>alert(1)</script> & \"quotes\"",
+    "html": "<p>&lt;script&gt;alert(1)&lt;/script&gt; &amp; &#34;quotes&#34;</p>"
+  },
+  {
+    "name": "empty",
+    "input": "",
+    "text": "",
+    "html": ""
+  },
+  {
+    "name": "windows newlines",
+    "input": "one\r\ntwo\r\n\r\nthree",
+    "text": "one two\n\nthree",
+    "html": "<p>one two</p><p>three</p>"
+  }
+]

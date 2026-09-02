@@ -18,6 +18,7 @@
 // API stays put while actors-scrub-render shares the same helper.
 export { escapeHTML } from "./scrub-util.mjs";
 import { escapeHTML } from "./scrub-util.mjs";
+import { renderProseHTML } from "./prose.mjs";
 
 // labelColorFor reads window.JobsColors.labelColor when available so
 // scrub-rendered chips ship with a pre-painted --label-color. Without
@@ -164,7 +165,7 @@ function renderNode(node) {
 
   const desc =
     node.description && node.description.trim() !== ""
-      ? `<div class="c-plan-row__desc">${escapeHTML(node.description)}</div>`
+      ? `<div class="c-plan-row__desc c-prose">${renderProseHTML(node.description)}</div>`
       : "";
 
   const avatar = node.actor

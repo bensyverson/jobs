@@ -183,24 +183,30 @@ func TestComponentsCSS_CursorDotAtTop(t *testing.T) {
 	}
 }
 
-// TestComponentsCSS_PlanRowDescPreservesLinebreaks pins the plan row's
-// description treatment: newlines in the task description must render
-// as linebreaks, matching the peek sheet and full task page (.c-note
-// uses white-space: pre-wrap). Both render paths — the server template
-// (plan.html.tmpl) and the client scrub renderer (plan-scrub-render.mjs)
-// — share the .c-plan-row__desc class, so the CSS rule is the single
-// place that controls this.
-func TestComponentsCSS_PlanRowDescPreservesLinebreaks(t *testing.T) {
+// TestComponentsCSS_ProseSurfacesDoNotPreWrap pins the narrative
+// treatment: descriptions and notes are markdown prose rendered as real
+// <p>/<ul>/<pre> blocks (the `prose` template func and prose.mjs), so the
+// containers must not preserve source newlines — a hard-wrapped note would
+// otherwise render as a ragged column. Whitespace fidelity belongs to the
+// .c-prose pre rule alone.
+func TestComponentsCSS_ProseSurfacesDoNotPreWrap(t *testing.T) {
 	body, err := fs.ReadFile(assets.FS(), "css/components.css")
 	if err != nil {
 		t.Fatalf("read components.css: %v", err)
 	}
-	rule := regexp.MustCompile(`(?s)\.c-plan-row__desc\s*{[^}]*}`).Find(body)
-	if rule == nil {
-		t.Fatal("components.css: missing .c-plan-row__desc rule")
+	for _, sel := range []string{`.c-note`, `.c-progress-note__body`, `.c-plan-row__desc`} {
+		rule := regexp.MustCompile(`(?s)` + regexp.QuoteMeta(sel) + `\s*{[^}]*}`).Find(body)
+		if rule == nil {
+			t.Fatalf("components.css: missing %s rule", sel)
+		}
+		if regexp.MustCompile(`white-space\s*:\s*pre`).Match(rule) {
+			t.Errorf("%s must not set white-space: pre-wrap; prose blocks reflow", sel)
+		}
 	}
-	if !regexp.MustCompile(`white-space\s*:\s*pre-wrap`).Match(rule) {
-		t.Errorf(".c-plan-row__desc must set white-space: pre-wrap so description linebreaks render, matching the peek sheet and task page")
+	for _, sel := range []string{`.c-prose p`, `.c-prose ul`, `.c-prose pre`} {
+		if !regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(sel) + `[,\s{]`).Match(body) {
+			t.Errorf("components.css: missing a %s rule", sel)
+		}
 	}
 }
 

@@ -111,7 +111,7 @@
   {{if .Description}}
   <div class="c-peek-sheet__section">
     <div class="c-peek-sheet__section-label">Description</div>
-    <div class="c-note">{{.Description}}</div>
+    <div class="c-note c-prose">{{prose .Description}}</div>
   </div>
   {{end}}
 
@@ -136,14 +136,14 @@
   {{if .CompletionNote}}
   <div class="c-peek-sheet__section">
     <div class="c-peek-sheet__section-label">Completion note</div>
-    <div class="c-note">{{.CompletionNote}}</div>
+    <div class="c-note c-prose">{{prose .CompletionNote}}</div>
   </div>
   {{end}}
 
   {{if .CancelReason}}
   <div class="c-peek-sheet__section">
     <div class="c-peek-sheet__section-label">Cancel reason</div>
-    <div class="c-note">{{.CancelReason}}</div>
+    <div class="c-note c-prose">{{prose .CancelReason}}</div>
   </div>
   {{end}}
 
@@ -231,7 +231,7 @@
       <strong>{{.Actor}}</strong>
     </a>
     <time class="t-dim t-data-id" datetime="{{.ISOTime}}">{{.RelTime}} ago</time>
-    <p class="c-progress-note__body">{{.Text}}</p>
+    <div class="c-progress-note__body c-prose">{{prose .Text}}</div>
   </div>
 {{end}}
 
