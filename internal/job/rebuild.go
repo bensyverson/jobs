@@ -181,7 +181,42 @@ func rebuildStore(db *sql.DB, path string) error {
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return observeLogClock(path, events)
+}
+
+// observeLogClock raises the clock's high-water mark to the newest event in
+// the log.
+//
+// The hybrid clock is max(wall, last_seen + 1) where last_seen is the largest
+// ts this replica has READ or written — reading is half of it. Without this a
+// replica that pulls a log stamped ahead of its own wall clock mints events
+// that sort BEFORE the events which caused them, and the global order stops
+// meaning anything: reconcile's `released` can sort ahead of the claim it
+// released, and the next merge reads the pair as a fresh conflict and flips
+// the holder. Foreign events reach this replica only through a rebuild, so
+// this is the one place that has to observe them.
+//
+// events is already sorted by (ts, rep, seq), so the last one is the newest.
+// It runs with the store lock held, which is why it reads and writes
+// local.json directly: UpdateLocalState takes the same lock, and flock does
+// not nest.
+func observeLogClock(path string, events []eventlog.Envelope) error {
+	if len(events) == 0 {
+		return nil
+	}
+	newest := events[len(events)-1].TS
+	state, err := LoadLocalState(path)
+	if err != nil {
+		return err
+	}
+	if state.LastSeen >= newest {
+		return nil
+	}
+	state.LastSeen = newest
+	return state.Save(path)
 }
 
 // RekeyedPayload gives one replica's task a fresh short id after a
