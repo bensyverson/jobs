@@ -15,28 +15,43 @@ import (
 // --as and works before `init` as happily as after it: the directory is
 // what matters, not whether a database is in it yet.
 func newGitignoreCmd() *cobra.Command {
-	return &cobra.Command{
+	var dryRun bool
+	cmd := &cobra.Command{
 		Use:   "gitignore",
 		Short: "Add the recommended Jobs entries to .gitignore",
 		Long: "Append the recommended entries to the .gitignore beside the job database, creating the file if it does not exist.\n\n" +
-			"Only missing patterns are appended, so running it twice changes nothing. The database itself is ignored by default; delete the `.jobs.db` line if you want to share it with the repository.",
+			"Only missing patterns are appended, so running it twice changes nothing. --dry-run prints what it would write and writes nothing. The database itself is ignored by default; delete the `.jobs.db` line if you want to share it with the repository.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := filepath.Dir(job.ResolveDBPathForInit(dbPath))
-			written, alreadyPresent, err := job.WriteGitignoreEntries(dir)
+
+			var written, alreadyPresent []string
+			var err error
+			if dryRun {
+				written, alreadyPresent, err = job.PendingGitignoreEntries(dir)
+			} else {
+				written, alreadyPresent, err = job.WriteGitignoreEntries(dir)
+			}
 			if err != nil {
 				return err
 			}
+
 			if len(written) > 0 {
 				noun := "entries"
 				if len(written) == 1 {
 					noun = "entry"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Wrote %d %s to .gitignore: %s\n", len(written), noun, strings.Join(written, ", "))
+				verb := "Wrote"
+				if dryRun {
+					verb = "Would write"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%s %d %s to .gitignore: %s\n", verb, len(written), noun, strings.Join(written, ", "))
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), ".gitignore already includes %s\n", humanJoin(alreadyPresent))
 			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "print what would be written and write nothing")
+	return cmd
 }

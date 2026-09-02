@@ -140,6 +140,18 @@ Every old event row becomes a log line marked `legacy`. Those are recorded and r
 
 On success the original cache is kept as **`.jobs.db.pre-adopt`**, covered by the `.jobs.db*` ignore pattern. Delete it once you are satisfied. `JOBS_NO_ADOPT=1` reads a legacy database as-is for one command without converting it.
 
+Adoption is where a project first acquires a store, so it says so and names what to do about it:
+
+```text
+note: adopted this database into the store: 1422 events carried across as history,
+a snapshot of 157 tasks written, replica 22DryP. The previous cache is at
+/path/to/.jobs.db.pre-adopt and can be deleted once you trust the new store.
+note: .jobs/log is the record now — commit it. Run `job gitignore` to ignore the
+cache and its sidecars.
+```
+
+The second line is advice, so it only prints where it can be acted on: inside a git repository, and it only names [`job gitignore`](../../reference/setup/#gitignore) while a pattern is still missing.
+
 ## When the binary is older than the store
 
 The cache records which numbered migrations have been applied. A newer `job` may add one; an older `job` does not know it exists. Opening a cache whose recorded schema is *ahead* of the binary is refused, before anything is read or written:

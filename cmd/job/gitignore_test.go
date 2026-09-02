@@ -12,7 +12,7 @@ import (
 // gitignoreCLI drives `job gitignore` with the cwd as the database's
 // directory — the verb resolves the directory the same way `init` resolves
 // where to create the database.
-func gitignoreCLI(t *testing.T, dir string) (stdout string, err error) {
+func gitignoreCLI(t *testing.T, dir string, args ...string) (stdout string, err error) {
 	t.Helper()
 	t.Chdir(dir)
 	t.Setenv("JOBS_DB", "")
@@ -23,7 +23,7 @@ func gitignoreCLI(t *testing.T, dir string) (stdout string, err error) {
 	var outBuf bytes.Buffer
 	root.SetOut(&outBuf)
 	root.SetErr(&outBuf)
-	root.SetArgs([]string{"gitignore"})
+	root.SetArgs(append([]string{"gitignore"}, args...))
 	err = root.Execute()
 	return outBuf.String(), err
 }
@@ -185,5 +185,77 @@ func TestInit_GitignoreFlag_IsUnknownFlag(t *testing.T) {
 	root.SetArgs([]string{"init", "--as", "claude", "--gitignore"})
 	if err := root.Execute(); err == nil {
 		t.Fatalf("init --gitignore should be an unknown-flag error:\n%s", outBuf.String())
+	}
+}
+
+// --dry-run previews. `job merge` already spells it this way, so the flag and
+// its -n alias are the same two on both verbs.
+func TestGitignore_DryRun_WritesNothing(t *testing.T) {
+	for _, flag := range []string{"--dry-run", "-n"} {
+		t.Run(flag, func(t *testing.T) {
+			dir := t.TempDir()
+			out, err := gitignoreCLI(t, dir, flag)
+			if err != nil {
+				t.Fatalf("gitignore %s: %v\n%s", flag, err, out)
+			}
+			if _, err := os.Stat(filepath.Join(dir, ".gitignore")); !os.IsNotExist(err) {
+				t.Errorf("gitignore %s created a .gitignore", flag)
+			}
+			if !strings.Contains(out, "Would write 2 entries to .gitignore") {
+				t.Errorf("missing preview output:\n%s", out)
+			}
+			for _, pattern := range []string{".jobs.db*", ".jobs/local.json"} {
+				if !strings.Contains(out, pattern) {
+					t.Errorf("preview should name %q:\n%s", pattern, out)
+				}
+			}
+		})
+	}
+}
+
+// A preview run leaves an existing file byte-for-byte alone, and says the
+// same "nothing to do" as the real verb when nothing is missing.
+func TestGitignore_DryRun_LeavesAnExistingFileAlone(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := gitignoreCLI(t, dir); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, ".gitignore")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := gitignoreCLI(t, dir, "--dry-run")
+	if err != nil {
+		t.Fatalf("gitignore --dry-run: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, ".gitignore already includes") {
+		t.Errorf("expected the already-present report:\n%s", out)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf(".gitignore changed under --dry-run:\n%s", after)
+	}
+}
+
+// The preview has to be the truth: what it says it would write is what the
+// real run then writes.
+func TestGitignore_DryRun_PreviewMatchesTheRealRun(t *testing.T) {
+	dry := t.TempDir()
+	preview, err := gitignoreCLI(t, dry, "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wet := t.TempDir()
+	real, err := gitignoreCLI(t, wet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimPrefix(preview, "Would write") != strings.TrimPrefix(real, "Wrote") {
+		t.Errorf("preview and real run disagree:\npreview: %s\nreal:    %s", preview, real)
 	}
 }

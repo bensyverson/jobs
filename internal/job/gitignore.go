@@ -26,6 +26,17 @@ var jobGitignoreEntries = []gitignoreEntry{
 	{"This machine's replica id, identity and focus", []string{".jobs/local.json"}},
 }
 
+// gitDirName is what marks a checkout. A worktree and a submodule carry it as
+// a regular file, so existence is the test, not its kind.
+const gitDirName = ".git"
+
+// IsGitRepo reports whether dir is the root of a git checkout. Advice about a
+// .gitignore, and about committing the log, only means something inside one.
+func IsGitRepo(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, gitDirName))
+	return err == nil
+}
+
 // GitignoreHint renders the recommended entries as a block that pastes into
 // a .gitignore unchanged. It is rendered from the same table the writer
 // uses, so what a reader pastes is what `job gitignore` would have written.
@@ -103,6 +114,18 @@ func readGitignore(dir string) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+// PendingGitignoreEntries is WriteGitignoreEntries without the write: the
+// same two lists, so a --dry-run report is rendered from the same partition
+// the real run would act on rather than from a second reading of the table.
+func PendingGitignoreEntries(dir string) (missing []string, alreadyPresent []string, err error) {
+	existing, err := readGitignore(dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	_, missing, alreadyPresent = missingGitignoreEntries(existing)
+	return missing, alreadyPresent, nil
 }
 
 func WriteGitignoreEntries(dir string) (written []string, alreadyPresent []string, err error) {

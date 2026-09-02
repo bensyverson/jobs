@@ -30,9 +30,10 @@ Appends the two entries Jobs needs — `.jobs.db*` and `.jobs/local.json` — to
 
 ```sh
 job gitignore
+job gitignore --dry-run   # or -n: print what it would write, write nothing
 ```
 
-Idempotent and additive — it appends only the patterns that aren't already present, so it's safe to re-run. No `--as` (it isn't a database write) and no requirement that `.jobs.db` exist yet, so it works before or after `init`.
+Idempotent and additive — it appends only the patterns that aren't already present, so it's safe to re-run. `--dry-run`/`-n` prints the same report as a real run (`Would write 2 entries…`) and leaves the file untouched, so you can see the change before it lands. No `--as` (it isn't a database write) and no requirement that `.jobs.db` exist yet, so it works before or after `init`.
 
 Two patterns, not three, and the `*` is doing the work. `.jobs.db` is a disposable cache rebuilt from `.jobs/log`, and everything that sits beside it under the same name — the WAL sidecars `-shm` and `-wal`, the store lock `.jobs.db.lock`, the adoption backup `.jobs.db.pre-adopt` — is local too. `.jobs/local.json` holds this machine's replica id, clock, default identity, strict flag and focus, and no other checkout should ever see it. Everything else under `.jobs/` — the log files that are the actual record — is meant to be committed.
 

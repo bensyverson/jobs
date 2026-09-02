@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -63,8 +64,31 @@ type AdoptReport struct {
 func (r *AdoptReport) notice() string {
 	return fmt.Sprintf(
 		"adopted this database into the store: %d events carried across as history, "+
-			"a snapshot of %d tasks written, replica %s. The previous cache is at %s.",
+			"a snapshot of %d tasks written, replica %s. The previous cache is at %s "+
+			"and can be deleted once you trust the new store.",
 		r.LegacyEvents, r.Tasks, r.Rep, r.Backup)
+}
+
+// nextStep is what the reader does about it. Adoption turns a cache into a
+// store, and everything that follows from that is invisible from the note
+// above: that the record is now a directory of text files, that those files
+// belong in git, and that the cache beside them does not. An agent that
+// adopted a real database had to reconstruct all three from `git status`
+// (project/2026-09-02-adoption-note-and-gitignore-dry-run.md).
+//
+// Like `init`'s hint, it is only printed where it can be acted on: inside a
+// repository, and it only names the verb while something is still unignored.
+// dir is the directory holding the cache.
+func (r *AdoptReport) nextStep(dir string) string {
+	if !IsGitRepo(dir) {
+		return ""
+	}
+	step := eventlog.StoreDirName + "/" + eventlog.LogDirName + " is the record now — commit it."
+	missing, err := MissingGitignoreEntries(dir)
+	if err == nil && len(missing) > 0 {
+		step += " Run `job gitignore` to ignore the cache and its sidecars."
+	}
+	return step
 }
 
 // adoptIfLegacy converts the cache at path when it predates the store.
@@ -98,6 +122,9 @@ func adoptIfLegacy(path string) error {
 		return nil
 	}
 	fmt.Fprintln(StoreNotices, "note: "+report.notice())
+	if step := report.nextStep(filepath.Dir(path)); step != "" {
+		fmt.Fprintln(StoreNotices, "note: "+step)
+	}
 	return nil
 }
 

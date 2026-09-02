@@ -625,3 +625,96 @@ func itoa(n int) string {
 	}
 	return string(b)
 }
+
+// ---------------------------------------------------------------------------
+// what the note tells the reader to do next
+// ---------------------------------------------------------------------------
+
+// adoptedIn drives one adoption through the open that performs it and returns
+// everything it printed.
+func adoptedIn(t *testing.T, dir string) string {
+	t.Helper()
+	path := legacyCache(t, dir, func(db *sql.DB) {
+		MustAdd(t, db, "", "Alpha root")
+	})
+	notices := captureNotices(t)
+	db, err := OpenDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	return notices.String()
+}
+
+// The house rule is that a write says what it made and names the next command.
+// Adoption makes a store out of a cache, and the reader has to know the store
+// is `.jobs/log`, that it belongs in git, that the cache and its sidecars do
+// not, and that the backup is disposable — an agent that adopted a real
+// database had to piece all four together from `git status`
+// (project/2026-09-02-adoption-note-and-gitignore-dry-run.md).
+func TestAdopt_NoticeNamesTheStoreTheCommitAndGitignore(t *testing.T) {
+	newMergeClock(t)
+	dir := t.TempDir()
+	mustMarkGitRepo(t, dir)
+
+	out := adoptedIn(t, dir)
+
+	for _, want := range []string{
+		".jobs/log",
+		"commit",
+		"job gitignore",
+		adoptBackupSuffix,
+		"delete",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("adoption note missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// Advice that cannot be acted on is noise: once both patterns are ignored,
+// the note still names the store and the commit but stops naming the verb.
+func TestAdopt_NoticeDropsGitignoreOnceNothingIsMissing(t *testing.T) {
+	newMergeClock(t)
+	dir := t.TempDir()
+	mustMarkGitRepo(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(GitignoreHint()+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := adoptedIn(t, dir)
+
+	if strings.Contains(out, "job gitignore") {
+		t.Errorf("nothing is unignored, so the note should not name the verb:\n%s", out)
+	}
+	if !strings.Contains(out, ".jobs/log") || !strings.Contains(out, "commit") {
+		t.Errorf("the note should still name the store and the commit:\n%s", out)
+	}
+}
+
+// Outside a repository there is nothing to commit and no .gitignore to fix,
+// so the second note is not printed at all — `init`'s hint has the same rule.
+func TestAdopt_NoticeOmitsGitAdviceOutsideARepository(t *testing.T) {
+	newMergeClock(t)
+	dir := t.TempDir()
+
+	out := adoptedIn(t, dir)
+
+	if !strings.Contains(out, "adopted this database into the store") {
+		t.Fatalf("expected the adoption note:\n%s", out)
+	}
+	for _, unwanted := range []string{"commit", "job gitignore"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("outside a repository the note should not say %q:\n%s", unwanted, out)
+		}
+	}
+}
+
+// mustMarkGitRepo gives dir the .git a repository check looks for. A worktree
+// carries it as a file, so a file is enough.
+func mustMarkGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: elsewhere\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

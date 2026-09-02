@@ -75,7 +75,7 @@ func newInitCmd() *cobra.Command {
 			// Only advice that can be acted on: inside a repository, and
 			// only while something is still unignored.
 			dir := filepath.Dir(path)
-			if isGitRepo(dir) {
+			if job.IsGitRepo(dir) {
 				missing, err := job.MissingGitignoreEntries(dir)
 				if err != nil {
 					return err
@@ -94,12 +94,4 @@ func newInitCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&strict, "strict", false, "require --as on every write; do not set a default identity")
 	cmd.Flags().StringVar(&replicaName, "replica-name", "", "human-readable name for this checkout's replica (default: hostname and path)")
 	return cmd
-}
-
-// isGitRepo reports whether dir is the root of a git checkout. A worktree
-// and a submodule carry .git as a regular file rather than a directory, so
-// existence is the test, not its kind.
-func isGitRepo(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, ".git"))
-	return err == nil
 }
