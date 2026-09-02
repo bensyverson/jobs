@@ -62,6 +62,9 @@ var applyTable = map[EventType]func(tx dbtx, e eventlog.Envelope) error{
 	EventFoundInSet:     applyFoundInSet,
 	EventFoundInCleared: applyFoundInCleared,
 	EventKindChanged:    applyKindChanged,
+
+	// Adoption and compaction (apply_snapshot.go).
+	EventSnapshot: applySnapshot,
 }
 
 // apply writes the state e means, then records e in the events table.
@@ -71,6 +74,14 @@ var applyTable = map[EventType]func(tx dbtx, e eventlog.Envelope) error{
 // rows, and its own tombstone — recorded on the parent, or as an orphan for a
 // root — must survive that.
 func apply(tx dbtx, e eventlog.Envelope) error {
+	// A legacy line is history and nothing else, whatever its type says. Its
+	// payload was written before any of it was replayable, and the state it
+	// used to imply arrives instead in adoption's snapshot. The check is here
+	// rather than in each apply function so no per-type function has to know
+	// the rule.
+	if e.Legacy {
+		return insertEventRow(tx, e)
+	}
 	if fn := applyTable[EventType(e.Type)]; fn != nil {
 		if err := fn(tx, e); err != nil {
 			return fmt.Errorf("apply %s: %w", e.Type, err)
@@ -84,10 +95,18 @@ func apply(tx dbtx, e eventlog.Envelope) error {
 // NULL as well for one whose task this cache does not hold (a tombstoned id,
 // or an event that arrived before its `created`).
 func insertEventRow(tx dbtx, e eventlog.Envelope) error {
+	_, err := insertEventRowID(tx, e)
+	return err
+}
+
+// insertEventRowID is insertEventRow for the one caller that needs the row it
+// wrote: the rebuild links a legacy row's task after the fact, because the task
+// does not exist yet when the row goes in.
+func insertEventRowID(tx dbtx, e eventlog.Envelope) (int64, error) {
 	var taskID any
 	if e.Task != "" {
 		if id, ok, err := taskRowID(tx, e.Task); err != nil {
-			return err
+			return 0, err
 		} else if ok {
 			taskID = id
 		}
@@ -96,12 +115,15 @@ func insertEventRow(tx dbtx, e eventlog.Envelope) error {
 	if len(e.Data) > 0 && string(e.Data) != "null" {
 		detail = string(e.Data)
 	}
-	_, err := tx.Exec(`
+	res, err := tx.Exec(`
 		INSERT INTO events (task_id, event_type, actor, detail, created_at, rep, seq, ts)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		taskID, string(e.Type), e.Actor, detail, e.TS/1000, e.Rep, int64(e.Seq), e.TS,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
 }
 
 // decodeEventPayload unmarshals an envelope's data into the payload struct for
@@ -208,9 +230,47 @@ func rebuildFromInTx(tx dbtx, events []eventlog.Envelope) error {
 			return fmt.Errorf("rebuild: clear %s: %w", table, err)
 		}
 	}
+	// Legacy lines are recorded in their place in the order like everything
+	// else, but linked to their tasks only at the end.
+	//
+	// A legacy line's ts is historical, so it sorts before the snapshot that
+	// creates its task — and at its own position insertEventRow would resolve
+	// task_id to NULL and sever the history `job log` and `job show` read. A
+	// legacy line writes no state, so nothing else depends on when it is
+	// recorded; the row id it returns is the thread back to it once the
+	// snapshot has made the tasks.
+	type legacyRow struct {
+		id   int64
+		task string
+	}
+	var links []legacyRow
 	for _, e := range ordered {
-		if err := apply(tx, e); err != nil {
+		if !e.Legacy {
+			if err := apply(tx, e); err != nil {
+				return fmt.Errorf("rebuild at %s: %w", e.Position(), err)
+			}
+			continue
+		}
+		id, err := insertEventRowID(tx, e)
+		if err != nil {
 			return fmt.Errorf("rebuild at %s: %w", e.Position(), err)
+		}
+		if e.Task != "" {
+			links = append(links, legacyRow{id: id, task: e.Task})
+		}
+	}
+	for _, l := range links {
+		// A task the replay never produced was purged; its history went with
+		// it, and the row simply stays unattached.
+		id, ok, err := taskRowID(tx, l.task)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		if _, err := tx.Exec("UPDATE events SET task_id = ? WHERE id = ?", id, l.id); err != nil {
+			return err
 		}
 	}
 	return nil

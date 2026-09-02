@@ -24,7 +24,7 @@ A few things worth knowing that the help text doesn't dwell on:
 
 ## `gitignore`
 
-Appends the entries Jobs needs (`.jobs.db`, `.jobs.db-shm`, `.jobs.db-wal`) to `.gitignore` in the database's directory, creating the file if it doesn't exist.
+Appends the two entries Jobs needs — `.jobs.db*` and `.jobs/local.json` — to `.gitignore` in the database's directory, creating the file if it doesn't exist.
 
 ```sh
 job gitignore
@@ -32,7 +32,9 @@ job gitignore
 
 Idempotent and additive — it appends only the patterns that aren't already present, so it's safe to re-run. No `--as` (it isn't a database write) and no requirement that `.jobs.db` exist yet, so it works before or after `init`.
 
-Add `.jobs/local.json` alongside them by hand: it holds this machine's identity, strict flag and focus, and no other checkout should ever see it.
+Two patterns, not three, and the `*` is doing the work. `.jobs.db` is a disposable cache rebuilt from `.jobs/log`, and everything that sits beside it under the same name — the WAL sidecars `-shm` and `-wal`, the store lock `.jobs.db.lock`, the adoption backup `.jobs.db.pre-adopt` — is local too. `.jobs/local.json` holds this machine's replica id, clock, default identity, strict flag and focus, and no other checkout should ever see it. Everything else under `.jobs/` — the log files that are the actual record — is meant to be committed.
+
+A `.gitignore` written by an older Jobs carries `.jobs.db`, `.jobs.db-shm` and `.jobs.db-wal` instead. Nothing rewrites those: `job gitignore` appends the two current patterns alongside them, and the old lines are harmless.
 
 ## `identity`
 
@@ -107,9 +109,15 @@ job rebuild
 
 Every repair is printed, and the losing claimant is named.
 
-A database that predates the store is refused with a notice rather than rebuilt: its cache holds history no log line reproduces, and replaying would lose it. Converting one is adoption's job, and it runs on its own.
-
 `rebuild` needs no `--as`: it records nothing except the repairs, which are attributed to `reconcile`.
+
+### Adoption
+
+A `.jobs.db` written before the store existed has no log to rebuild from: its event rows carry payloads that were never replayable, and the state they produced lives only in the cache. There is no verb for converting one — it happens on the first `job` command that opens it, the same way a schema migration does, and prints one line saying what it did.
+
+Every old event row becomes a log line marked `legacy`, which is recorded and applied: `job log`, `job show`, `job tail` and the dashboard's scrubber see the same history they always did, and nothing about it touches the state tables. One `snapshot` line carries the state itself — every task, block, label, criterion, provenance row and user. The cache is then rebuilt from the result and compared, table by table, against the original. **Any difference aborts**: no log line is appended, no file is renamed, and the difference is written to `.jobs.db.adopt-failed` so you can see it. On success the original cache is kept as `.jobs.db.pre-adopt`, which the `.jobs.db*` ignore pattern covers, and you can delete it once you are satisfied.
+
+Set `JOBS_NO_ADOPT=1` to read a legacy database exactly as it is for one command, without converting it.
 
 ## `rekey`
 

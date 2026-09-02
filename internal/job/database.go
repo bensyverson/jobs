@@ -91,6 +91,11 @@ func findAncestorDB() string {
 // store beside it — a rebuild from .jobs/log whenever a file's size no longer
 // matches the offset the cache applied.
 func OpenDB(path string) (*sql.DB, error) {
+	// Adoption replaces the file this function is about to open, so it runs
+	// first and leaves no handle behind (adopt.go).
+	if err := adoptIfLegacy(path); err != nil {
+		return nil, err
+	}
 	db, err := openCache(path)
 	if err != nil {
 		return nil, err

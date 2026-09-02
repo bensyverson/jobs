@@ -40,12 +40,12 @@ func TestGitignore_CreatesFile(t *testing.T) {
 		t.Fatalf("read .gitignore: %v", err)
 	}
 	content := string(data)
-	for _, name := range []string{"\n.jobs.db\n", ".jobs.db-shm", ".jobs.db-wal"} {
+	for _, name := range []string{"\n.jobs.db*\n", ".jobs/local.json"} {
 		if !strings.Contains(content, name) {
 			t.Errorf(".gitignore missing %q:\n%s", name, content)
 		}
 	}
-	if !strings.Contains(out, "Wrote 3 entries to .gitignore") {
+	if !strings.Contains(out, "Wrote 2 entries to .gitignore") {
 		t.Errorf("missing success output:\n%s", out)
 	}
 }
@@ -81,7 +81,7 @@ func TestGitignore_AppendsExisting(t *testing.T) {
 	if !strings.HasPrefix(content, existing) {
 		t.Errorf("original content clobbered:\n%s", content)
 	}
-	if !strings.Contains(content, ".jobs.db-shm") {
+	if !strings.Contains(content, ".jobs.db*") {
 		t.Errorf("missing appended entry:\n%s", content)
 	}
 	if !strings.Contains(content, "# job\n") {
@@ -105,7 +105,7 @@ func TestGitignore_Idempotent(t *testing.T) {
 		t.Errorf("gitignore changed on second run:\nfirst:\n%s\nsecond:\n%s", first, second)
 	}
 	// humanJoin's Oxford comma, shared with every other list the CLI prints.
-	want := ".gitignore already includes .jobs.db, .jobs.db-shm, and .jobs.db-wal"
+	want := ".gitignore already includes .jobs.db* and .jobs/local.json"
 	if !strings.Contains(out, want) {
 		t.Errorf("second run output:\n  got:  %s\n  want to contain: %s", out, want)
 	}
@@ -113,7 +113,7 @@ func TestGitignore_Idempotent(t *testing.T) {
 
 func TestGitignore_PartialPresent(t *testing.T) {
 	dir := t.TempDir()
-	existing := ".jobs.db-shm\n"
+	existing := ".jobs.db*\n"
 	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(existing), 0o644); err != nil {
 		t.Fatalf("write .gitignore: %v", err)
 	}
@@ -124,16 +124,13 @@ func TestGitignore_PartialPresent(t *testing.T) {
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
 	content := string(data)
-	if !strings.Contains(content, ".jobs.db-wal") {
-		t.Errorf("missing -wal append:\n%s", content)
+	if !strings.Contains(content, ".jobs/local.json") {
+		t.Errorf("missing local.json append:\n%s", content)
 	}
-	if !strings.Contains(content, "\n.jobs.db\n") {
-		t.Errorf("missing .jobs.db append:\n%s", content)
+	if strings.Count(content, ".jobs.db*") != 1 {
+		t.Errorf("duplicated cache entry:\n%s", content)
 	}
-	if strings.Count(content, ".jobs.db-shm") != 1 {
-		t.Errorf("duplicated -shm entry:\n%s", content)
-	}
-	if !strings.Contains(out, "Wrote 2 entries") {
+	if !strings.Contains(out, "Wrote 1 entry") {
 		t.Errorf("missing wrote message:\n%s", out)
 	}
 }
@@ -158,7 +155,12 @@ func TestGitignore_GitActuallyIgnoresTheEntries(t *testing.T) {
 		t.Fatalf("gitignore: %v", err)
 	}
 
-	for _, name := range []string{".jobs.db", ".jobs.db-shm", ".jobs.db-wal"} {
+	// Everything the one cache pattern is meant to cover, plus the machine's
+	// own local state.
+	for _, name := range []string{
+		".jobs.db", ".jobs.db-shm", ".jobs.db-wal",
+		".jobs.db.lock", ".jobs.db.pre-adopt", ".jobs/local.json",
+	} {
 		check := exec.Command("git", "check-ignore", "-q", name)
 		check.Dir = dir
 		if err := check.Run(); err != nil {

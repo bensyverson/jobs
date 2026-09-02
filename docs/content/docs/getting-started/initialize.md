@@ -64,21 +64,20 @@ Error: identity required. Pass --as <name> (writes without --as are attributed t
 
 ## The gitignore hint
 
-The SQLite write-ahead log files (`.jobs.db-shm`, `.jobs.db-wal`) are always local — they should never be committed, wherever `.jobs.db` itself lands. When the current directory is a git repository and `.gitignore` is missing one or more of the three entries, `init` prints a hint after the identity line:
+`.jobs.db` is a disposable cache, and so is everything SQLite and Jobs keep beside it under the same name: the write-ahead log files `.jobs.db-shm` and `.jobs.db-wal`, the store lock, the adoption backup. None of them should ever be committed. `.jobs/local.json` is this machine's own state — its replica id, clock, default identity, strict flag and focus — and is local for a different reason. When the current directory is a git repository and `.gitignore` is missing either entry, `init` prints a hint after the identity line:
 
 ```text
 Add to .gitignore (or run: job gitignore):
 
-# Jobs event store — local by default; delete this line to share it
-.jobs.db
-# SQLite WAL sidecars — always local
-.jobs.db-shm
-.jobs.db-wal
+# Jobs cache and its sidecars — disposable, rebuilt from .jobs/log
+.jobs.db*
+# This machine's replica id, identity and focus
+.jobs/local.json
 ```
 
 The block is unindented and carries no trailing comments, so it pastes into `.gitignore` unchanged. Outside a git repository, or once every pattern is already present, `init` prints nothing extra.
 
-`.jobs.db` is not a shareable artifact yet: there is no way to merge two diverged copies, or for two people to work the same database independently, so a committed `.jobs.db` is a conflict waiting to happen. (The agent-worktree workflow in `project/agents/delegation.md` assumes the same — a worktree only sees committed files, so agents are pointed at one absolute `--db` path.) If a single-writer project wants its event log in history anyway, drop the `.jobs.db` line and commit it like any other file.
+`.jobs.db` is never the artifact to share: it is rebuilt from `.jobs/log/*.jsonl`, which is text, appends one file per machine, and is what belongs in git. (The agent-worktree workflow in `project/agents/delegation.md` still points agents at one absolute `--db` path, because a worktree only sees committed files.)
 
 ## `job gitignore`
 
@@ -89,13 +88,13 @@ job gitignore
 ```
 
 ```text
-Wrote 3 entries to .gitignore: .jobs.db, .jobs.db-shm, .jobs.db-wal
+Wrote 2 entries to .gitignore: .jobs.db*, .jobs/local.json
 ```
 
 If your `.gitignore` already has them:
 
 ```text
-.gitignore already includes .jobs.db, .jobs.db-shm, and .jobs.db-wal
+.gitignore already includes .jobs.db* and .jobs/local.json
 ```
 
 `job gitignore` is idempotent and additive — it appends only the patterns that aren't already present. It needs no `--as` (it doesn't touch the event store) and doesn't require `.jobs.db` to exist yet, so it works before or after `init`.

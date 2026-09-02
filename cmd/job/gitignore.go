@@ -28,7 +28,11 @@ func newGitignoreCmd() *cobra.Command {
 				return err
 			}
 			if len(written) > 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "Wrote %d entries to .gitignore: %s\n", len(written), strings.Join(written, ", "))
+				noun := "entries"
+				if len(written) == 1 {
+					noun = "entry"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Wrote %d %s to .gitignore: %s\n", len(written), noun, strings.Join(written, ", "))
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), ".gitignore already includes %s\n", humanJoin(alreadyPresent))
 			}

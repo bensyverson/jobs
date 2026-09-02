@@ -17,9 +17,13 @@ type gitignoreEntry struct {
 	patterns []string
 }
 
+// The record is .jobs/log/*.jsonl and it is meant to be committed; everything
+// these two patterns cover is disposable or machine-local. The `*` on the
+// cache takes its WAL sidecars, the store lock and the adoption backup with it
+// (project/2026-09-01-git-native-event-log.md, "The store").
 var jobGitignoreEntries = []gitignoreEntry{
-	{"Jobs event store — local by default; delete this line to share it", []string{".jobs.db"}},
-	{"SQLite WAL sidecars — always local", []string{".jobs.db-shm", ".jobs.db-wal"}},
+	{"Jobs cache and its sidecars — disposable, rebuilt from .jobs/log", []string{".jobs.db*"}},
+	{"This machine's replica id, identity and focus", []string{".jobs/local.json"}},
 }
 
 // GitignoreHint renders the recommended entries as a block that pastes into

@@ -51,7 +51,7 @@ func TestWriteGitignoreEntries_WritesBareLinesForAllRecommendedEntries(t *testin
 		t.Fatalf("expected nothing already present on a fresh dir, got %v", alreadyPresent)
 	}
 
-	wantWritten := []string{".jobs.db", ".jobs.db-shm", ".jobs.db-wal"}
+	wantWritten := []string{".jobs.db*", ".jobs/local.json"}
 	if strings.Join(written, ",") != strings.Join(wantWritten, ",") {
 		t.Fatalf("written = %v, want %v", written, wantWritten)
 	}
@@ -100,7 +100,7 @@ func TestWriteGitignoreEntries_Idempotent(t *testing.T) {
 
 func TestWriteGitignoreEntries_OldBrokenInlineCommentLineDoesNotSatisfyTheEntry(t *testing.T) {
 	dir := t.TempDir()
-	broken := ".jobs.db-shm\t# SQLite WAL index (always local)\n"
+	broken := ".jobs.db*\t# the cache (always local)\n"
 	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(broken), 0o644); err != nil {
 		t.Fatalf("seed .gitignore: %v", err)
 	}
@@ -109,8 +109,8 @@ func TestWriteGitignoreEntries_OldBrokenInlineCommentLineDoesNotSatisfyTheEntry(
 	if err != nil {
 		t.Fatalf("WriteGitignoreEntries: %v", err)
 	}
-	if !contains(written, ".jobs.db-shm") {
-		t.Errorf("expected the old broken -shm line to NOT satisfy the entry (so a bare line gets appended), written = %v", written)
+	if !contains(written, ".jobs.db*") {
+		t.Errorf("expected the old broken line to NOT satisfy the entry (so a bare line gets appended), written = %v", written)
 	}
 
 	data, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
@@ -121,8 +121,33 @@ func TestWriteGitignoreEntries_OldBrokenInlineCommentLineDoesNotSatisfyTheEntry(
 	if !strings.HasPrefix(content, broken) {
 		t.Errorf("the old broken line should be left in place, not rewritten or removed:\n%s", content)
 	}
-	if !containsBareLine(content, ".jobs.db-shm") {
-		t.Errorf("expected a new bare .jobs.db-shm line to be appended:\n%s", content)
+	if !containsBareLine(content, ".jobs.db*") {
+		t.Errorf("expected a new bare .jobs.db* line to be appended:\n%s", content)
+	}
+}
+
+// A .gitignore written by an older Jobs carries the three patterns that
+// preceded these two. Nothing rewrites them: they are simply not the patterns
+// Jobs recommends, so both new ones are appended alongside.
+func TestWriteGitignoreEntries_PreviousPatternsDoNotSatisfyTheNewOnes(t *testing.T) {
+	dir := t.TempDir()
+	old := ".jobs.db\n.jobs.db-shm\n.jobs.db-wal\n"
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(old), 0o644); err != nil {
+		t.Fatalf("seed .gitignore: %v", err)
+	}
+	written, _, err := WriteGitignoreEntries(dir)
+	if err != nil {
+		t.Fatalf("WriteGitignoreEntries: %v", err)
+	}
+	if strings.Join(written, ",") != ".jobs.db*,.jobs/local.json" {
+		t.Errorf("written = %v, want both new patterns", written)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	if !strings.HasPrefix(string(data), old) {
+		t.Errorf("the old patterns should be left exactly where they were:\n%s", data)
 	}
 }
 
@@ -143,7 +168,7 @@ func TestGitignoreHint_LinesAreUnindented(t *testing.T) {
 			t.Errorf("hint line is indented and cannot be pasted as-is: %q\nfull hint:\n%s", line, hint)
 		}
 	}
-	for _, name := range []string{".jobs.db", ".jobs.db-shm", ".jobs.db-wal"} {
+	for _, name := range []string{".jobs.db*", ".jobs/local.json"} {
 		if !containsBareLine(hint, name) {
 			t.Errorf("hint missing a bare line for %q:\n%s", name, hint)
 		}
@@ -152,11 +177,10 @@ func TestGitignoreHint_LinesAreUnindented(t *testing.T) {
 
 func TestGitignoreHint_MatchesTheDocumentedBlock(t *testing.T) {
 	want := strings.Join([]string{
-		"# Jobs event store — local by default; delete this line to share it",
-		".jobs.db",
-		"# SQLite WAL sidecars — always local",
-		".jobs.db-shm",
-		".jobs.db-wal",
+		"# Jobs cache and its sidecars — disposable, rebuilt from .jobs/log",
+		".jobs.db*",
+		"# This machine's replica id, identity and focus",
+		".jobs/local.json",
 	}, "\n")
 	if GitignoreHint() != want {
 		t.Errorf("hint:\n  got:\n%s\n  want:\n%s", GitignoreHint(), want)
@@ -191,19 +215,19 @@ func TestMissingGitignoreEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MissingGitignoreEntries on an empty dir: %v", err)
 	}
-	if strings.Join(missing, ",") != ".jobs.db,.jobs.db-shm,.jobs.db-wal" {
+	if strings.Join(missing, ",") != ".jobs.db*,.jobs/local.json" {
 		t.Errorf("no .gitignore at all: missing = %v, want every pattern", missing)
 	}
 
-	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".jobs.db-shm\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".jobs.db*\n"), 0o644); err != nil {
 		t.Fatalf("seed .gitignore: %v", err)
 	}
 	missing, err = MissingGitignoreEntries(dir)
 	if err != nil {
 		t.Fatalf("MissingGitignoreEntries: %v", err)
 	}
-	if strings.Join(missing, ",") != ".jobs.db,.jobs.db-wal" {
-		t.Errorf("one pattern present: missing = %v, want the other two", missing)
+	if strings.Join(missing, ",") != ".jobs/local.json" {
+		t.Errorf("one pattern present: missing = %v, want the other", missing)
 	}
 
 	if _, _, err := WriteGitignoreEntries(dir); err != nil {

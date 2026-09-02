@@ -30,6 +30,13 @@ type Envelope struct {
 	Type  Type            `json:"type"`
 	Task  string          `json:"task"`
 	Data  json.RawMessage `json:"data"`
+	// Legacy marks a line translated out of a cache that predates the store.
+	// Its payload was written before any of it was replayable, so a reader
+	// records the event and performs no state write: adoption's snapshot
+	// carries the state those payloads used to imply
+	// (project/2026-09-01-git-native-event-log.md, "Adoption of a legacy
+	// database").
+	Legacy bool `json:"legacy,omitempty"`
 }
 
 // Marshal encodes e as exactly one line: a single JSON object followed by one

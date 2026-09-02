@@ -35,6 +35,7 @@ const (
 	EventMoved          EventType = "moved"
 	EventReparented     EventType = "reparented"
 	EventRekeyed        EventType = "rekeyed"
+	EventSnapshot       EventType = "snapshot"
 )
 
 // ReleaseReason names why a claim ended when the holder did not ask. It is a
@@ -289,4 +290,76 @@ type ReparentedPayload struct {
 	OldSortKey    string `json:"old_sort_key"`
 	Direction     string `json:"direction,omitempty"`
 	RelativeTo    string `json:"relative_to,omitempty"`
+}
+
+// SnapshotPayload is the whole state of a cache in one event: every task, every
+// relation and every criterion, addressed by short id.
+//
+// Applying it is an overwrite, so it is the only event that does not describe a
+// change. Adoption writes one to carry a legacy database's state across, since
+// the legacy rows themselves were never replayable; `job compact` would write
+// one to summarize the files it archives (backlog).
+type SnapshotPayload struct {
+	Tasks    []SnapshotTask      `json:"tasks"`
+	Blocks   []SnapshotBlock     `json:"blocks,omitempty"`
+	Labels   []SnapshotLabel     `json:"labels,omitempty"`
+	Criteria []SnapshotCriterion `json:"criteria,omitempty"`
+	FoundIn  []SnapshotFoundIn   `json:"found_in,omitempty"`
+	Users    []SnapshotUser      `json:"users,omitempty"`
+}
+
+// SnapshotTask is one row of `tasks`. The nullable columns are pointers so a
+// snapshot round-trips NULL and the empty string distinctly.
+type SnapshotTask struct {
+	ShortID        string  `json:"short_id"`
+	ParentID       string  `json:"parent_id,omitempty"`
+	Title          string  `json:"title"`
+	Description    string  `json:"description,omitempty"`
+	Status         string  `json:"status"`
+	SortKey        string  `json:"sort_key"`
+	ClaimedBy      *string `json:"claimed_by,omitempty"`
+	ClaimExpiresAt *int64  `json:"claim_expires_at,omitempty"`
+	CompletionNote *string `json:"completion_note,omitempty"`
+	CreatedAt      int64   `json:"created_at"`
+	UpdatedAt      int64   `json:"updated_at"`
+	DeletedAt      *int64  `json:"deleted_at,omitempty"`
+	Kind           string  `json:"kind"`
+}
+
+// SnapshotBlock is one edge of `blocks`.
+type SnapshotBlock struct {
+	BlockerID string `json:"blocker_id"`
+	BlockedID string `json:"blocked_id"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+// SnapshotLabel is one row of `task_labels`.
+type SnapshotLabel struct {
+	TaskID    string `json:"task_id"`
+	Name      string `json:"name"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+// SnapshotCriterion is one row of `task_criteria`.
+type SnapshotCriterion struct {
+	TaskID    string  `json:"task_id"`
+	ShortID   *string `json:"short_id,omitempty"`
+	Label     string  `json:"label"`
+	State     string  `json:"state"`
+	SortKey   string  `json:"sort_key"`
+	CreatedAt int64   `json:"created_at"`
+	UpdatedAt int64   `json:"updated_at"`
+}
+
+// SnapshotFoundIn is one row of `found_in`.
+type SnapshotFoundIn struct {
+	TaskID    string `json:"task_id"`
+	SourceID  string `json:"source_id"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+// SnapshotUser is one row of `users`.
+type SnapshotUser struct {
+	Name      string `json:"name"`
+	CreatedAt int64  `json:"created_at"`
 }

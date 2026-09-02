@@ -2,10 +2,8 @@ package job
 
 import (
 	"database/sql"
-	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -195,79 +193,24 @@ func foundInOf(t *testing.T, db *sql.DB, shortID string) string {
 // so a test can assert both presence and the absence of duplicates.
 func eventTuples(t *testing.T, db *sql.DB) []string {
 	t.Helper()
-	rows, err := db.Query(`
-		SELECT COALESCE(t.short_id, ''), e.event_type, e.actor, COALESCE(e.detail, ''), e.created_at
-		FROM events e LEFT JOIN tasks t ON t.id = e.task_id
-		ORDER BY e.id`)
+	rows, err := dumpRows(db, dumpEventsQuery)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var sid, typ, actor, detail string
-		var at int64
-		if err := rows.Scan(&sid, &typ, &actor, &detail, &at); err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, fmt.Sprintf("%s|%s|%s|%s|%d", sid, typ, actor, detail, at))
-	}
-	return out
+	return rows
 }
 
 // logicalDump renders every merged table in a stable, row-id-free form. Two
 // databases with the same dump hold the same content even when SQLite has
 // rewritten their pages, which is what "unchanged" has to mean for a re-merge.
+// The rendering itself is dumpCache, which adoption compares caches with.
 func logicalDump(t *testing.T, db *sql.DB) string {
 	t.Helper()
-	var b strings.Builder
-	queries := []struct{ name, query string }{
-		{"tasks", `SELECT t.short_id, COALESCE(p.short_id,''), t.title, t.description, t.status,
-			t.sort_key, COALESCE(t.claimed_by,''), COALESCE(t.claim_expires_at,0),
-			COALESCE(t.completion_note,''), t.created_at, t.updated_at,
-			COALESCE(t.deleted_at,0), t.kind
-			FROM tasks t LEFT JOIN tasks p ON p.id = t.parent_id ORDER BY t.short_id`},
-		{"labels", `SELECT t.short_id, l.name FROM task_labels l JOIN tasks t ON t.id = l.task_id
-			ORDER BY t.short_id, l.name`},
-		{"blocks", `SELECT br.short_id, bd.short_id FROM blocks b
-			JOIN tasks br ON br.id = b.blocker_id JOIN tasks bd ON bd.id = b.blocked_id
-			ORDER BY br.short_id, bd.short_id`},
-		{"criteria", `SELECT t.short_id, COALESCE(c.short_id,''), c.label, c.state, c.sort_key,
-			c.created_at, c.updated_at FROM task_criteria c JOIN tasks t ON t.id = c.task_id
-			ORDER BY t.short_id, c.short_id, c.label`},
-		{"found_in", `SELECT t.short_id, s.short_id FROM found_in f
-			JOIN tasks t ON t.id = f.task_id JOIN tasks s ON s.id = f.source_id ORDER BY t.short_id`},
-		{"users", `SELECT name FROM users ORDER BY name`},
+	s, err := dumpCache(db)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, q := range queries {
-		b.WriteString("== " + q.name + "\n")
-		rows, err := db.Query(q.query)
-		if err != nil {
-			t.Fatalf("%s: %v", q.name, err)
-		}
-		cols, _ := rows.Columns()
-		for rows.Next() {
-			cells := make([]any, len(cols))
-			vals := make([]sql.NullString, len(cols))
-			for i := range cells {
-				cells[i] = &vals[i]
-			}
-			if err := rows.Scan(cells...); err != nil {
-				rows.Close()
-				t.Fatal(err)
-			}
-			parts := make([]string, len(vals))
-			for i, v := range vals {
-				parts[i] = v.String
-			}
-			b.WriteString(strings.Join(parts, "|") + "\n")
-		}
-		rows.Close()
-	}
-	tuples := eventTuples(t, db)
-	sort.Strings(tuples)
-	b.WriteString("== events\n" + strings.Join(tuples, "\n") + "\n")
-	return b.String()
+	return s
 }
 
 // ---------------------------------------------------------------------------

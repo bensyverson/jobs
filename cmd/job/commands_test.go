@@ -968,7 +968,7 @@ const gitignoreHintLead = "Add to .gitignore (or run: job gitignore):"
 func TestInit_GitignoreHint_OnlyInsideAGitRepo(t *testing.T) {
 	dir := t.TempDir()
 	out := initInDir(t, dir)
-	if strings.Contains(out, gitignoreHintLead) || strings.Contains(out, ".jobs.db-shm") {
+	if strings.Contains(out, gitignoreHintLead) || strings.Contains(out, ".jobs/local.json") {
 		t.Errorf("no .git: init should print no gitignore hint:\n%s", out)
 	}
 }
@@ -978,9 +978,9 @@ func TestInit_GitignoreHint_PrintedWhenAPatternIsMissing(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
 		t.Fatalf("mkdir .git: %v", err)
 	}
-	// One of the three already ignored: the hint still prints, and prints
+	// One of the two already ignored: the hint still prints, and prints
 	// the whole block rather than the remainder.
-	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".jobs.db-shm\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".jobs.db*\n"), 0o644); err != nil {
 		t.Fatalf("seed .gitignore: %v", err)
 	}
 
@@ -1006,7 +1006,7 @@ func TestInit_GitignoreHint_SuppressedWhenEveryPatternIsPresent(t *testing.T) {
 	}
 
 	out := initInDir(t, dir)
-	if strings.Contains(out, gitignoreHintLead) || strings.Contains(out, ".jobs.db-shm") {
+	if strings.Contains(out, gitignoreHintLead) || strings.Contains(out, ".jobs/local.json") {
 		t.Errorf("every pattern already present: init should print no hint:\n%s", out)
 	}
 }
