@@ -70,8 +70,9 @@ export function buildForestFromFrame(frame) {
 }
 
 // isArchivedSubtree is true iff the node and every descendant carry
-// a closed status (done/canceled). Used by filterRootsByShow to pick
-// the Active vs. Archived top-level partition.
+// a closed status (done/canceled). The archive classifier for both
+// views: filterRootsByShow applies it to a root on Plan and to each
+// of a root's children on Issues.
 export function isArchivedSubtree(node) {
   const s = node.task.status;
   if (s !== "done" && s !== "canceled") return false;
@@ -91,8 +92,29 @@ export function filterRootsByKind(roots, kind) {
   return roots.filter((r) => (r.task.kind === "issue") === wantIssue);
 }
 
-export function filterRootsByShow(roots, show) {
+// filterRootsByShow applies the view's archive rule. Plan archives a
+// root as a unit, because a plan root closes when its decomposition
+// is finished. An issue root never closes, so the Issues view
+// archives each direct child subtree instead and always keeps the
+// pile's own row — a root whose children all filter out renders as an
+// empty pile, not as an empty page. Mirrors filterRootsForShow /
+// filterIssueRootsByShow in internal/web/handlers/plan_filters.go.
+export function filterRootsByShow(roots, show, kind = "task") {
   if (show === "all") return roots;
+  if (kind === "issue") {
+    const wantArchived = show === "archived";
+    // A pile closed outright is archived as a unit, like a plan root.
+    return roots
+      .filter((r) => !isArchivedSubtree(r) || wantArchived)
+      .map((r) =>
+        isArchivedSubtree(r)
+          ? r
+          : {
+              task: r.task,
+              children: r.children.filter((c) => isArchivedSubtree(c) === wantArchived),
+            },
+      );
+  }
   if (show === "archived") return roots.filter((r) => isArchivedSubtree(r));
   return roots.filter((r) => !isArchivedSubtree(r));
 }

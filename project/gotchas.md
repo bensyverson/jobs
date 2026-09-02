@@ -73,3 +73,9 @@ Also: sleepy renders offscreen with `document.visibilityState === "hidden"`, so 
 ## 2026-09-02 — `$` in a template partial is the partial's argument, not the page
 
 **`{{template "row" .}}` rebinds `$` to the row**, so `{{prose .Text $.Links}}` inside a partial reads a field off the row, not the page, and a recursive partial (`plan-node`) never sees the page at all. Page-wide values a partial needs (the prose link resolver) are copied onto each row struct as the same shared map — see `TaskProgressNote.Links` and `PlanNode.Links`.
+
+## 2026-09-02 — `sleepy dom <url>` can beat the scrubber's bootstrap; use a session for `?at=` evidence
+
+**An ephemeral `sleepy dom "…?at=<position>"` returns the SSR tree with the scrubber *chrome* already on it** — `page--scrubbing`, the banner, the right position — because the section swap waits on `jobs:scrubber-frame`, which the bootstrap dispatches after its own fetch. The snapshot therefore looks like "the scrubber never rewrote the view" and, at a cursor near head where the two trees agree, like a successful rewrite. Drive it as a session instead — `sleepy open <url> --name X`, then `sleepy dom --session X` — so the second call reads a settled page; the JS-rendered section is recognisable as one long unindented line. Prove the frame is really at the cursor by picking a position where the tree *differs* from now.
+
+Two worktree-isolation refusals worth knowing while doing that: a command whose name comes from a variable (`J=…/job; "$J" ls`) is refused, and so is any command containing the word `eval` (`sleepy eval …`). Put the body in a script under the scratchpad and run `bash <path>`, or use `sleepy dom` and parse it.

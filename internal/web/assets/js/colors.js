@@ -121,6 +121,17 @@
     disclosures.forEach(function (btn) {
       const row = btn.closest(".c-plan-row");
       if (!row) return;
+      // An issue root is a pile, not a decomposition: there is no
+      // denominator for it to be N of, and its throughput already
+      // lives in the view's "N open · M closed in 7d" meta line. A
+      // depth-0 row is one no .c-plan-subtree wraps — nesting is how
+      // the template expresses depth. Branches inside an issue are
+      // ordinary work and keep their bar.
+      if (
+        row.closest('[data-plan-view="issue"]') &&
+        !row.closest(".c-plan-subtree")
+      )
+        return;
       // A done or canceled branch already communicates completion via
       // its status pill; a "100% of 100% done" bar would be redundant
       // chrome at best and misleading at worst on a canceled subtree.

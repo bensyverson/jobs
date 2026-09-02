@@ -146,6 +146,120 @@ test("filterRootsByShow: active hides archived; archived shows only archived; al
   );
 });
 
+// --- archive filter, Issues view ---
+//
+// An issue root never closes, so archiving it as a unit would leave
+// its Archived tab empty forever. On the Issues view the unit is each
+// direct child subtree, and the root row is always kept. Mirrors
+// filterIssueRootsByShow in internal/web/handlers/plan_filters.go.
+
+function issuePile() {
+  return {
+    task: { shortId: "PILE", status: "available", kind: "issue" },
+    children: [
+      { task: { shortId: "OPEN", status: "available" }, children: [] },
+      { task: { shortId: "CLOSED", status: "done" }, children: [] },
+    ],
+  };
+}
+
+test("filterRootsByShow(issue): active keeps the root and drops closed child subtrees", () => {
+  const out = filterRootsByShow([issuePile()], "active", "issue");
+  assert.deepStrictEqual(
+    out.map((r) => r.task.shortId),
+    ["PILE"],
+  );
+  assert.deepStrictEqual(
+    out[0].children.map((c) => c.task.shortId),
+    ["OPEN"],
+  );
+});
+
+test("filterRootsByShow(issue): archived keeps the root and only its closed child subtrees", () => {
+  const out = filterRootsByShow([issuePile()], "archived", "issue");
+  assert.deepStrictEqual(
+    out.map((r) => r.task.shortId),
+    ["PILE"],
+  );
+  assert.deepStrictEqual(
+    out[0].children.map((c) => c.task.shortId),
+    ["CLOSED"],
+  );
+});
+
+test("filterRootsByShow(issue): all leaves every child in place", () => {
+  const out = filterRootsByShow([issuePile()], "all", "issue");
+  assert.deepStrictEqual(
+    out[0].children.map((c) => c.task.shortId),
+    ["OPEN", "CLOSED"],
+  );
+});
+
+test("filterRootsByShow(issue): a root whose children all filter out still renders", () => {
+  const pile = {
+    task: { shortId: "PILE", status: "available", kind: "issue" },
+    children: [{ task: { shortId: "OPEN", status: "available" }, children: [] }],
+  };
+  const out = filterRootsByShow([pile], "archived", "issue");
+  assert.deepStrictEqual(
+    out.map((r) => r.task.shortId),
+    ["PILE"],
+  );
+  assert.deepStrictEqual(out[0].children, []);
+});
+
+test("filterRootsByShow(issue): a closed child with an open descendant stays active", () => {
+  const pile = {
+    task: { shortId: "PILE", status: "available", kind: "issue" },
+    children: [
+      {
+        task: { shortId: "HALF", status: "done" },
+        children: [{ task: { shortId: "FOLLOWUP", status: "available" }, children: [] }],
+      },
+    ],
+  };
+  assert.deepStrictEqual(
+    filterRootsByShow([pile], "active", "issue")[0].children.map((c) => c.task.shortId),
+    ["HALF"],
+  );
+  assert.deepStrictEqual(filterRootsByShow([pile], "archived", "issue")[0].children, []);
+});
+
+test("filterRootsByShow(issue): the input tree is copied, not pruned in place", () => {
+  const pile = issuePile();
+  filterRootsByShow([pile], "active", "issue");
+  assert.deepStrictEqual(
+    pile.children.map((c) => c.task.shortId),
+    ["OPEN", "CLOSED"],
+  );
+});
+
+test("filterRootsByShow: an explicit task kind keeps the per-root rule", () => {
+  const archivedRoot = {
+    task: { shortId: "A", status: "done" },
+    children: [{ task: { shortId: "A1", status: "done" }, children: [] }],
+  };
+  const activeRoot = {
+    task: { shortId: "B", status: "available" },
+    children: [{ task: { shortId: "B1", status: "done" }, children: [] }],
+  };
+  const roots = [archivedRoot, activeRoot];
+  const active = filterRootsByShow(roots, "active", "task");
+  assert.deepStrictEqual(
+    active.map((r) => r.task.shortId),
+    ["B"],
+  );
+  // Plan hides nothing inside a kept root: the closed child stays.
+  assert.deepStrictEqual(
+    active[0].children.map((c) => c.task.shortId),
+    ["B1"],
+  );
+  assert.deepStrictEqual(
+    filterRootsByShow(roots, "archived", "task").map((r) => r.task.shortId),
+    ["A"],
+  );
+});
+
 // --- label filter ---
 
 test("filterForestByLabels: keeps tasks (and ancestors) matching any selected label", () => {
@@ -440,4 +554,15 @@ test("proseLinksFromFrame: every replayed task id maps to its task URL", () => {
 
 test("proseLinksFromFrame: an empty frame resolves nothing", () => {
   assert.deepEqual({ ...proseLinksFromFrame(frameWith({})) }, {});
+});
+
+test("filterRootsByShow(issue): a closed pile is archived as a unit", () => {
+  const closedPile = {
+    task: { shortId: "OLD", status: "done", kind: "issue" },
+    children: [{ task: { shortId: "FIXED", status: "done", kind: "task" }, children: [] }],
+  };
+  assert.deepStrictEqual(filterRootsByShow([closedPile], "active", "issue"), []);
+  const archived = filterRootsByShow([closedPile], "archived", "issue");
+  assert.deepStrictEqual(archived.map((r) => r.task.shortId), ["OLD"]);
+  assert.deepStrictEqual(archived[0].children.map((c) => c.task.shortId), ["FIXED"]);
 });

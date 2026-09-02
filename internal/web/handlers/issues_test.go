@@ -294,3 +294,153 @@ func TestIssues_EmptyDatabaseRendersQuietPlaceholder(t *testing.T) {
 	mustContain(t, body, "c-plan-empty")
 	mustContain(t, body, "No open issues.")
 }
+
+// --- archive rule: per child on Issues, per root on Plan ---
+//
+// An issue root never closes on its own (the auto-close cascade is
+// exempt from it), so a per-root archive rule leaves the Archived tab
+// empty forever and piles every closed bug under Active. On Issues
+// the unit of archiving is therefore each direct child subtree.
+
+// mustCloseTask closes a task, failing the test on error.
+func mustCloseTask(t *testing.T, db *sql.DB, shortID string) {
+	t.Helper()
+	if _, _, err := job.RunDone(db, []string{shortID}, false, "", nil, "claude", false, ""); err != nil {
+		t.Fatalf("RunDone(%q): %v", shortID, err)
+	}
+}
+
+// issuePileWithOneClosedChild seeds one issue root holding one open
+// and one closed child, and returns the three short ids.
+func issuePileWithOneClosedChild(t *testing.T, db *sql.DB) (root, open, closed string) {
+	t.Helper()
+	root = mustAddIssueRoot(t, db, "claude", "Bug pile", nil)
+	open = mustAdd(t, db, "claude", "Open bug", &root, nil)
+	closed = mustAdd(t, db, "claude", "Closed bug", &root, nil)
+	mustCloseTask(t, db, closed)
+	return root, open, closed
+}
+
+func TestIssues_ShowActive_HidesClosedChildrenAndKeepsTheRootRow(t *testing.T) {
+	db := setupPlanTestDB(t)
+	root, open, closed := issuePileWithOneClosedChild(t, db)
+
+	deps := newPlanDeps(t, db)
+	_, body := fetchIssues(t, deps, "/issues", "")
+	main := mainOnly(t, body)
+
+	mustContain(t, main, `id="task-`+root+`"`)
+	mustContain(t, main, `id="task-`+open+`"`)
+	mustNotContainStr(t, main, `id="task-`+closed+`"`)
+}
+
+func TestIssues_ShowArchived_ShowsOnlyClosedChildrenUnderTheRoot(t *testing.T) {
+	db := setupPlanTestDB(t)
+	root, open, closed := issuePileWithOneClosedChild(t, db)
+
+	deps := newPlanDeps(t, db)
+	_, body := fetchIssues(t, deps, "/issues?show=archived", "")
+	main := mainOnly(t, body)
+
+	mustContain(t, main, `id="task-`+root+`"`)
+	mustContain(t, main, `id="task-`+closed+`"`)
+	mustNotContainStr(t, main, `id="task-`+open+`"`)
+}
+
+func TestIssues_ShowAll_ShowsEveryChild(t *testing.T) {
+	db := setupPlanTestDB(t)
+	root, open, closed := issuePileWithOneClosedChild(t, db)
+
+	deps := newPlanDeps(t, db)
+	_, body := fetchIssues(t, deps, "/issues?show=all", "")
+	main := mainOnly(t, body)
+
+	mustContain(t, main, `id="task-`+root+`"`)
+	mustContain(t, main, `id="task-`+open+`"`)
+	mustContain(t, main, `id="task-`+closed+`"`)
+}
+
+func TestIssues_ArchiveIsPerSubtreeNotPerChildRow(t *testing.T) {
+	// A closed child with an open descendant still carries work, so it
+	// belongs under Active — the same subtree rule Plan applies to a
+	// root, one level down.
+	db := setupPlanTestDB(t)
+	root := mustAddIssueRoot(t, db, "claude", "Bug pile", nil)
+	child := mustAdd(t, db, "claude", "Half-closed bug", &root, nil)
+	grandchild := mustAdd(t, db, "claude", "Still open follow-up", &child, nil)
+	// `done` refuses a task with open subtasks, so the mixed subtree is
+	// built the way a person builds one: close both, then reopen the
+	// follow-up.
+	mustCloseTask(t, db, grandchild)
+	mustCloseTask(t, db, child)
+	if _, err := job.RunReopen(db, grandchild, false, "claude"); err != nil {
+		t.Fatalf("RunReopen(%q): %v", grandchild, err)
+	}
+
+	deps := newPlanDeps(t, db)
+	_, activeBody := fetchIssues(t, deps, "/issues", "")
+	active := mainOnly(t, activeBody)
+	mustContain(t, active, `id="task-`+child+`"`)
+	mustContain(t, active, `id="task-`+grandchild+`"`)
+
+	_, archivedBody := fetchIssues(t, deps, "/issues?show=archived", "")
+	mustNotContainStr(t, mainOnly(t, archivedBody), `id="task-`+child+`"`)
+}
+
+func TestIssues_RootRowSurvivesWhenEveryChildFiltersOut(t *testing.T) {
+	// The pile is the point: a root whose children all fall on the
+	// other side of the tab still renders, so the reader sees an empty
+	// archive under a named pile rather than an empty page.
+	db := setupPlanTestDB(t)
+	root := mustAddIssueRoot(t, db, "claude", "Bug pile", nil)
+	open := mustAdd(t, db, "claude", "Open bug", &root, nil)
+
+	deps := newPlanDeps(t, db)
+	_, body := fetchIssues(t, deps, "/issues?show=archived", "")
+	main := mainOnly(t, body)
+
+	mustContain(t, main, `id="task-`+root+`"`)
+	mustNotContainStr(t, main, `id="task-`+open+`"`)
+	mustNotContainStr(t, main, "c-plan-empty")
+}
+
+func TestPlan_ArchiveRuleStaysPerRoot(t *testing.T) {
+	// Plan is untouched: a root with any open work stays whole under
+	// Active — closed children included — and never shows under
+	// Archived.
+	db := setupPlanTestDB(t)
+	root := mustAdd(t, db, "claude", "Ship the docs site", nil, nil)
+	open := mustAdd(t, db, "claude", "Open leaf", &root, nil)
+	closed := mustAdd(t, db, "claude", "Closed leaf", &root, nil)
+	mustCloseTask(t, db, closed)
+
+	deps := newPlanDeps(t, db)
+	active := mainOnly(t, fetchPlan(t, deps, ""))
+	mustContain(t, active, `id="task-`+root+`"`)
+	mustContain(t, active, `id="task-`+open+`"`)
+	mustContain(t, active, `id="task-`+closed+`"`)
+
+	archived := mainOnly(t, fetchPlan(t, deps, "show=archived"))
+	mustNotContainStr(t, archived, `id="task-`+root+`"`)
+	mustNotContainStr(t, archived, `id="task-`+closed+`"`)
+}
+
+// A pile closed outright — `job done` on the root, which the domain only
+// allows once every child is closed — is archived as a unit, like a plan
+// root. Otherwise it would sit on Active forever as an empty pile.
+func TestIssues_ClosedRootIsArchivedAsAUnit(t *testing.T) {
+	db := setupPlanTestDB(t)
+	root := mustAddIssueRoot(t, db, "claude", "Old pile", nil)
+	child := mustAdd(t, db, "claude", "Fixed bug", &root, nil)
+	mustCloseTask(t, db, child)
+	mustCloseTask(t, db, root)
+
+	deps := newPlanDeps(t, db)
+	_, active := fetchIssues(t, deps, "/issues", "")
+	mustNotContainStr(t, mainOnly(t, active), `id="task-`+root+`"`)
+
+	_, archived := fetchIssues(t, deps, "/issues?show=archived", "")
+	main := mainOnly(t, archived)
+	mustContain(t, main, `id="task-`+root+`"`)
+	mustContain(t, main, `id="task-`+child+`"`)
+}

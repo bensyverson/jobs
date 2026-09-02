@@ -176,7 +176,7 @@ func planHandler(deps Deps, view planView) http.Handler {
 
 		// Apply the archive filter first so subsequent strip and label
 		// calculations reflect what's actually in view.
-		roots = filterRootsByShow(roots, show)
+		roots = filterRootsForShow(roots, show, view.Kind)
 
 		stripNames := pickStripLabels(roots, labels, selected, show, 5)
 		if len(selected) > 0 {

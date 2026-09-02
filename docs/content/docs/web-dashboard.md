@@ -23,6 +23,11 @@ The dashboard is for the human watching agents work. The CLI remains the surface
 
 Plan and Issues are one view split by tree kind: a plan and a bug pile are different shapes, so they get different tabs. The Issues tab carries the number of open issues after its label — nothing when that number is zero — and the page itself opens with `N open · M closed in 7d` beside the Active/Archived/All tabs.
 
+Two things follow from the pile being a pile, and both apply on Issues only:
+
+- **Archiving is per issue, not per pile.** An [issue root](../concepts/tree-kinds/) never closes on its own, so archiving whole roots the way Plan does would leave Issues' Archived tab empty forever. Instead the unit is each issue under the root: one whose whole subtree is closed moves to Archived, and the pile's own row stays on screen under every tab — an empty Archived tab reads as "nothing retired yet", not as an empty page. Plan still archives a root as a unit, closed children and all. A pile closed outright with `job done` on its root is archived as a unit, like a plan root.
+- **An issue root shows no progress bar.** Branch rows carry an ambient `N of M tasks done` rollup; a pile has no denominator to be N of, so the root row omits it. Bugs *inside* an issue tree are ordinary decompositions and keep theirs, and the pile's throughput is the meta line above.
+
 `/actors/{name}` opens one agent on its own: hero counters, an activity timeline, and that agent's events as the very same rows the Log renders — minus the actor column, which a page already scoped to one actor has no use for. The timeline covers the last 24 hours by default and the `24H · 7D · 30D` control in its header widens it (`?window=7d`, `?window=30d`), while the hero's `Done 24h` tile stays on the day whatever the timeline shows.
 
 Number keys jump between the tabs in header order (`1` Home, `2` Plan, `3` Issues, `4` Actors, `5` Log); `` ` `` cycles forward through them and `~` cycles back.

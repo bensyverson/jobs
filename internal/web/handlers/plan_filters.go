@@ -68,10 +68,60 @@ func parseShowParam(raw string) string {
 	}
 }
 
+// filterRootsForShow applies the view's archive rule. The two views
+// archive at different levels because their roots mean different
+// things: a plan root closes when its decomposition is finished, so
+// Plan archives whole roots; an issue root never closes (the
+// auto-close cascade is exempt from it), so Issues archives each
+// direct child subtree and always keeps the pile's row on screen.
+func filterRootsForShow(roots []*job.TaskNode, show string, kind job.TreeKind) []*job.TaskNode {
+	if kind.IsIssue() {
+		return filterIssueRootsByShow(roots, show)
+	}
+	return filterRootsByShow(roots, show)
+}
+
+// filterIssueRootsByShow is the Issues archive rule: every root is
+// kept, carrying only the children that belong on the current tab. A
+// child subtree that is closed through and through is archived; one
+// with any open work left is active. The root row survives an empty
+// selection on purpose — a pile with nothing archived should read as
+// an empty archive under a named pile, not as an empty page.
+//
+// The root is copied rather than pruned in place: the same TaskNode
+// forest backs the titles index the blocker tooltips read.
+func filterIssueRootsByShow(roots []*job.TaskNode, show string) []*job.TaskNode {
+	if show == showAll {
+		return roots
+	}
+	wantArchived := show == showArchived
+	out := make([]*job.TaskNode, 0, len(roots))
+	for _, r := range roots {
+		// A pile someone closed outright (`job done` on the root, so
+		// every child is closed too) is archived as a unit, like a plan
+		// root — otherwise it would sit on Active forever, empty.
+		if isArchivedSubtree(r) {
+			if wantArchived {
+				out = append(out, r)
+			}
+			continue
+		}
+		kept := make([]*job.TaskNode, 0, len(r.Children))
+		for _, c := range r.Children {
+			if isArchivedSubtree(c) == wantArchived {
+				kept = append(kept, c)
+			}
+		}
+		out = append(out, &job.TaskNode{Task: r.Task, Children: kept})
+	}
+	return out
+}
+
 // isArchivedSubtree is true when a task and every descendant are
-// closed (done or canceled). Used as the archive classifier at the
-// root level — a partially-done tree is still "active" because it
-// carries open work.
+// closed (done or canceled). The archive classifier for both views —
+// applied to a root on Plan, to each of a root's children on Issues.
+// A partially-done subtree is still "active" because it carries open
+// work.
 func isArchivedSubtree(n *job.TaskNode) bool {
 	if n.Task.Status != "done" && n.Task.Status != "canceled" {
 		return false
@@ -84,11 +134,11 @@ func isArchivedSubtree(n *job.TaskNode) bool {
 	return true
 }
 
-// filterRootsByShow partitions roots into active/archived per the
-// ?show= mode. archive classification is per-root: a whole subtree
-// is archived iff every node in it is closed. Non-root nodes stay
-// in view because a root's subtree is either shown or hidden as a
-// unit — partial closure is normal within an active subtree.
+// filterRootsByShow is the Plan archive rule: roots are partitioned
+// into active/archived per the ?show= mode, a root being archived iff
+// every node in it is closed. Non-root nodes stay in view because a
+// root's subtree is either shown or hidden as a unit — partial
+// closure is normal within an active plan.
 func filterRootsByShow(roots []*job.TaskNode, show string) []*job.TaskNode {
 	if show == showAll {
 		return roots

@@ -116,7 +116,7 @@ function composePlanSectionHTML(frame, { selected, show }, nowSec, view = {}) {
   const kind = view.kind ?? "task";
   const base = view.base ?? "/plan";
   const allRoots = filterRootsByKind(buildForestFromFrame(frame), kind);
-  let roots = filterRootsByShow(allRoots, show);
+  let roots = filterRootsByShow(allRoots, show, kind);
   roots = filterForestByLabels(roots, selected);
   const planNodes = buildPlanNodes(roots, frame, nowSec, { selected, show, base });
   return renderPlanSection(
