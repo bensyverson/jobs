@@ -147,7 +147,7 @@ func planHandler(deps Deps, view planView) http.Handler {
 		// stay stable across label switches, so we can't derive it from
 		// a label-filtered forest. The label filter then applies in
 		// memory using the already-batched labels map.
-		roots, err := job.RunListFiltered(deps.DB, job.ListFilter{ShowAll: true})
+		roots, err := job.RunListFiltered(deps.DB, job.ListFilter{ShowAll: true, Actor: sweepActor(deps)})
 		if err != nil {
 			InternalError(deps, w, "plan list", err)
 			return

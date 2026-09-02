@@ -26,6 +26,22 @@ type Deps struct {
 	Broadcaster *broadcast.Broadcaster
 }
 
+// sweepActor resolves the actor a dashboard-triggered read-time claim-expiry
+// sweep should be attributed to: the database's default identity (what an
+// unflagged CLI call would resolve to), read fresh on every call rather than
+// cached at server start, since the default identity can change while the
+// server keeps running. Any handler that calls a job entry point which can
+// sweep expired claims (RunListFiltered, RunListWithTail, RunClaim, …) must
+// pass this as the Actor/actor argument rather than "" — an empty actor
+// records a claim_expired event with no one attributed to it.
+func sweepActor(deps Deps) string {
+	actor, err := job.ResolveIdentity(deps.DB, "")
+	if err != nil {
+		return ""
+	}
+	return actor
+}
+
 // renderPage is the common path for a view that renders its page
 // template through the shared chrome. Sets Content-Type; on template
 // failure, surfaces a styled 500 page rather than a naked plaintext

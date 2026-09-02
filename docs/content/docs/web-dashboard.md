@@ -3,7 +3,7 @@ title: Web dashboard
 weight: 6
 ---
 
-`job serve` runs a read-only web UI for humans to watch agents work. It's a foreground process that binds `127.0.0.1:7823` by default and never accepts a write — the CLI is the only path that mutates the database.
+`job serve` runs a read-only web UI for humans to watch agents work. It's a foreground process that binds `127.0.0.1:7823` by default and never accepts a write — the CLI is the only path that mutates the database. One exception: loading Plan or Issues can trigger the same read-time claim-expiry sweep the CLI runs, which records a `claim_expired` event attributed to the database's default identity rather than to a person clicking around.
 
 <img src="../screenshots/home.png" alt="Jobs dashboard — Home view" width="860">
 

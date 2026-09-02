@@ -30,7 +30,9 @@ if [ -n "$staged" ]; then
 fi
 
 echo "==> gofmt"
-unformatted=$(gofmt -l .)
+# Prune .claude so a parallel agent's half-written worktree cannot fail
+# the main checkout's commit; the Go toolchain skips dot-directories too.
+unformatted=$(find . -path ./.claude -prune -o -name '*.go' -print0 | xargs -0 gofmt -l)
 if [ -n "$unformatted" ]; then
   echo "gofmt needs to format these files:"
   echo "$unformatted"
