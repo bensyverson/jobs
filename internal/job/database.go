@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -568,29 +569,77 @@ func getEventsForTaskTreeSince(db *sql.DB, shortID string, since int64) ([]Event
 	return queryEventEntries(db, query, args)
 }
 
-func getEventsAfterID(db *sql.DB, shortID string, afterID int64) ([]EventEntry, error) {
-	query, args := buildTreeEventsQuery(shortID, "AND e.id > ?", []any{afterID})
+// EventPositionExpr is the SQL row-value tuple naming an event's log
+// position, for a table aliased as `alias`. A legacy row (rep ”) has no seq
+// of its own, so the cache's row id stands in for it — the same substitution
+// [EventEntry.Position] makes, kept here so SQL and Go agree.
+//
+// Ordering by this tuple, and comparing a cursor against it, is what makes a
+// cursor survive a rebuild: e.id is renumbered by a replay, and these three
+// columns are not.
+func EventPositionExpr(alias string) string {
+	return fmt.Sprintf("(%[1]s.ts, %[1]s.rep, CASE WHEN %[1]s.rep = '' THEN %[1]s.id ELSE %[1]s.seq END)", alias)
+}
+
+// EventPositionArgs are the bind values matching EventPositionExpr, in order.
+func EventPositionArgs(p eventlog.Position) []any {
+	return []any{p.TS, p.Rep, int64(p.Seq)}
+}
+
+// GetEventsAfterPosition returns events ordered by log position strictly
+// after `after`, for the subtree rooted at shortID (or the entire DB when
+// shortID is empty). A zero Position means "from the beginning".
+//
+// This is the tail cursor: `job tail`, the web broadcaster's poll loop and
+// the /events SSE backfill all page through the log with it.
+func GetEventsAfterPosition(db *sql.DB, shortID string, after eventlog.Position) ([]EventEntry, error) {
+	if after == (eventlog.Position{}) {
+		return GetEventsForTaskTree(db, shortID)
+	}
+	where := "AND " + EventPositionExpr("e") + " > (?, ?, ?)"
+	query, args := buildTreeEventsQuery(shortID, where, EventPositionArgs(after))
 	return queryEventEntries(db, query, args)
 }
 
-// GetEventsAfterID returns events with id > afterID for the subtree
-// rooted at shortID (or the entire DB when shortID is empty). Used
-// by the web broadcaster's poll loop and by the /events SSE backfill.
-func GetEventsAfterID(db *sql.DB, shortID string, afterID int64) ([]EventEntry, error) {
-	return getEventsAfterID(db, shortID, afterID)
+// GetEventsUpToPosition is the mirror: events at or before `at`. It backs the
+// dashboard's ?at= time-travel bound.
+func GetEventsUpToPosition(db *sql.DB, shortID string, at eventlog.Position) ([]EventEntry, error) {
+	if at == (eventlog.Position{}) {
+		return nil, nil
+	}
+	where := "AND " + EventPositionExpr("e") + " <= (?, ?, ?)"
+	query, args := buildTreeEventsQuery(shortID, where, EventPositionArgs(at))
+	return queryEventEntries(db, query, args)
 }
 
-// GetMaxEventID returns the largest event id currently in the table,
-// or 0 if empty. Used as a cutoff for "stream from now" clients.
-func GetMaxEventID(db *sql.DB) (int64, error) {
-	var max sql.NullInt64
-	if err := db.QueryRow(`SELECT MAX(id) FROM events`).Scan(&max); err != nil {
+// GetHeadPosition returns the position of the newest event in the cache, or
+// the zero Position when there are none. Used as the "stream from now" cutoff
+// and as the head cursor the dashboard's scrubber hydrates from.
+func GetHeadPosition(db *sql.DB) (eventlog.Position, error) {
+	var ts sql.NullInt64
+	var rep sql.NullString
+	var seq sql.NullInt64
+	err := db.QueryRow(`SELECT ts, rep, CASE WHEN rep = '' THEN id ELSE seq END
+		FROM events ORDER BY ts DESC, rep DESC, CASE WHEN rep = '' THEN id ELSE seq END DESC LIMIT 1`).
+		Scan(&ts, &rep, &seq)
+	if errors.Is(err, sql.ErrNoRows) {
+		return eventlog.Position{}, nil
+	}
+	if err != nil {
+		return eventlog.Position{}, err
+	}
+	return eventlog.Position{TS: ts.Int64, Rep: rep.String, Seq: uint64(seq.Int64)}, nil
+}
+
+// CountEvents returns how many events the readers can see — the same scope
+// GetEventsForTaskTree walks. It is the head frame's ordinal for the
+// dashboard's replay buffer.
+func CountEvents(db *sql.DB) (int, error) {
+	events, err := GetEventsForTaskTree(db, "")
+	if err != nil {
 		return 0, err
 	}
-	if !max.Valid {
-		return 0, nil
-	}
-	return max.Int64, nil
+	return len(events), nil
 }
 
 // buildTreeEventsQuery assembles the recursive-CTE query used by log/tail.
@@ -614,11 +663,12 @@ func buildTreeEventsQuery(shortID, extraWhere string, extraArgs []any) (string, 
 			UNION ALL
 			SELECT t.id FROM tasks t JOIN tree ON t.parent_id = tree.id WHERE t.deleted_at IS NULL
 		)
-		SELECT e.id, e.task_id, t.short_id, e.event_type, e.actor, e.detail, e.created_at
+		SELECT e.id, e.task_id, t.short_id, e.event_type, e.actor, e.detail, e.created_at,
+		       e.ts, e.rep, e.seq
 		FROM events e
 		JOIN tasks t ON t.id = e.task_id
 		WHERE e.task_id IN (SELECT id FROM tree) ` + extraWhere + `
-		ORDER BY e.created_at, e.id
+		ORDER BY e.ts, e.rep, CASE WHEN e.rep = '' THEN e.id ELSE e.seq END
 	`
 	return query, args
 }
@@ -633,7 +683,8 @@ func queryEventEntries(db *sql.DB, query string, args []any) ([]EventEntry, erro
 	var events []EventEntry
 	for rows.Next() {
 		var e EventEntry
-		if err := rows.Scan(&e.ID, &e.TaskID, &e.ShortID, &e.EventType, &e.Actor, &e.Detail, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.TaskID, &e.ShortID, &e.EventType, &e.Actor, &e.Detail, &e.CreatedAt,
+			&e.TS, &e.Rep, &e.Seq); err != nil {
 			return nil, err
 		}
 		events = append(events, e)

@@ -39,23 +39,24 @@ function init() {
 
   const empty = list.querySelector(".c-log-row--empty");
 
-  // Dedup set: every event id already present in the DOM (server
-  // SSR plus any rows we've prepended). Backfill/SSR overlap
-  // happens when the page loads with events already rendered and
-  // the SSE stream replays them from localStorage-resumed ?since=;
-  // without this set we'd duplicate every overlapping row.
+  // Dedup set: every event position already present in the DOM (server
+  // SSR plus any rows we've prepended). Backfill/SSR overlap happens
+  // when the page loads with events already rendered and the SSE stream
+  // replays them from the localStorage-resumed ?since=; without this
+  // set we'd duplicate every overlapping row. Keyed on the log position
+  // rather than the row id, because a rebuild between the SSR render
+  // and the frame's arrival renumbers the ids on one side only.
   const seen = new Set();
-  list.querySelectorAll("[data-event-id]").forEach((el) => {
-    seen.add(el.getAttribute("data-event-id"));
+  list.querySelectorAll("[data-event-position]").forEach((el) => {
+    seen.add(el.getAttribute("data-event-position"));
   });
 
   live.addEventListener("event", (ev) => {
     const data = ev.detail;
-    if (!data || data.id == null) return;
+    if (!data || !data.position) return;
 
-    const idStr = String(data.id);
-    if (seen.has(idStr)) return;
-    seen.add(idStr);
+    if (seen.has(data.position)) return;
+    seen.add(data.position);
 
     if (empty && empty.parentElement) empty.remove();
 
@@ -79,9 +80,9 @@ function init() {
     // dedup set trimmed in parallel.
     while (list.childElementCount > MAX_ROWS) {
       const dropped = list.lastElementChild;
-      const droppedID = dropped && dropped.getAttribute("data-event-id");
+      const droppedAt = dropped && dropped.getAttribute("data-event-position");
       list.removeChild(dropped);
-      if (droppedID) seen.delete(droppedID);
+      if (droppedAt) seen.delete(droppedAt);
     }
   });
 }

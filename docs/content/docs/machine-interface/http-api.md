@@ -15,12 +15,12 @@ The endpoint is read-only. Writes happen through the CLI or the SQLite store; th
 ## Endpoint summary
 
 ```
-GET /events?since=<id>&limit=<n>&actor=<name>&task=<short-id>&label=<name>&type=<event-type>
+GET /events?since=<position>&limit=<n>&actor=<name>&task=<short-id>&label=<name>&type=<event-type>
 ```
 
 | Param   | Default        | Meaning                                                                |
 |---------|----------------|------------------------------------------------------------------------|
-| `since` | `0`            | Only return events with `id > since`. Use the last event's `id` to resume. |
+| `since` | *(none)*       | Only return events after this **log position**. Use the last event's `position` to resume. |
 | `limit` | `500`          | JSON replay only. Cap on returned events. SSE is unbounded.            |
 | `actor` | `""` (any)     | Only events whose actor matches.                                       |
 | `task`  | `""` (any)     | Only events whose target task has this short id.                       |
@@ -36,6 +36,7 @@ The same object is used for SSE `data:` payloads and for entries in the JSON rep
 ```json
 {
   "id": 7,
+  "position": "1756742400123-k7Qx2m-412",
   "task_id": "bBE83",
   "task_title": "Child B",
   "event_type": "done",
@@ -47,7 +48,8 @@ The same object is used for SSE `data:` payloads and for entries in the JSON rep
 
 Field notes:
 
-- **`id`** is the monotonically increasing event-log id. Use it for `since=` to resume cleanly across reconnects.
+- **`position`** is the event's **log position** — `<ts>-<replica>-<seq>`, the cursor every replica agrees on. Use it for `since=` and `?at=` to resume cleanly across reconnects. It is a cursor, not a sort key: to compare two, split on `-` and compare `ts`, then `replica`, then `seq` numerically. A position whose replica is empty (`<ts>--<n>`) addresses a row carried over from a pre-log database, and is only meaningful within one cache.
+- **`id`** is the server cache's row id. It is a stable key *within one page load* and nothing more: rebuilding the cache from the log renumbers it, so never use it as a cursor.
 - **`task_id`** is the public **short id** (the same short handle the CLI uses). Internal numeric ids are not exposed.
 - **`task_title`** is denormalized onto every event so a thin client can render a row without a second lookup.
 - **`detail`** is an **opaque JSON string** — its inner shape varies per `event_type` and matches the `detail` payload from `job log --format=json`. Parse it on demand.
@@ -62,12 +64,14 @@ time-travel scrubber has a state to fold events onto without replaying the
 whole log:
 
 ```html
-<script type="application/json" id="initial-frame">{"headEventId":42,"tasks":[…],"blocks":[…],"claims":[…]}</script>
+<script type="application/json" id="initial-frame">{"headPosition":"1756742400123-k7Qx2m-412","eventCount":42,"tasks":[…],"blocks":[…],"claims":[…]}</script>
 ```
 
-`headEventId` is the event id the snapshot is current as of — the same id
-space as `/events`, so a client hydrates from the island and resumes with
-`?since=<headEventId>`. Each entry in `tasks` carries `shortId`, `title`,
+`headPosition` is the log position the snapshot is current as of — the same
+cursor space as `/events`, so a client hydrates from the island and resumes
+with `?since=<headPosition>`. It is empty when the log is empty.
+`eventCount` is how many events the snapshot is past the empty world; the
+dashboard's replay buffer uses it to size its one events fetch. Each entry in `tasks` carries `shortId`, `title`,
 `description`, `status`, `parentShortId`, `sortKey`, `labels`, `criteria`,
 and two fields that describe the [issue](../../concepts/tree-kinds/) surface.
 `sortKey` is an opaque string: siblings are ordered by comparing it
@@ -101,17 +105,17 @@ Default mode. Useful for cold-loading recent history or polling.
 curl -s http://127.0.0.1:7823/events
 ```
 
-Resume from a known id (e.g., the last one your client has seen):
+Resume from a known position (e.g., the last one your client has seen):
 
 ```sh
-curl -s 'http://127.0.0.1:7823/events?since=12345&limit=200'
+curl -s 'http://127.0.0.1:7823/events?since=1756742400123-k7Qx2m-412&limit=200'
 ```
 
 Filter to one actor and one event type:
 
 ```sh
 curl -s 'http://127.0.0.1:7823/events?actor=alice&type=done' \
-  | jq '.[] | {id, task_id, task_title, at: .created_at}'
+  | jq '.[] | {position, task_id, task_title, at: .created_at}'
 ```
 
 Last 10 closes today:
@@ -136,7 +140,7 @@ Resume a live tail across a disconnect:
 
 ```sh
 curl -N -H 'Accept: text/event-stream' \
-  'http://127.0.0.1:7823/events?since=12345'
+  'http://127.0.0.1:7823/events?since=1756742400123-k7Qx2m-412'
 ```
 
 The backfill ensures no event between `since` and the live cursor is dropped. Browsers using the `EventSource` API get this for free; the `Last-Event-ID` header is honored as `since`.
@@ -146,13 +150,13 @@ The backfill ensures no event between `since` and the live cursor is dropped. Br
 Each event is one SSE frame:
 
 ```
-id: 7
+id: 1756742400123-k7Qx2m-412
 event: done
-data: {"id":7,"task_id":"bBE83","task_title":"Child B","event_type":"done","actor":"test","detail":"{\"cascade\":false}","created_at":"2026-05-07T18:31:49Z"}
+data: {"id":7,"position":"1756742400123-k7Qx2m-412","task_id":"bBE83","task_title":"Child B","event_type":"done","actor":"test","detail":"{\"cascade\":false}","created_at":"2026-05-07T18:31:49Z"}
 
 ```
 
-(blank line terminates the frame). The SSE `id:` field is the event log id and matches `data.id`; the SSE `event:` field is the event type and matches `data.event_type`.
+(blank line terminates the frame). The SSE `id:` field is the event's **log position** and matches `data.position`, so a browser's `Last-Event-ID` is usable verbatim as `?since=`; the SSE `event:` field is the event type and matches `data.event_type`.
 
 Because every frame is named, a browser `EventSource` client must call `addEventListener` once per event type it wants: frames carrying an `event:` field never reach a `message` listener, so an event type the client forgot to name is silently dropped. Line-oriented consumers (`curl`, the bash printer below) see every frame regardless.
 
@@ -179,8 +183,8 @@ es.addEventListener('done', (ev) => {
 
 The SSE connection is long-lived. The server holds it open as long as the broadcaster has events to send and the client stays connected; either side closing terminates cleanly. A client should:
 
-1. Track the highest `id` it has processed.
-2. On reconnect, pass `?since=<that-id>`. The server's backfill restores everything missed.
+1. Track the `position` of the last event it has processed.
+2. On reconnect, pass `?since=<that-position>`. The server's backfill restores everything missed.
 3. Apply backoff between retries — `EventSource` does this natively (browsers retry every ~3 seconds); custom clients should add jitter.
 
 The dashboard's own `live-region` web component implements this contract; if you're writing a third-party tool, that source is the reference implementation.

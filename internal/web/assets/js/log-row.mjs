@@ -170,7 +170,7 @@ export function renderLogRow(ev, { nowSec = Date.now() / 1000 } = {}) {
   const thenSec = iso ? Date.parse(iso) / 1000 : nowSec;
 
   return (
-    `<div class="c-log-row c-log-row--${typeClass}" role="listitem" data-event-id="${escapeHTML(ev.id)}">` +
+    `<div class="c-log-row c-log-row--${typeClass}" role="listitem" data-event-id="${escapeHTML(ev.id)}" data-event-position="${escapeHTML(ev.position)}">` +
     `<time class="c-log-row__time" datetime="${escapeHTML(iso)}">${escapeHTML(relativeTime(nowSec, thenSec))}</time>` +
     renderActor(actor, system) +
     `<span class="c-log-row__verb c-log-row__verb--${typeClass}">${escapeHTML(verbFor(type))}</span>` +

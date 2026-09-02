@@ -7,7 +7,8 @@
        the DOM and parse it.
     2. Hand the parsed payload to initialFrame() to build the head
        Frame.
-    3. Construct a ReplayBuffer wired to fetch /events?since=X&limit=N.
+    3. Construct a ReplayBuffer wired to fetch
+       /events?since=<position>&limit=N.
     4. Stash the buffer at window.JobsScrubber so the pill UI and
        timeline can grab it without a circular import.
 
@@ -19,6 +20,7 @@
 */
 
 import { initialFrame, ReplayBuffer } from "./replay.mjs";
+import { isPosition } from "./position.mjs";
 
 // parseInitialFrameJSON parses the island payload. Returns null on
 // missing / empty / malformed input so the caller can decide whether
@@ -43,7 +45,7 @@ export function readInitialFrameFromDOM(doc) {
 }
 
 // buildEventsFetcher returns the async ({ since, limit }) -> Event[]
-// function ReplayBuffer expects. The fetcher hits /events?since=X&
+// function ReplayBuffer expects. The fetcher hits /events?since=<position>&
 // limit=N (the server's stable JSON replay mode). Inject a custom
 // fetch in tests; production gets the global.
 export function buildEventsFetcher({ baseURL = "/events", fetch: fetchImpl } = {}) {
@@ -51,7 +53,7 @@ export function buildEventsFetcher({ baseURL = "/events", fetch: fetchImpl } = {
   if (typeof f !== "function") {
     throw new Error("buildEventsFetcher: no fetch available");
   }
-  return async ({ since = 0, limit = 500 } = {}) => {
+  return async ({ since = null, limit = 500 } = {}) => {
     // Use a relative URL when baseURL is path-only, an absolute URL
     // otherwise. URL constructor needs a base for relatives, but we
     // don't always have document.baseURI in node tests.
@@ -59,7 +61,8 @@ export function buildEventsFetcher({ baseURL = "/events", fetch: fetchImpl } = {
     const url = isAbsolute
       ? new URL(baseURL)
       : new URL(baseURL, "http://placeholder.invalid/");
-    if (since > 0) url.searchParams.set("since", String(since));
+    // ?since= is a log position; absent means "from the beginning".
+    if (isPosition(since)) url.searchParams.set("since", since);
     url.searchParams.set("limit", String(limit));
     const target = isAbsolute ? url.toString() : url.pathname + url.search;
     const res = await f(target);

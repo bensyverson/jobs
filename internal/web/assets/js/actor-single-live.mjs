@@ -69,18 +69,17 @@ function init() {
 
   const seen = new Set();
   if (list) {
-    list.querySelectorAll("[data-event-id]").forEach((el) => {
-      seen.add(el.getAttribute("data-event-id"));
+    list.querySelectorAll("[data-event-position]").forEach((el) => {
+      seen.add(el.getAttribute("data-event-position"));
     });
   }
 
   live.addEventListener("event", (ev) => {
     const data = ev.detail;
-    if (!data || data.id == null) return;
+    if (!data || !data.position) return;
 
-    const idStr = String(data.id);
-    if (seen.has(idStr)) return;
-    seen.add(idStr);
+    if (seen.has(data.position)) return;
+    seen.add(data.position);
 
     if (list) prependRow(list, data);
     if (timeline) addMark(timeline, data);

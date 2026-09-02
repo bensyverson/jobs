@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bensyverson/jobs/internal/eventlog"
 	job "github.com/bensyverson/jobs/internal/job"
 	"github.com/bensyverson/jobs/internal/web/render"
 	"github.com/bensyverson/jobs/internal/web/templates"
@@ -24,19 +25,27 @@ type LogFilters struct {
 	Label string
 	Type  string
 	Since time.Time // zero means "no since floor"
-	// Before is an event-id cursor: only events with id < Before are
-	// returned. Zero means "no cursor"; pagination starts from the
-	// newest event.
-	Before int64
+	// Before is the "load older" cursor: only events strictly before this
+	// log position are returned. The zero Position means "no cursor";
+	// pagination starts from the newest event.
+	Before eventlog.Position
 	// Limit caps the number of rows returned. <=0 means "use the
 	// default" (defaultLogLimit).
 	Limit int
-	// At is the time-travel upper bound: only events with id <= At are
-	// included. Zero means "no upper bound" (live). Set together with
-	// AtInvalid so callers can distinguish "absent" from "malformed."
-	At        int64
+	// At is the time-travel upper bound: only events at or before this log
+	// position are included. The zero Position means "no upper bound"
+	// (live). Set together with AtInvalid so callers can distinguish
+	// "absent" from "malformed."
+	//
+	// A log position rather than a row id because a rebuild renumbers row
+	// ids: a bookmarked ?at= would silently land on a different event
+	// after any pull.
+	At        eventlog.Position
 	AtInvalid bool
 }
+
+// Live reports whether f has no time-travel upper bound.
+func (f LogFilters) Live() bool { return f.At == (eventlog.Position{}) }
 
 // LogChip is one clickable chip in the log-view filter bar. HRef is a
 // fully-formed query string so the template can emit <a href=…>.
@@ -55,11 +64,13 @@ type LogChip struct {
 // this once on the server side keeps the template simple and pushes
 // id-formatting / time-formatting into Go where it belongs.
 type LogEventRow struct {
-	// EventID is the event's numeric id. Rendered on the row as
-	// data-event-id so the live-tail script can dedup incoming SSE
-	// frames against the server-rendered set (prevents double-render
-	// when the backfill window overlaps SSR output).
-	EventID   int64
+	// EventID is the event's cache row id, rendered on the row as
+	// data-event-id. It is a DOM key and nothing else — a rebuild
+	// renumbers it, so no cursor is derived from it.
+	EventID int64
+	// Position is the event's log position, the cursor the "load older"
+	// link and the scrubber address it by.
+	Position  eventlog.Position
 	ShortID   string
 	Actor     string
 	EventType string
@@ -126,7 +137,7 @@ type LogPageData struct {
 	// HasMore is true when there are older events beyond what was
 	// rendered. Drives the "Load older" affordance at the bottom.
 	HasMore bool
-	// MoreURL is /log?…&before=<oldestEventID>, preserving every
+	// MoreURL is /log?…&before=<oldest position>, preserving every
 	// other filter so the next page lands on the same view.
 	MoreURL string
 }
@@ -157,7 +168,7 @@ func Log(deps Deps) http.Handler {
 		if filters.AtInvalid {
 			RenderError(deps, w, http.StatusBadRequest,
 				"Bad request",
-				"?at must be a positive integer event id.")
+				"?at must be a log position, as the scrubber writes it (<ts>-<replica>-<seq>).")
 			return
 		}
 
@@ -211,7 +222,7 @@ func Log(deps Deps) http.Handler {
 			EmptyText:   logEmptyText(filters, rg),
 		}
 		if hasMore && len(events) > 0 {
-			data.MoreURL = moreURL(chips, events[len(events)-1].EventID)
+			data.MoreURL = moreURL(chips, events[len(events)-1].Position)
 		}
 		renderPage(deps, w, "log", data)
 	})
@@ -241,8 +252,8 @@ func ParseLogFilters(q url.Values) LogFilters {
 		}
 	}
 	if raw := q.Get("before"); raw != "" {
-		if id, err := strconv.ParseInt(raw, 10, 64); err == nil && id > 0 {
-			f.Before = id
+		if p, err := eventlog.ParsePosition(raw); err == nil {
+			f.Before = p
 		}
 	}
 	if raw := q.Get("limit"); raw != "" {
@@ -259,16 +270,16 @@ func ParseLogFilters(q url.Values) LogFilters {
 // Present-but-unparseable, zero, or negative → (0, true) ("invalid")
 // so handlers can 400 rather than silently render a different page.
 // Shared by /log and /actors.
-func parseAtParam(q url.Values) (at int64, invalid bool) {
+func parseAtParam(q url.Values) (at eventlog.Position, invalid bool) {
 	raw := q.Get("at")
 	if raw == "" {
-		return 0, false
+		return eventlog.Position{}, false
 	}
-	id, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || id <= 0 {
-		return 0, true
+	p, err := eventlog.ParsePosition(raw)
+	if err != nil {
+		return eventlog.Position{}, true
 	}
-	return id, false
+	return p, false
 }
 
 // loadLogEvents fetches events scoped to the task filter (or globally
@@ -295,10 +306,10 @@ func loadLogEvents(db *sql.DB, f LogFilters, rg Range) (rows []LogEventRow, tota
 	// over the same rows keeps the whole window in one place. Paging
 	// (Before/Limit, below) then runs inside the window, so "load
 	// older" walks back to the cutoff and stops.
-	if f.At > 0 || rg.Bounded() {
+	if !f.Live() || rg.Bounded() {
 		clamped := raw[:0]
 		for _, e := range raw {
-			if f.At > 0 && e.ID > f.At {
+			if !f.Live() && e.Position().Compare(f.At) > 0 {
 				continue
 			}
 			if !rg.Includes(e.CreatedAt) {
@@ -337,21 +348,18 @@ func loadLogEvents(db *sql.DB, f LogFilters, rg Range) (rows []LogEventRow, tota
 		if labelTaskIDs != nil && !labelTaskIDs[e.TaskID] {
 			continue
 		}
-		if f.Before > 0 && e.ID >= f.Before {
+		if f.Before != (eventlog.Position{}) && e.Position().Compare(f.Before) >= 0 {
 			continue
 		}
 		filtered = append(filtered, e)
 	}
 
-	// Reverse-chrono (newest first) for display; DB returns ascending
-	// by created_at. Tiebreak on event id descending so events sharing
-	// a timestamp (common for batched test fixtures and rapid CLI
-	// activity) are still ordered deterministically newest-first.
+	// Reverse-chrono (newest first) for display; the DB returns ascending
+	// by log position. Reversing that order is the whole sort — the
+	// position is total and, unlike created_at plus a row id, it does not
+	// change under a rebuild.
 	sort.SliceStable(filtered, func(i, j int) bool {
-		if filtered[i].CreatedAt != filtered[j].CreatedAt {
-			return filtered[i].CreatedAt > filtered[j].CreatedAt
-		}
-		return filtered[i].ID > filtered[j].ID
+		return filtered[i].Position().Compare(filtered[j].Position()) > 0
 	})
 
 	// Pagination: cap to limit (defaultLogLimit if unset). hasMore
@@ -404,6 +412,7 @@ func buildLogEventRow(e job.EventEntry, title string, now time.Time) LogEventRow
 	ts := time.Unix(e.CreatedAt, 0)
 	row := LogEventRow{
 		EventID:   e.ID,
+		Position:  e.Position(),
 		ShortID:   e.ShortID,
 		Actor:     e.Actor,
 		EventType: e.EventType,

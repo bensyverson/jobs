@@ -19,14 +19,22 @@ import {
   FrameCache,
   ReplayBuffer,
 } from "../assets/js/replay.mjs";
+import { comparePositions } from "../assets/js/position.mjs";
 
 // --- helpers ---
 
+// POS encodes a synthetic cursor for sequence number n. One replica, one
+// millisecond: these tests care about order, and seq alone gives it.
+function POS(n) {
+  return `1000-aaaaaa-${n}`;
+}
+
 // Minimal initial frame factory for tests. Lets each test name only
 // the slots it cares about; everything else defaults to empty.
-function emptyFrame(eventId = 0) {
+function emptyFrame(ordinal = 0) {
   return initialFrame({
-    headEventId: eventId,
+    headPosition: ordinal > 0 ? POS(ordinal) : "",
+    eventCount: ordinal,
     tasks: [],
     blocks: [],
     claims: [],
@@ -38,7 +46,8 @@ function emptyFrame(eventId = 0) {
 // in some edge cases — converting to plain objects is robust.
 function normalize(frame) {
   return {
-    eventId: frame.eventId,
+    position: frame.position,
+    ordinal: frame.ordinal,
     tasks: Object.fromEntries(
       [...frame.tasks].map(([k, v]) => [
         k,
@@ -60,12 +69,14 @@ function assertFramesEqual(actual, expected, msg) {
 
 test("initialFrame: empty payload produces an empty frame", () => {
   const f = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [],
     blocks: [],
     claims: [],
   });
-  assert.equal(f.eventId, 0);
+  assert.equal(f.position, null);
+  assert.equal(f.ordinal, 0);
   assert.equal(f.tasks.size, 0);
   assert.equal(f.blocks.size, 0);
   assert.equal(f.claims.size, 0);
@@ -73,7 +84,8 @@ test("initialFrame: empty payload produces an empty frame", () => {
 
 test("initialFrame: hydrates tasks, blocks, claims from the JSON island", () => {
   const f = initialFrame({
-    headEventId: 42,
+    headPosition: POS(42),
+    eventCount: 42,
     tasks: [
       {
         shortId: "ABC12",
@@ -89,7 +101,8 @@ test("initialFrame: hydrates tasks, blocks, claims from the JSON island", () => 
     claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 1000 }],
   });
 
-  assert.equal(f.eventId, 42);
+  assert.equal(f.position, POS(42));
+  assert.equal(f.ordinal, 42);
   assert.equal(f.tasks.size, 1);
   const t = f.tasks.get("ABC12");
   assert.equal(t.title, "Task A");
@@ -107,6 +120,7 @@ test("applyEvent created: inserts task with title/desc/parent/sortKey", () => {
   const before = emptyFrame(0);
   const event = {
     id: 1,
+    position: POS(1),
     task_id: "ABC12",
     actor: "alice",
     event_type: "created",
@@ -125,18 +139,21 @@ test("applyEvent created: inserts task with title/desc/parent/sortKey", () => {
   assert.equal(t.parentShortId, null);
   assert.equal(t.sortKey, "000005");
   assert.equal(t.status, "available");
-  assert.equal(after.eventId, 1);
+  assert.equal(after.position, POS(1));
+  assert.equal(after.ordinal, 1);
 });
 
 test("applyEvent claimed: sets claim with expires_at; status -> claimed", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });
   const after = applyEvent(before, {
     id: 2,
+    position: POS(2),
     task_id: "ABC12",
     actor: "alice",
     event_type: "claimed",
@@ -152,13 +169,15 @@ test("applyEvent claimed: sets claim with expires_at; status -> claimed", () => 
 
 test("applyEvent released: clears claim; status -> available", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
     blocks: [],
     claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 1500 }],
   });
   const after = applyEvent(before, {
     id: 3,
+    position: POS(3),
     task_id: "ABC12",
     actor: "alice",
     event_type: "released",
@@ -171,13 +190,15 @@ test("applyEvent released: clears claim; status -> available", () => {
 
 test("applyEvent done: status -> done; clears any claim", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
     blocks: [],
     claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 1500 }],
   });
   const after = applyEvent(before, {
     id: 4,
+    position: POS(4),
     task_id: "ABC12",
     actor: "alice",
     event_type: "done",
@@ -195,13 +216,15 @@ test("applyEvent done: status -> done; clears any claim", () => {
 
 test("applyEvent canceled: status -> canceled; clears any claim", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
     blocks: [],
     claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 1500 }],
   });
   const after = applyEvent(before, {
     id: 5,
+    position: POS(5),
     task_id: "ABC12",
     actor: "alice",
     event_type: "canceled",
@@ -219,13 +242,15 @@ test("applyEvent canceled: status -> canceled; clears any claim", () => {
 
 test("applyEvent reopened: status -> available", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [{ shortId: "ABC12", title: "T", status: "done", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });
   const after = applyEvent(before, {
     id: 6,
+    position: POS(6),
     task_id: "ABC12",
     actor: "alice",
     event_type: "reopened",
@@ -237,7 +262,8 @@ test("applyEvent reopened: status -> available", () => {
 
 test("applyEvent blocked: adds edge to blocks map", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       { shortId: "ABC12", title: "T", status: "available", sortKey: "000000" },
       { shortId: "XYZ99", title: "B", status: "available", sortKey: "000000" },
@@ -247,6 +273,7 @@ test("applyEvent blocked: adds edge to blocks map", () => {
   });
   const after = applyEvent(before, {
     id: 7,
+    position: POS(7),
     task_id: "ABC12",
     actor: "alice",
     event_type: "blocked",
@@ -258,7 +285,8 @@ test("applyEvent blocked: adds edge to blocks map", () => {
 
 test("applyEvent unblocked: removes edge from blocks map", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       { shortId: "ABC12", title: "T", status: "available", sortKey: "000000" },
       { shortId: "XYZ99", title: "B", status: "available", sortKey: "000000" },
@@ -268,6 +296,7 @@ test("applyEvent unblocked: removes edge from blocks map", () => {
   });
   const after = applyEvent(before, {
     id: 8,
+    position: POS(8),
     task_id: "ABC12",
     actor: "alice",
     event_type: "unblocked",
@@ -279,7 +308,8 @@ test("applyEvent unblocked: removes edge from blocks map", () => {
 
 test("applyEvent labeled: adds names; existing labels untouched", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       {
         shortId: "ABC12",
@@ -294,6 +324,7 @@ test("applyEvent labeled: adds names; existing labels untouched", () => {
   });
   const after = applyEvent(before, {
     id: 9,
+    position: POS(9),
     task_id: "ABC12",
     actor: "alice",
     event_type: "labeled",
@@ -308,7 +339,8 @@ test("applyEvent labeled: adds names; existing labels untouched", () => {
 
 test("applyEvent edited: updates title and/or description", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       {
         shortId: "ABC12",
@@ -323,6 +355,7 @@ test("applyEvent edited: updates title and/or description", () => {
   });
   const after = applyEvent(before, {
     id: 10,
+    position: POS(10),
     task_id: "ABC12",
     actor: "alice",
     event_type: "edited",
@@ -341,7 +374,8 @@ test("applyEvent edited: updates title and/or description", () => {
 
 test("applyEvent moved: updates sortKey", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       { shortId: "ABC12", title: "T", status: "available", sortKey: "000005" },
     ],
@@ -350,6 +384,7 @@ test("applyEvent moved: updates sortKey", () => {
   });
   const after = applyEvent(before, {
     id: 11,
+    position: POS(11),
     task_id: "ABC12",
     actor: "alice",
     event_type: "moved",
@@ -366,7 +401,8 @@ test("applyEvent moved: updates sortKey", () => {
 
 test("applyEvent noted: replaces description with description_after", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       {
         shortId: "ABC12",
@@ -381,6 +417,7 @@ test("applyEvent noted: replaces description with description_after", () => {
   });
   const after = applyEvent(before, {
     id: 12,
+    position: POS(12),
     task_id: "ABC12",
     actor: "alice",
     event_type: "noted",
@@ -395,7 +432,8 @@ test("applyEvent noted: replaces description with description_after", () => {
 
 test("applyEvent noted: appends a note to task.notes", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       {
         shortId: "ABC12",
@@ -410,6 +448,7 @@ test("applyEvent noted: appends a note to task.notes", () => {
   });
   const event = {
     id: 20,
+    position: POS(20),
     task_id: "ABC12",
     actor: "alice",
     created_at: 1700000000,
@@ -424,7 +463,8 @@ test("applyEvent noted: appends a note to task.notes", () => {
 
 test("applyEvent noted: appends in chronological order across multiple events", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       {
         shortId: "ABC12",
@@ -439,6 +479,7 @@ test("applyEvent noted: appends in chronological order across multiple events", 
   });
   const f1 = applyEvent(before, {
     id: 21,
+    position: POS(21),
     task_id: "ABC12",
     actor: "alice",
     created_at: 1700000000,
@@ -447,6 +488,7 @@ test("applyEvent noted: appends in chronological order across multiple events", 
   });
   const f2 = applyEvent(f1, {
     id: 22,
+    position: POS(22),
     task_id: "ABC12",
     actor: "bob",
     created_at: 1700000060,
@@ -464,7 +506,8 @@ test("applyEvent noted: appends in chronological order across multiple events", 
 
 test("applyEvent noted: missing detail.text is skipped (no empty notes)", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       {
         shortId: "ABC12",
@@ -479,6 +522,7 @@ test("applyEvent noted: missing detail.text is skipped (no empty notes)", () => 
   });
   const after = applyEvent(before, {
     id: 23,
+    position: POS(23),
     task_id: "ABC12",
     actor: "alice",
     created_at: 1700000000,
@@ -490,7 +534,8 @@ test("applyEvent noted: missing detail.text is skipped (no empty notes)", () => 
 
 test("initialFrame: hydrates per-task notes from the JSON island", () => {
   const f = initialFrame({
-    headEventId: 5,
+    headPosition: POS(5),
+    eventCount: 5,
     tasks: [
       {
         shortId: "ABC12",
@@ -515,7 +560,8 @@ test("initialFrame: hydrates per-task notes from the JSON island", () => {
 
 test("initialFrame: missing notes defaults to []", () => {
   const f = initialFrame({
-    headEventId: 5,
+    headPosition: POS(5),
+    eventCount: 5,
     tasks: [
       { shortId: "ABC12", title: "T", description: "", status: "available", sortKey: "000000" },
     ],
@@ -529,7 +575,8 @@ test("applyEvent noted: does not mutate the prior frame's notes array", () => {
   // Cloning isolation: pushing to the new frame's notes array must
   // not retroactively mutate the prior frame the cache may still hold.
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       {
         shortId: "ABC12",
@@ -545,6 +592,7 @@ test("applyEvent noted: does not mutate the prior frame's notes array", () => {
   });
   const after = applyEvent(before, {
     id: 30,
+    position: POS(30),
     task_id: "ABC12",
     actor: "bob",
     created_at: 1700000060,
@@ -559,7 +607,8 @@ test("applyEvent noted: does not mutate the prior frame's notes array", () => {
 
 test("initialFrame: hydrates per-task criteria from the JSON island", () => {
   const f = initialFrame({
-    headEventId: 5,
+    headPosition: POS(5),
+    eventCount: 5,
     tasks: [
       {
         shortId: "ABC12",
@@ -583,7 +632,8 @@ test("initialFrame: hydrates per-task criteria from the JSON island", () => {
 
 test("initialFrame: missing criteria defaults to []", () => {
   const f = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       { shortId: "ABC12", title: "T", status: "available", sortKey: "000000" },
     ],
@@ -595,7 +645,8 @@ test("initialFrame: missing criteria defaults to []", () => {
 
 test("applyEvent criteria_added: appends each entry in input order", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       {
         shortId: "ABC12",
@@ -610,6 +661,7 @@ test("applyEvent criteria_added: appends each entry in input order", () => {
   });
   const after = applyEvent(before, {
     id: 20,
+    position: POS(20),
     task_id: "ABC12",
     actor: "alice",
     event_type: "criteria_added",
@@ -632,7 +684,8 @@ test("applyEvent criteria_added: appends each entry in input order", () => {
 
 test("applyEvent criterion_state: mutates the matching row by label", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       {
         shortId: "ABC12",
@@ -650,6 +703,7 @@ test("applyEvent criterion_state: mutates the matching row by label", () => {
   });
   const after = applyEvent(before, {
     id: 21,
+    position: POS(21),
     task_id: "ABC12",
     actor: "alice",
     event_type: "criterion_state",
@@ -666,13 +720,15 @@ test("applyEvent criterion_state: mutates the matching row by label", () => {
 
 test("applyEvent criteria_added: stamps short_id when provided", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });
   const after = applyEvent(before, {
     id: 25,
+    position: POS(25),
     task_id: "ABC12",
     actor: "alice",
     event_type: "criteria_added",
@@ -691,7 +747,8 @@ test("applyEvent criteria_added: stamps short_id when provided", () => {
 
 test("applyEvent criterion_state: matches by short_id when present", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       {
         shortId: "ABC12",
@@ -711,6 +768,7 @@ test("applyEvent criterion_state: matches by short_id when present", () => {
   // short_id-keyed matching still hits the right row.
   const after = applyEvent(before, {
     id: 26,
+    position: POS(26),
     task_id: "ABC12",
     actor: "alice",
     event_type: "criterion_state",
@@ -729,7 +787,8 @@ test("applyEvent criterion_state: legacy label-keyed event still folds", () => {
   // Pre-migration events have no short_id on the detail; they must keep
   // working via label fallback or the existing event log breaks.
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       {
         shortId: "ABC12",
@@ -744,6 +803,7 @@ test("applyEvent criterion_state: legacy label-keyed event still folds", () => {
   });
   const after = applyEvent(before, {
     id: 27,
+    position: POS(27),
     task_id: "ABC12",
     actor: "alice",
     event_type: "criterion_state",
@@ -754,7 +814,8 @@ test("applyEvent criterion_state: legacy label-keyed event still folds", () => {
 
 test("applyEvent criterion_state: unknown label is a no-op", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [
       {
         shortId: "ABC12",
@@ -769,6 +830,7 @@ test("applyEvent criterion_state: unknown label is a no-op", () => {
   });
   const after = applyEvent(before, {
     id: 22,
+    position: POS(22),
     task_id: "ABC12",
     actor: "alice",
     event_type: "criterion_state",
@@ -781,13 +843,15 @@ test("applyEvent criterion_state: unknown label is a no-op", () => {
 
 test("applyEvent claim_expired: clears claim; status -> available", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
     blocks: [],
     claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 500 }],
   });
   const after = applyEvent(before, {
     id: 13,
+    position: POS(13),
     task_id: "ABC12",
     actor: "Jobs",
     event_type: "claim_expired",
@@ -810,6 +874,7 @@ const roundTripCases = [
     seed: () => emptyFrame(0),
     event: {
       id: 1,
+      position: POS(1),
       task_id: "ABC12",
       actor: "alice",
       event_type: "created",
@@ -824,13 +889,15 @@ const roundTripCases = [
   {
     name: "claimed (fresh)",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000" }],
       blocks: [],
       claims: [],
     }),
     event: {
       id: 2,
+      position: POS(2),
       task_id: "ABC12",
       actor: "alice",
       event_type: "claimed",
@@ -840,13 +907,15 @@ const roundTripCases = [
   {
     name: "claimed (--force override)",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
       blocks: [],
       claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 800 }],
     }),
     event: {
       id: 3,
+      position: POS(3),
       task_id: "ABC12",
       actor: "bob",
       event_type: "claimed",
@@ -861,13 +930,15 @@ const roundTripCases = [
   {
     name: "released (post-breadcrumb)",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
       blocks: [],
       claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 1500 }],
     }),
     event: {
       id: 4,
+      position: POS(4),
       task_id: "ABC12",
       actor: "alice",
       event_type: "released",
@@ -877,13 +948,15 @@ const roundTripCases = [
   {
     name: "done (was claimed)",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
       blocks: [],
       claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 1500 }],
     }),
     event: {
       id: 5,
+      position: POS(5),
       task_id: "ABC12",
       actor: "alice",
       event_type: "done",
@@ -898,13 +971,15 @@ const roundTripCases = [
   {
     name: "done (was available)",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000" }],
       blocks: [],
       claims: [],
     }),
     event: {
       id: 6,
+      position: POS(6),
       task_id: "ABC12",
       actor: "alice",
       event_type: "done",
@@ -914,13 +989,15 @@ const roundTripCases = [
   {
     name: "canceled (was claimed)",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
       blocks: [],
       claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 1500 }],
     }),
     event: {
       id: 7,
+      position: POS(7),
       task_id: "ABC12",
       actor: "alice",
       event_type: "canceled",
@@ -936,13 +1013,15 @@ const roundTripCases = [
   {
     name: "claim_expired",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [{ shortId: "ABC12", title: "T", status: "claimed", sortKey: "000000" }],
       blocks: [],
       claims: [{ shortId: "ABC12", claimedBy: "alice", expiresAt: 500 }],
     }),
     event: {
       id: 8,
+      position: POS(8),
       task_id: "ABC12",
       actor: "Jobs",
       event_type: "claim_expired",
@@ -952,13 +1031,15 @@ const roundTripCases = [
   {
     name: "reopened (from done)",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [{ shortId: "ABC12", title: "T", status: "done", sortKey: "000000" }],
       blocks: [],
       claims: [],
     }),
     event: {
       id: 9,
+      position: POS(9),
       task_id: "ABC12",
       actor: "alice",
       event_type: "reopened",
@@ -968,7 +1049,8 @@ const roundTripCases = [
   {
     name: "blocked",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [
         { shortId: "ABC12", title: "T", status: "available", sortKey: "000000" },
         { shortId: "XYZ99", title: "B", status: "available", sortKey: "000000" },
@@ -978,6 +1060,7 @@ const roundTripCases = [
     }),
     event: {
       id: 10,
+      position: POS(10),
       task_id: "ABC12",
       actor: "alice",
       event_type: "blocked",
@@ -987,7 +1070,8 @@ const roundTripCases = [
   {
     name: "unblocked",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [
         { shortId: "ABC12", title: "T", status: "available", sortKey: "000000" },
         { shortId: "XYZ99", title: "B", status: "available", sortKey: "000000" },
@@ -997,6 +1081,7 @@ const roundTripCases = [
     }),
     event: {
       id: 11,
+      position: POS(11),
       task_id: "ABC12",
       actor: "alice",
       event_type: "unblocked",
@@ -1010,7 +1095,8 @@ const roundTripCases = [
   {
     name: "labeled",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [
         {
           shortId: "ABC12",
@@ -1025,6 +1111,7 @@ const roundTripCases = [
     }),
     event: {
       id: 12,
+      position: POS(12),
       task_id: "ABC12",
       actor: "alice",
       event_type: "labeled",
@@ -1034,7 +1121,8 @@ const roundTripCases = [
   {
     name: "edited",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [
         {
           shortId: "ABC12",
@@ -1049,6 +1137,7 @@ const roundTripCases = [
     }),
     event: {
       id: 13,
+      position: POS(13),
       task_id: "ABC12",
       actor: "alice",
       event_type: "edited",
@@ -1063,7 +1152,8 @@ const roundTripCases = [
   {
     name: "moved",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [
         { shortId: "ABC12", title: "T", status: "available", sortKey: "000005" },
       ],
@@ -1072,6 +1162,7 @@ const roundTripCases = [
     }),
     event: {
       id: 14,
+      position: POS(14),
       task_id: "ABC12",
       actor: "alice",
       event_type: "moved",
@@ -1086,7 +1177,8 @@ const roundTripCases = [
   {
     name: "criteria_added",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [
         {
           shortId: "ABC12",
@@ -1101,6 +1193,7 @@ const roundTripCases = [
     }),
     event: {
       id: 15,
+      position: POS(15),
       task_id: "ABC12",
       actor: "alice",
       event_type: "criteria_added",
@@ -1115,7 +1208,8 @@ const roundTripCases = [
   {
     name: "criterion_state",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [
         {
           shortId: "ABC12",
@@ -1133,6 +1227,7 @@ const roundTripCases = [
     }),
     event: {
       id: 16,
+      position: POS(16),
       task_id: "ABC12",
       actor: "alice",
       event_type: "criterion_state",
@@ -1142,13 +1237,15 @@ const roundTripCases = [
   {
     name: "kind_changed",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortKey: "000000", kind: "task" }],
       blocks: [],
       claims: [],
     }),
     event: {
       id: 17,
+      position: POS(17),
       task_id: "ROOT1",
       actor: "alice",
       event_type: "kind_changed",
@@ -1158,13 +1255,15 @@ const roundTripCases = [
   {
     name: "found_in_set (first edge)",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000" }],
       blocks: [],
       claims: [],
     }),
     event: {
       id: 18,
+      position: POS(18),
       task_id: "ABC12",
       actor: "alice",
       event_type: "found_in_set",
@@ -1174,13 +1273,15 @@ const roundTripCases = [
   {
     name: "found_in_set (replacing an edge)",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000", foundIn: "OLD11" }],
       blocks: [],
       claims: [],
     }),
     event: {
       id: 19,
+      position: POS(19),
       task_id: "ABC12",
       actor: "alice",
       event_type: "found_in_set",
@@ -1190,13 +1291,15 @@ const roundTripCases = [
   {
     name: "found_in_cleared",
     seed: () => initialFrame({
-      headEventId: 0,
+      headPosition: "",
+    eventCount: 0,
       tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000", foundIn: "SRC99" }],
       blocks: [],
       claims: [],
     }),
     event: {
       id: 20,
+      position: POS(20),
       task_id: "ABC12",
       actor: "alice",
       event_type: "found_in_cleared",
@@ -1208,10 +1311,11 @@ const roundTripCases = [
 for (const tc of roundTripCases) {
   test(`reverseEvent ${tc.name}: forward then reverse returns identity`, () => {
     const seed = tc.seed();
-    // Round-trip semantics: forward(event with id=X) takes a frame at
-    // event id X-1 to one at X; reverse(event id X) goes back. Align
-    // the seed's cursor so the reverse lands on the same eventId.
-    seed.eventId = tc.event.id - 1;
+    // Round-trip semantics: forward takes a frame one step later,
+    // reverse takes it back. Align the seed's ordinal so the reverse
+    // lands on it, and drop the cursor the buffer would have refilled.
+    seed.ordinal = tc.event.id - 1;
+    seed.position = null;
     const forwarded = applyEvent(seed, tc.event);
     const reversed = reverseEvent(forwarded, tc.event);
     assert.notEqual(reversed, null, "reverse should not be null for breadcrumb-bearing events");
@@ -1223,13 +1327,15 @@ for (const tc of roundTripCases) {
 
 test("reverseEvent done without was_status: returns null (caller falls back)", () => {
   const seed = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [{ shortId: "ABC12", title: "T", status: "done", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });
   const event = {
     id: 100,
+    position: POS(100),
     task_id: "ABC12",
     actor: "alice",
     event_type: "done",
@@ -1240,13 +1346,15 @@ test("reverseEvent done without was_status: returns null (caller falls back)", (
 
 test("reverseEvent released without was_claimed_by: returns null", () => {
   const seed = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });
   const event = {
     id: 101,
+    position: POS(101),
     task_id: "ABC12",
     actor: "alice",
     event_type: "released",
@@ -1263,11 +1371,11 @@ test("FrameCache: nearestAtOrBefore returns the largest frame <= target", () => 
   cache.set(emptyFrame(50));
   cache.set(emptyFrame(150));
 
-  assert.equal(cache.nearestAtOrBefore(0).eventId, 0);
-  assert.equal(cache.nearestAtOrBefore(49).eventId, 0);
-  assert.equal(cache.nearestAtOrBefore(50).eventId, 50);
-  assert.equal(cache.nearestAtOrBefore(149).eventId, 50);
-  assert.equal(cache.nearestAtOrBefore(999).eventId, 150);
+  assert.equal(cache.nearestAtOrBefore(0).ordinal, 0);
+  assert.equal(cache.nearestAtOrBefore(49).ordinal, 0);
+  assert.equal(cache.nearestAtOrBefore(50).ordinal, 50);
+  assert.equal(cache.nearestAtOrBefore(149).ordinal, 50);
+  assert.equal(cache.nearestAtOrBefore(999).ordinal, 150);
 });
 
 test("FrameCache: nearestAtOrAfter returns the smallest frame >= target", () => {
@@ -1275,10 +1383,10 @@ test("FrameCache: nearestAtOrAfter returns the smallest frame >= target", () => 
   cache.set(emptyFrame(50));
   cache.set(emptyFrame(150));
 
-  assert.equal(cache.nearestAtOrAfter(0).eventId, 50);
-  assert.equal(cache.nearestAtOrAfter(50).eventId, 50);
-  assert.equal(cache.nearestAtOrAfter(51).eventId, 150);
-  assert.equal(cache.nearestAtOrAfter(150).eventId, 150);
+  assert.equal(cache.nearestAtOrAfter(0).ordinal, 50);
+  assert.equal(cache.nearestAtOrAfter(50).ordinal, 50);
+  assert.equal(cache.nearestAtOrAfter(51).ordinal, 150);
+  assert.equal(cache.nearestAtOrAfter(150).ordinal, 150);
   assert.equal(cache.nearestAtOrAfter(151), null);
 });
 
@@ -1312,9 +1420,9 @@ test("FrameCache: shouldSnapshot fires every snapshotEvery events from anchor", 
 // shape ReplayBuffer expects.
 function buildEventLog(steps) {
   const events = [];
-  let frame = initialFrame({ headEventId: 0, tasks: [], blocks: [], claims: [] });
+  let frame = initialFrame({ headPosition: "", eventCount: 0, tasks: [], blocks: [], claims: [] });
   for (const [i, step] of steps.entries()) {
-    const event = { id: i + 1, ...step };
+    const event = { id: i + 1, position: POS(i + 1), ...step };
     events.push(event);
     frame = applyEvent(frame, event);
   }
@@ -1322,17 +1430,17 @@ function buildEventLog(steps) {
 }
 
 // A fake fetcher that serves events from an in-memory log. Models the
-// /events?since=X&limit=N contract: returns events with id > since,
-// up to limit rows. Records calls so tests can assert prefetch /
+// /events?since=<position>&limit=N contract: returns events after the
+// cursor, up to limit rows. Records calls so tests can assert prefetch /
 // caching behavior.
 function fakeFetcher(events) {
   const calls = [];
   return {
     calls,
-    async fetchEvents({ since = 0, limit = 500 } = {}) {
+    async fetchEvents({ since = null, limit = 500 } = {}) {
       calls.push({ since, limit });
       return events
-        .filter((e) => e.id > since)
+        .filter((e) => comparePositions(e.position, since) > 0)
         .slice(0, limit);
     },
   };
@@ -1353,12 +1461,12 @@ test("ReplayBuffer: frameAt(head) returns the head frame without fetching", asyn
     fetchEvents: fetcher.fetchEvents,
   });
 
-  const got = await buf.frameAt(headFrame.eventId);
-  assert.equal(got.eventId, headFrame.eventId);
+  const got = await buf.frameAt(headFrame.position);
+  assert.equal(got.position, headFrame.position);
   assert.equal(fetcher.calls.length, 0, "head lookup must not hit the fetcher");
 });
 
-test("ReplayBuffer: frameAt(earlier id) replays back from head", async () => {
+test("ReplayBuffer: frameAt(an earlier cursor) replays back from head", async () => {
   const { events, headFrame } = buildEventLog([
     {
       task_id: "ABC12",
@@ -1386,8 +1494,8 @@ test("ReplayBuffer: frameAt(earlier id) replays back from head", async () => {
   });
 
   // At event id 2, alice still holds the claim (released hasn't fired).
-  const got = await buf.frameAt(2);
-  assert.equal(got.eventId, 2);
+  const got = await buf.frameAt(POS(2));
+  assert.equal(got.position, POS(2));
   assert.equal(got.tasks.get("ABC12").status, "claimed");
   assert.equal(got.claims.has("ABC12"), true);
 });
@@ -1413,13 +1521,13 @@ test("ReplayBuffer: frameAt is memoized — repeated calls reuse the cache", asy
     fetchEvents: fetcher.fetchEvents,
   });
 
-  await buf.frameAt(1);
+  await buf.frameAt(POS(1));
   const callsAfterFirst = fetcher.calls.length;
-  await buf.frameAt(1);
+  await buf.frameAt(POS(1));
   assert.equal(fetcher.calls.length, callsAfterFirst, "repeated frameAt must not refetch");
 });
 
-test("ReplayBuffer: range returns events in [fromId, toId] inclusive", async () => {
+test("ReplayBuffer: range returns events in [from, to] inclusive", async () => {
   const { events, headFrame } = buildEventLog([
     {
       task_id: "A",
@@ -1446,10 +1554,10 @@ test("ReplayBuffer: range returns events in [fromId, toId] inclusive", async () 
     fetchEvents: fetcher.fetchEvents,
   });
 
-  const range = await buf.range(2, 3);
+  const range = await buf.range(POS(2), POS(3));
   assert.deepStrictEqual(
-    range.map((e) => e.id),
-    [2, 3],
+    range.map((e) => e.position),
+    [POS(2), POS(3)],
   );
 });
 
@@ -1459,8 +1567,8 @@ test("ReplayBuffer: range returns events in [fromId, toId] inclusive", async () 
 // the genesis frame, navigating past head, empty range queries, and
 // the reverse-fold fallback through `noted` events.
 
-test("ReplayBuffer: frameAt(0) returns the pinned genesis frame", async () => {
-  // The constructor pins event 0 (empty world) when headEventId > 0;
+test("ReplayBuffer: frameAt(no cursor) returns the pinned genesis frame", async () => {
+  // The constructor pins genesis (the empty world) whenever head is past it;
   // a cursor seek to 0 should resolve from cache without replaying.
   const { events, headFrame } = buildEventLog([
     {
@@ -1476,8 +1584,9 @@ test("ReplayBuffer: frameAt(0) returns the pinned genesis frame", async () => {
     fetchEvents: fetcher.fetchEvents,
   });
 
-  const got = await buf.frameAt(0);
-  assert.equal(got.eventId, 0);
+  const got = await buf.frameAt(null);
+  assert.equal(got.ordinal, 0);
+  assert.equal(got.position, null);
   assert.equal(got.tasks.size, 0, "genesis has no tasks");
   assert.equal(got.blocks.size, 0);
   assert.equal(got.claims.size, 0);
@@ -1501,7 +1610,7 @@ test("ReplayBuffer: frameAt past head clamps to head (no events to replay forwar
     fetchEvents: fetcher.fetchEvents,
   });
 
-  const got = await buf.frameAt(headFrame.eventId + 1000);
+  const got = await buf.frameAt(POS(1000));
   // We accept "stays at head" as the contract: the task created at id 1
   // is still present.
   assert.equal(got.tasks.has("ABC12"), true);
@@ -1520,7 +1629,7 @@ test("ReplayBuffer: range(from, to) with from > to returns []", async () => {
     headFrame,
     fetchEvents: fakeFetcher(events).fetchEvents,
   });
-  const out = await buf.range(5, 1);
+  const out = await buf.range(POS(5), POS(1));
   assert.deepStrictEqual(out, []);
 });
 
@@ -1537,7 +1646,7 @@ test("ReplayBuffer: range past head returns []", async () => {
     headFrame,
     fetchEvents: fakeFetcher(events).fetchEvents,
   });
-  const out = await buf.range(headFrame.eventId + 1, headFrame.eventId + 50);
+  const out = await buf.range(POS(50), POS(99));
   assert.deepStrictEqual(out, []);
 });
 
@@ -1579,8 +1688,8 @@ test("ReplayBuffer: backward replay through `noted` falls back to forward replay
 
   // Seek backward to event 1 (just after creation, before the first
   // note). Forward path requires the reverse-through-noted fallback.
-  const got = await buf.frameAt(1);
-  assert.equal(got.eventId, 1);
+  const got = await buf.frameAt(POS(1));
+  assert.equal(got.position, POS(1));
   const t = got.tasks.get("ABC12");
   assert.equal(t.notes.length, 0, "no notes yet at event 1");
   assert.equal(t.description, "");
@@ -1588,8 +1697,8 @@ test("ReplayBuffer: backward replay through `noted` falls back to forward replay
   // Seek forward to event 2 (after first note only). The frame must
   // hold exactly that one note — proving the fallback didn't over- or
   // under-shoot the cursor.
-  const got2 = await buf.frameAt(2);
-  assert.equal(got2.eventId, 2);
+  const got2 = await buf.frameAt(POS(2));
+  assert.equal(got2.position, POS(2));
   assert.equal(got2.tasks.get("ABC12").notes.length, 1);
   assert.equal(got2.tasks.get("ABC12").notes[0].text, "first");
 });
@@ -1598,7 +1707,8 @@ test("ReplayBuffer: backward replay through `noted` falls back to forward replay
 
 test("initialFrame: hydrates kind on a root and leaves children without one", () => {
   const f = initialFrame({
-    headEventId: 5,
+    headPosition: POS(5),
+    eventCount: 5,
     tasks: [
       { shortId: "ROOT1", title: "Issue root", status: "available", sortKey: "000000", kind: "issue" },
       { shortId: "ROOT2", title: "Task root", status: "available", sortKey: "000000", kind: "task" },
@@ -1614,7 +1724,8 @@ test("initialFrame: hydrates kind on a root and leaves children without one", ()
 
 test("initialFrame: hydrates foundIn from the JSON island", () => {
   const f = initialFrame({
-    headEventId: 5,
+    headPosition: POS(5),
+    eventCount: 5,
     tasks: [
       { shortId: "ABC12", title: "Defect", status: "available", sortKey: "000000", foundIn: "SRC99" },
       { shortId: "SRC99", title: "Source", status: "available", sortKey: "000000" },
@@ -1628,13 +1739,15 @@ test("initialFrame: hydrates foundIn from the JSON island", () => {
 
 test("applyEvent kind_changed: sets the root's kind to detail.to", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortKey: "000000", kind: "task" }],
     blocks: [],
     claims: [],
   });
   const after = applyEvent(before, {
     id: 40,
+    position: POS(40),
     task_id: "ROOT1",
     actor: "alice",
     event_type: "kind_changed",
@@ -1645,13 +1758,15 @@ test("applyEvent kind_changed: sets the root's kind to detail.to", () => {
 
 test("applyEvent kind_changed: does not mutate the prior frame", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortKey: "000000", kind: "task" }],
     blocks: [],
     claims: [],
   });
   const after = applyEvent(before, {
     id: 40,
+    position: POS(40),
     task_id: "ROOT1",
     actor: "alice",
     event_type: "kind_changed",
@@ -1663,13 +1778,15 @@ test("applyEvent kind_changed: does not mutate the prior frame", () => {
 
 test("reverseEvent kind_changed: restores detail.from", () => {
   const frame = initialFrame({
-    headEventId: 40,
+    headPosition: POS(40),
+    eventCount: 40,
     tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortKey: "000000", kind: "issue" }],
     blocks: [],
     claims: [],
   });
   const back = reverseEvent(frame, {
     id: 40,
+    position: POS(40),
     task_id: "ROOT1",
     actor: "alice",
     event_type: "kind_changed",
@@ -1684,13 +1801,15 @@ test("reverseEvent kind_changed without detail.from: returns null", () => {
   // Guards the breadcrumb check specifically, not the absence of a
   // handler: the same event *with* `from` must reverse cleanly.
   const frame = initialFrame({
-    headEventId: 40,
+    headPosition: POS(40),
+    eventCount: 40,
     tasks: [{ shortId: "ROOT1", title: "R", status: "available", sortKey: "000000", kind: "issue" }],
     blocks: [],
     claims: [],
   });
   const event = {
     id: 40,
+    position: POS(40),
     task_id: "ROOT1",
     actor: "alice",
     event_type: "kind_changed",
@@ -1706,13 +1825,15 @@ test("reverseEvent kind_changed without detail.from: returns null", () => {
 
 test("applyEvent found_in_set: sets task.foundIn to the source id", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });
   const after = applyEvent(before, {
     id: 41,
+    position: POS(41),
     task_id: "ABC12",
     actor: "alice",
     event_type: "found_in_set",
@@ -1724,13 +1845,15 @@ test("applyEvent found_in_set: sets task.foundIn to the source id", () => {
 
 test("applyEvent found_in_set: replacing an edge keeps the new source", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortKey: "000000", foundIn: "OLD11" }],
     blocks: [],
     claims: [],
   });
   const after = applyEvent(before, {
     id: 42,
+    position: POS(42),
     task_id: "ABC12",
     actor: "alice",
     event_type: "found_in_set",
@@ -1741,13 +1864,15 @@ test("applyEvent found_in_set: replacing an edge keeps the new source", () => {
 
 test("reverseEvent found_in_set: clears an edge that had no predecessor", () => {
   const frame = initialFrame({
-    headEventId: 41,
+    headPosition: POS(41),
+    eventCount: 41,
     tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortKey: "000000", foundIn: "SRC99" }],
     blocks: [],
     claims: [],
   });
   const back = reverseEvent(frame, {
     id: 41,
+    position: POS(41),
     task_id: "ABC12",
     actor: "alice",
     event_type: "found_in_set",
@@ -1760,13 +1885,15 @@ test("reverseEvent found_in_set: clears an edge that had no predecessor", () => 
 
 test("reverseEvent found_in_set: restores the displaced source", () => {
   const frame = initialFrame({
-    headEventId: 42,
+    headPosition: POS(42),
+    eventCount: 42,
     tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortKey: "000000", foundIn: "SRC99" }],
     blocks: [],
     claims: [],
   });
   const back = reverseEvent(frame, {
     id: 42,
+    position: POS(42),
     task_id: "ABC12",
     actor: "alice",
     event_type: "found_in_set",
@@ -1778,13 +1905,15 @@ test("reverseEvent found_in_set: restores the displaced source", () => {
 
 test("applyEvent found_in_cleared: clears task.foundIn", () => {
   const before = initialFrame({
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortKey: "000000", foundIn: "SRC99" }],
     blocks: [],
     claims: [],
   });
   const after = applyEvent(before, {
     id: 43,
+    position: POS(43),
     task_id: "ABC12",
     actor: "alice",
     event_type: "found_in_cleared",
@@ -1796,13 +1925,15 @@ test("applyEvent found_in_cleared: clears task.foundIn", () => {
 
 test("reverseEvent found_in_cleared: restores the source it cleared", () => {
   const frame = initialFrame({
-    headEventId: 43,
+    headPosition: POS(43),
+    eventCount: 43,
     tasks: [{ shortId: "ABC12", title: "Defect", status: "available", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });
   const back = reverseEvent(frame, {
     id: 43,
+    position: POS(43),
     task_id: "ABC12",
     actor: "alice",
     event_type: "found_in_cleared",
@@ -1816,6 +1947,7 @@ test("applyEvent kind_changed / found_in_set: unknown task is a no-op, not a thr
   const before = emptyFrame(0);
   const afterKind = applyEvent(before, {
     id: 44,
+    position: POS(44),
     task_id: "GONE1",
     actor: "alice",
     event_type: "kind_changed",
@@ -1824,6 +1956,7 @@ test("applyEvent kind_changed / found_in_set: unknown task is a no-op, not a thr
   assert.equal(afterKind.tasks.size, 0);
   const afterEdge = applyEvent(before, {
     id: 45,
+    position: POS(45),
     task_id: "GONE1",
     actor: "alice",
     event_type: "found_in_set",

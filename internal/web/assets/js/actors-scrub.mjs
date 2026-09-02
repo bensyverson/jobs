@@ -4,7 +4,7 @@
   When the scrubber pill dispatches 'jobs:scrubber-frame' on the
   document, this module rebuilds the .c-actors-board from the in-
   memory event log + frame, mirroring what handlers.Actors would
-  render server-side at the cursor's event id — including the
+  render server-side at the cursor's log position — including the
   ?range= window, re-anchored on the cursor. Live mode is restored
   by 'jobs:scrubber-live' via a fetch-and-swap of the current URL,
   which carries ?range= along. The range selector itself lives
@@ -15,7 +15,7 @@
   state-changing event sets the verb tint; noted events fold to a
   notes badge). The frame is aggregate state — it doesn't preserve
   the per-actor history. So the driver pulls events from the
-  ReplayBuffer's `range(0, cursorId)` and reduces them client-side.
+  ReplayBuffer's `range(null, cursor)` and reduces them client-side.
 
   Self-guarded: if the page has no actors-board marker, the module is
   a no-op so it can load from the shared layout without per-page
@@ -51,8 +51,8 @@ async function applyFrameToDOM(frame, event) {
   if (!board) return;
   const buf = window.JobsScrubber;
   if (!buf) return;
-  const cursorId = event?.id ?? frame.eventId;
-  const events = await buf.range(0, cursorId);
+  const cursor = event?.position ?? frame.position;
+  const events = await buf.range(null, cursor);
   const nowSec = event?.created_at ?? Math.floor(Date.now() / 1000);
   // The ?range= window is measured back from the cursor, not from
   // wall-clock now — scrubbing to last month shows the week before

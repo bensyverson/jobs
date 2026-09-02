@@ -962,8 +962,14 @@ func RenderUnlabelJSON(w io.Writer, res *UnlabelResult) error {
 	return nil
 }
 
+// eventJSON is the wire shape of `job log`/`job tail --format=json`.
+//
+// `position` is the cursor a subscriber resumes from — it survives a rebuild.
+// `id` is the cache's row id, kept for correlation with the dashboard's DOM
+// keys; it is renumbered by a rebuild and must never be used as a cursor.
 type eventJSON struct {
 	ID        int64  `json:"id"`
+	Position  string `json:"position"`
 	TaskID    int64  `json:"task_id"`
 	ShortID   string `json:"short_id"`
 	EventType string `json:"event_type"`
@@ -1220,6 +1226,7 @@ func FormatEventLogJSONLines(w io.Writer, events []EventEntry) error {
 		}
 		obj := eventJSON{
 			ID:        e.ID,
+			Position:  e.Position().String(),
 			TaskID:    e.TaskID,
 			ShortID:   e.ShortID,
 			EventType: e.EventType,
@@ -1253,6 +1260,7 @@ func FormatEventLogJSON(events []EventEntry) ([]byte, error) {
 		}
 		result = append(result, eventJSON{
 			ID:        e.ID,
+			Position:  e.Position().String(),
 			TaskID:    e.TaskID,
 			ShortID:   e.ShortID,
 			EventType: e.EventType,

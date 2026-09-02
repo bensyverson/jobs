@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bensyverson/jobs/internal/eventlog"
+	job "github.com/bensyverson/jobs/internal/job"
 	"github.com/bensyverson/jobs/internal/web/render"
 	"github.com/bensyverson/jobs/internal/web/templates"
 )
@@ -99,7 +101,7 @@ func Actors(deps Deps) http.Handler {
 		if invalid {
 			RenderError(deps, w, http.StatusBadRequest,
 				"Bad request",
-				"?at must be a positive integer event id.")
+				"?at must be a log position, as the scrubber writes it (<ts>-<replica>-<seq>).")
 			return
 		}
 		now := time.Now()
@@ -144,8 +146,9 @@ func Actors(deps Deps) http.Handler {
 // end of the walk matches the actor — those cards dock to the visual
 // bottom of the column (DOM-first, since CSS uses column-reverse).
 //
-// atUpperBound is the time-travel anchor: when > 0, the walk is
-// restricted to events with id <= atUpperBound. Zero means "live."
+// atUpperBound is the time-travel anchor: when non-zero, the walk is
+// restricted to events at or before that log position. The zero Position
+// means "live."
 //
 // rg is the lower bound. Its cutoff is applied in SQL, so the whole
 // rollup — cards, claim state, last-seen, which actors exist at all —
@@ -153,7 +156,7 @@ func Actors(deps Deps) http.Handler {
 // internally consistent (a column never claims a claim it cannot
 // show) at the cost of hiding a claim older than the window; claims
 // expire in minutes, so in practice nothing survives that long.
-func loadActorColumns(ctx context.Context, db *sql.DB, now time.Time, atUpperBound int64, rg Range) ([]ActorColumn, error) {
+func loadActorColumns(ctx context.Context, db *sql.DB, now time.Time, atUpperBound eventlog.Position, rg Range) ([]ActorColumn, error) {
 	query := `
 		SELECT e.id, e.actor, e.event_type, e.created_at,
 		       t.id, t.short_id, t.title, t.description
@@ -162,16 +165,16 @@ func loadActorColumns(ctx context.Context, db *sql.DB, now time.Time, atUpperBou
 		WHERE e.actor <> ''
 		  AND t.deleted_at IS NULL`
 	args := []any{}
-	if atUpperBound > 0 {
-		query += " AND e.id <= ?"
-		args = append(args, atUpperBound)
+	if atUpperBound != (eventlog.Position{}) {
+		query += " AND " + job.EventPositionExpr("e") + " <= (?, ?, ?)"
+		args = append(args, job.EventPositionArgs(atUpperBound)...)
 	}
 	if rg.Bounded() {
 		query += " AND e.created_at >= ?"
 		args = append(args, rg.Cutoff)
 	}
 	query += `
-		ORDER BY e.created_at ASC, e.id ASC`
+		ORDER BY e.ts ASC, e.rep ASC, CASE WHEN e.rep = '' THEN e.id ELSE e.seq END ASC`
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

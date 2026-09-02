@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bensyverson/jobs/internal/eventlog"
 	job "github.com/bensyverson/jobs/internal/job"
 	"github.com/bensyverson/jobs/internal/web/initial"
 )
@@ -17,8 +18,11 @@ func TestLoad_EmptyDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if f.HeadEventID != 0 {
-		t.Errorf("HeadEventID = %d, want 0", f.HeadEventID)
+	if f.HeadPosition != "" {
+		t.Errorf("HeadPosition = %q, want empty", f.HeadPosition)
+	}
+	if f.EventCount != 0 {
+		t.Errorf("EventCount = %d, want 0", f.EventCount)
 	}
 	if len(f.Tasks) != 0 {
 		t.Errorf("Tasks len = %d, want 0", len(f.Tasks))
@@ -293,7 +297,7 @@ func TestLoadJSON_TrailingNewlineTrimmed(t *testing.T) {
 	}
 }
 
-func TestLoadJSON_HeadEventIDAdvancesWithEvents(t *testing.T) {
+func TestLoadJSON_HeadPositionAdvancesWithEvents(t *testing.T) {
 	db := job.SetupTestDB(t)
 	first, err := initial.Load(context.Background(), db)
 	if err != nil {
@@ -304,8 +308,14 @@ func TestLoadJSON_HeadEventIDAdvancesWithEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if second.HeadEventID <= first.HeadEventID {
-		t.Errorf("HeadEventID should advance: %d -> %d", first.HeadEventID, second.HeadEventID)
+	if second.HeadPosition == "" || second.HeadPosition == first.HeadPosition {
+		t.Errorf("HeadPosition should advance: %q -> %q", first.HeadPosition, second.HeadPosition)
+	}
+	if _, err := eventlog.ParsePosition(second.HeadPosition); err != nil {
+		t.Errorf("HeadPosition %q does not parse: %v", second.HeadPosition, err)
+	}
+	if second.EventCount != first.EventCount+1 {
+		t.Errorf("EventCount should advance by one: %d -> %d", first.EventCount, second.EventCount)
 	}
 }
 

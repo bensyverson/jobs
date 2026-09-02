@@ -383,13 +383,10 @@ func TestLog_ChipHrefsPreserveTheScrubberCursor(t *testing.T) {
 	db := setupLogTestDB(t)
 	mustAdd(t, db, "alice", "A task", nil, []string{"web"})
 
-	var at int64
-	if err := db.QueryRow(`SELECT MAX(id) FROM events`).Scan(&at); err != nil {
-		t.Fatalf("max event id: %v", err)
-	}
+	at := positionBack(t, db, 0)
 
 	deps := newLogDeps(t, db)
-	atParam := "at=" + strconv.FormatInt(at, 10)
+	atParam := "at=" + at
 
 	body := fetchLog(t, deps, atParam)
 	actorGroup := extractChipGroup(t, body, "Actor")
@@ -397,18 +394,18 @@ func TestLog_ChipHrefsPreserveTheScrubberCursor(t *testing.T) {
 	typeGroup := extractChipGroup(t, body, "Event type")
 
 	for _, a := range chipAnchors(actorGroup) {
-		if !strings.Contains(a, "at="+strconv.FormatInt(at, 10)) {
-			t.Errorf("actor chip href should carry ?at=%d, got %q", at, a)
+		if !strings.Contains(a, "at="+at) {
+			t.Errorf("actor chip href should carry ?at=%s, got %q", at, a)
 		}
 	}
 	for _, a := range chipAnchors(labelGroup) {
-		if !strings.Contains(a, "at="+strconv.FormatInt(at, 10)) {
-			t.Errorf("label chip href should carry ?at=%d, got %q", at, a)
+		if !strings.Contains(a, "at="+at) {
+			t.Errorf("label chip href should carry ?at=%s, got %q", at, a)
 		}
 	}
 	for _, a := range chipAnchors(typeGroup) {
-		if !strings.Contains(a, "at="+strconv.FormatInt(at, 10)) {
-			t.Errorf("type chip href should carry ?at=%d, got %q", at, a)
+		if !strings.Contains(a, "at="+at) {
+			t.Errorf("type chip href should carry ?at=%s, got %q", at, a)
 		}
 	}
 }
@@ -442,19 +439,16 @@ func TestLog_MoreChipPreservesTheScrubberCursor(t *testing.T) {
 	db := setupLogTestDB(t)
 	seedActors(t, db, 30)
 
-	var at int64
-	if err := db.QueryRow(`SELECT MAX(id) FROM events`).Scan(&at); err != nil {
-		t.Fatalf("max event id: %v", err)
-	}
+	at := positionBack(t, db, 0)
 
 	deps := newLogDeps(t, db)
-	group := extractChipGroup(t, fetchLog(t, deps, "at="+strconv.FormatInt(at, 10)), "Actor")
+	group := extractChipGroup(t, fetchLog(t, deps, "at="+at), "Actor")
 
 	mustContain(t, group, `data-chip-more`)
-	mustContain(t, group, "at="+strconv.FormatInt(at, 10))
+	mustContain(t, group, "at="+at)
 	for _, a := range chipAnchors(group) {
-		if strings.Contains(a, "data-chip-more") && !strings.Contains(a, "at="+strconv.FormatInt(at, 10)) {
-			t.Errorf("the +N more chip should carry ?at=%d, got %q", at, a)
+		if strings.Contains(a, "data-chip-more") && !strings.Contains(a, "at="+at) {
+			t.Errorf("the +N more chip should carry ?at=%s, got %q", at, a)
 		}
 	}
 }
@@ -483,15 +477,10 @@ func TestLog_RangeIsMeasuredFromTheScrubberCursor(t *testing.T) {
 	backdateActorTaskEvents(t, db, "alice", old, 20*24*time.Hour)
 	mustAdd(t, db, "alice", "new-task", nil, nil)
 
-	var oldEventID int64
-	if err := db.QueryRow(
-		`SELECT e.id FROM events e JOIN tasks t ON t.id = e.task_id WHERE t.short_id = ?`,
-		old).Scan(&oldEventID); err != nil {
-		t.Fatalf("old event id: %v", err)
-	}
+	oldAt := positionForTaskCreate(t, db, old)
 
 	deps := newLogDeps(t, db)
-	body := stripInitialFrame(fetchLog(t, deps, "at="+strconv.FormatInt(oldEventID, 10)))
+	body := stripInitialFrame(fetchLog(t, deps, "at="+oldAt))
 
 	// The cursor sits on the 20-day-old event; a 7-day window measured
 	// back from *there* contains it.
@@ -505,18 +494,15 @@ func TestLog_LoadOlderPreservesTheScrubberCursor(t *testing.T) {
 	db := setupLogTestDB(t)
 	seedActors(t, db, 30)
 
-	var at int64
-	if err := db.QueryRow(`SELECT MAX(id) FROM events`).Scan(&at); err != nil {
-		t.Fatalf("max event id: %v", err)
-	}
+	at := positionBack(t, db, 0)
 
 	deps := newLogDeps(t, db)
-	body := fetchLog(t, deps, "at="+strconv.FormatInt(at, 10)+"&limit=5")
+	body := fetchLog(t, deps, "at="+at+"&limit=5")
 	mustContain(t, body, `c-log-row--more`)
 	i := strings.Index(body, `c-log-row--more`)
 	href := body[i:]
 	href = href[:strings.Index(href, `role="listitem"`)]
-	if !strings.Contains(href, "at="+strconv.FormatInt(at, 10)) {
-		t.Fatalf("load older should carry ?at=%d, got %q", at, href)
+	if !strings.Contains(href, "at="+at) {
+		t.Fatalf("load older should carry ?at=%s, got %q", at, href)
 	}
 }

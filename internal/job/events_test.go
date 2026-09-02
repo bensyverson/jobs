@@ -68,7 +68,7 @@ func TestGetEventsForTaskTreeSince_EmptyAnchor(t *testing.T) {
 }
 
 // Empty anchor with afterID is the basis for global `tail`.
-func TestGetEventsAfterID_EmptyAnchor(t *testing.T) {
+func TestGetEventsAfterPosition_EmptyAnchor(t *testing.T) {
 	db := SetupTestDB(t)
 	a := MustAdd(t, db, "", "Alpha")
 	_ = a
@@ -81,14 +81,14 @@ func TestGetEventsAfterID_EmptyAnchor(t *testing.T) {
 	if len(all) == 0 {
 		t.Fatal("expected events")
 	}
-	lastID := all[len(all)-1].ID
+	lastPos := all[len(all)-1].Position()
 
-	// New tree after snapshot — must show up in global afterID stream.
+	// New tree after snapshot — must show up in global after-position stream.
 	b := MustAdd(t, db, "", "Beta")
 
-	more, err := getEventsAfterID(db, "", lastID)
+	more, err := GetEventsAfterPosition(db, "", lastPos)
 	if err != nil {
-		t.Fatalf("getEventsAfterID(\"\", %d): %v", lastID, err)
+		t.Fatalf("GetEventsAfterPosition(\"\", %v): %v", lastPos, err)
 	}
 	var sawB bool
 	for _, e := range more {
@@ -97,6 +97,6 @@ func TestGetEventsAfterID_EmptyAnchor(t *testing.T) {
 		}
 	}
 	if !sawB {
-		t.Errorf("expected new event for %s in global afterID stream; got %+v", b, more)
+		t.Errorf("expected new event for %s in global after-position stream; got %+v", b, more)
 	}
 }

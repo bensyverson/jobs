@@ -98,11 +98,13 @@ job tail --format=json
 ```
 
 ```json
-{"id":3,"task_id":3,"short_id":"bBE83","event_type":"created","actor":"test","detail":{"short_id":"bBE83","parent_id":"jTzON","title":"Child B","description":"","sort_key":"V00001"},"created_at":1778197309}
-{"id":7,"task_id":3,"short_id":"bBE83","event_type":"done","actor":"test","detail":{"cascade":false,"note":"done","was_status":"available"},"created_at":1778197309}
+{"id":3,"position":"1778197309000-k7Qx2m-3","task_id":3,"short_id":"bBE83","event_type":"created","actor":"test","detail":{"short_id":"bBE83","parent_id":"jTzON","title":"Child B","description":"","sort_key":"V00001"},"created_at":1778197309}
+{"id":7,"position":"1778197309411-k7Qx2m-7","task_id":3,"short_id":"bBE83","event_type":"done","actor":"test","detail":{"cascade":false,"note":"done","was_status":"available"},"created_at":1778197309}
 ```
 
-Two things to keep in mind:
+Three things to keep in mind:
+
+- **`position` is the cursor; `id` is not.** `position` is the event's log position, `<ts>-<replica>-<seq>`, and it is the same value the dashboard's `/events?since=` and `?at=` take. `id` is the local SQLite cache's row id: rebuilding that cache from `.jobs/log` renumbers it, so a subscriber that resumed from an `id` would replay or skip events after any `git pull`. Compare two positions by splitting on `-` and comparing `ts`, then `replica`, then `seq` — never as strings. A position with an empty replica (`<ts>--<n>`) addresses a row carried over from a pre-log database and is meaningful only inside one cache.
 
 - **Control frames.** When `--until-close <id>` fires, the stream emits a control object `{"closed": "<id>", "event": "done"}` (or `"canceled"`) **before** exiting. A consumer should accept either an event object (with `id`/`event_type`/...) or a control object on the same channel.
 - **Default event filter.** Heartbeats are excluded by default — they would otherwise flood any non-trivial tail. Re-include them with `--events done,heartbeat,...`.
@@ -114,7 +116,7 @@ Once everything is line-delimited JSON, `jq` is the right hammer.
 Live count of `done` events in the current session:
 
 ```sh
-job tail --format=json --events done | jq -c '{id, short_id, actor, at: .created_at}'
+job tail --format=json --events done | jq -c '{position, short_id, actor, at: .created_at}'
 ```
 
 Identities ranked by close count today:

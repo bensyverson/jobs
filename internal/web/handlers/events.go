@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bensyverson/jobs/internal/eventlog"
 	job "github.com/bensyverson/jobs/internal/job"
 )
 
@@ -58,10 +59,15 @@ func Events(deps Deps) http.Handler {
 			Type:  q.Get("type"),
 		}
 
-		var sinceID int64
+		// ?since= is a log position, and an SSE Last-Event-ID is usable
+		// verbatim as one — every frame's id: field carries it. An
+		// unparseable value is treated as absent (stream from the start)
+		// rather than a 400: a client resuming from a cursor this cache no
+		// longer recognizes should get history, not an error page.
+		var since eventlog.Position
 		if raw := q.Get("since"); raw != "" {
-			if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
-				sinceID = n
+			if p, err := eventlog.ParsePosition(raw); err == nil {
+				since = p
 			}
 		}
 
@@ -83,17 +89,17 @@ func Events(deps Deps) http.Handler {
 				http.Error(w, "live stream unavailable (broadcaster not configured)", http.StatusServiceUnavailable)
 				return
 			}
-			serveSSE(deps, w, r, filter, sinceID)
+			serveSSE(deps, w, r, filter, since)
 			return
 		}
-		serveJSON(deps, w, r, filter, sinceID, limit)
+		serveJSON(deps, w, r, filter, since, limit)
 	})
 }
 
 // serveJSON is the replay-mode response: one JSON array of events
 // (filtered + limited) with no live tail.
-func serveJSON(deps Deps, w http.ResponseWriter, r *http.Request, filter EventsFilter, sinceID int64, limit int) {
-	events, err := job.GetEventsAfterID(deps.DB, "", sinceID)
+func serveJSON(deps Deps, w http.ResponseWriter, r *http.Request, filter EventsFilter, since eventlog.Position, limit int) {
+	events, err := job.GetEventsAfterPosition(deps.DB, "", since)
 	if err != nil {
 		InternalError(deps, w, "events query", err)
 		return
@@ -133,11 +139,11 @@ func serveJSON(deps Deps, w http.ResponseWriter, r *http.Request, filter EventsF
 	}
 }
 
-// serveSSE splices a backfill (events with id in (sinceID, cutoff])
-// into a live tail from the broadcaster (events with id > cutoff),
-// dropping any overlap on the live channel. Returns when the client
-// disconnects or the broadcaster closes the channel.
-func serveSSE(deps Deps, w http.ResponseWriter, r *http.Request, filter EventsFilter, sinceID int64) {
+// serveSSE splices a backfill (events in the position range (since, cutoff])
+// into a live tail from the broadcaster (events after cutoff), dropping any
+// overlap on the live channel. Returns when the client disconnects or the
+// broadcaster closes the channel.
+func serveSSE(deps Deps, w http.ResponseWriter, r *http.Request, filter EventsFilter, since eventlog.Position) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		InternalError(deps, w, "SSE", fmt.Errorf("ResponseWriter does not support flushing"))
@@ -148,24 +154,26 @@ func serveSSE(deps Deps, w http.ResponseWriter, r *http.Request, filter EventsFi
 	// in the channel (we'll dedup against the subscription's LastID).
 	sub := deps.Broadcaster.Subscribe()
 	defer sub.Cancel()
-	cutoff := sub.LastID
+	cutoff := sub.Cutoff
 
-	// Backfill: events in (sinceID, cutoff], filtered.
-	backfill, err := job.GetEventsAfterID(deps.DB, "", sinceID)
+	// Backfill: events in (since, cutoff], filtered.
+	backfill, err := job.GetEventsAfterPosition(deps.DB, "", since)
 	if err != nil {
 		InternalError(deps, w, "events backfill", err)
 		return
 	}
-	// Trim to cutoff — events above cutoff come through the live
+	// Trim to cutoff — events after cutoff come through the live
 	// channel, so including them here would duplicate.
-	i := len(backfill)
-	for j, e := range backfill {
-		if e.ID > cutoff {
-			i = j
-			break
+	if cutoff != (eventlog.Position{}) {
+		i := len(backfill)
+		for j, e := range backfill {
+			if e.Position().Compare(cutoff) > 0 {
+				i = j
+				break
+			}
 		}
+		backfill = backfill[:i]
 	}
-	backfill = backfill[:i]
 	labels, err := labelMapFor(deps, backfill)
 	if err != nil {
 		InternalError(deps, w, "backfill labels", err)
@@ -208,7 +216,7 @@ func serveSSE(deps Deps, w http.ResponseWriter, r *http.Request, filter EventsFi
 				// Broadcaster shutdown.
 				return
 			}
-			if e.ID <= cutoff {
+			if e.Position().Compare(cutoff) <= 0 {
 				// Already delivered via backfill.
 				continue
 			}
@@ -280,12 +288,16 @@ func labelMapFor(deps Deps, events []job.EventEntry) (map[int64][]string, error)
 }
 
 // eventJSON is the wire shape of an event. Separate from job.EventEntry
-// so the JSON field names are a public API we control. TaskTitle is
+// so the JSON field names are a public API we control. Position is the
+// cursor: it survives a rebuild, and it is what a client passes back as
+// ?since=. ID is the cache's row id, kept as a DOM key only — a rebuild
+// renumbers it. TaskTitle is
 // included so the dashboard can render a log row without a second
 // lookup — important for live SSE frames where the client has no
 // batch title cache.
 type eventJSON struct {
 	ID        int64  `json:"id"`
+	Position  string `json:"position"`
 	TaskID    string `json:"task_id"`
 	TaskTitle string `json:"task_title,omitempty"`
 	EventType string `json:"event_type"`
@@ -297,6 +309,7 @@ type eventJSON struct {
 func toEventJSON(e job.EventEntry, title string) eventJSON {
 	return eventJSON{
 		ID:        e.ID,
+		Position:  e.Position().String(),
 		TaskID:    e.ShortID,
 		TaskTitle: title,
 		EventType: e.EventType,
@@ -309,16 +322,19 @@ func toEventJSON(e job.EventEntry, title string) eventJSON {
 // writeSSEFrame writes one SSE frame for event e. Returns false on
 // write error (client disconnected), true on success. Format:
 //
-//	id: <event_id>
+//	id: <log position>
 //	event: <event_type>
 //	data: <json>
 //
 //	(blank line terminates the frame)
+//
+// The id: field is the log position so a browser's Last-Event-ID header (and
+// the value live.js persists) is usable verbatim as ?since=.
 func writeSSEFrame(w http.ResponseWriter, e job.EventEntry, title string) bool {
 	payload, err := json.Marshal(toEventJSON(e, title))
 	if err != nil {
 		return false
 	}
-	_, err = fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", e.ID, e.EventType, payload)
+	_, err = fmt.Fprintf(w, "id: %s\nevent: %s\ndata: %s\n\n", e.Position(), e.EventType, payload)
 	return err == nil
 }

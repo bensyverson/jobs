@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bensyverson/jobs/internal/eventlog"
 	job "github.com/bensyverson/jobs/internal/job"
 	"github.com/bensyverson/jobs/internal/web/broadcast"
 	"github.com/bensyverson/jobs/internal/web/handlers"
@@ -55,31 +56,43 @@ func TestEvents_JSONFallback_ReturnsArray(t *testing.T) {
 	}
 }
 
-func TestEvents_JSON_SinceFiltersByID(t *testing.T) {
+func TestEvents_JSON_SinceFiltersByPosition(t *testing.T) {
 	db := setupLogTestDB(t)
 	mustAdd(t, db, "alice", "first", nil, nil)
 	mustAdd(t, db, "bob", "second", nil, nil)
 
 	// Find the id of the first event so we can filter past it.
-	first, err := job.GetEventsAfterID(db, "", 0)
+	first, err := job.GetEventsForTaskTree(db, "")
 	if err != nil {
 		t.Fatalf("seed read: %v", err)
 	}
 	if len(first) < 1 {
 		t.Fatal("seed: no events")
 	}
-	sinceID := first[0].ID
+	since := first[0].Position().String()
 
 	deps := newLogDeps(t, db)
-	req := httptest.NewRequest("GET", "/events?since="+itoa(sinceID), nil)
+	req := httptest.NewRequest("GET", "/events?since="+since, nil)
 	w := httptest.NewRecorder()
 	handlers.Events(deps).ServeHTTP(w, req)
 
+	sincePos, err := eventlog.ParsePosition(since)
+	if err != nil {
+		t.Fatalf("seed position %q: %v", since, err)
+	}
 	var decoded []map[string]any
 	json.Unmarshal(w.Body.Bytes(), &decoded)
+	if len(decoded) == 0 {
+		t.Fatal("since=<first position> returned nothing")
+	}
 	for _, e := range decoded {
-		if id := int64FromJSON(e["id"]); id <= sinceID {
-			t.Errorf("since=%d: got event id %d in payload", sinceID, id)
+		raw, _ := e["position"].(string)
+		got, err := eventlog.ParsePosition(raw)
+		if err != nil {
+			t.Fatalf("payload position %q: %v", raw, err)
+		}
+		if got.Compare(sincePos) <= 0 {
+			t.Errorf("since=%s: got position %s in payload", since, raw)
 		}
 	}
 }

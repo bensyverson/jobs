@@ -7,6 +7,9 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/bensyverson/jobs/internal/eventlog"
+	job "github.com/bensyverson/jobs/internal/job"
 )
 
 // RangeKey is the normalized `?range=` value — how far back a view
@@ -132,18 +135,20 @@ func buildRangeTabs(base string, q url.Values, active RangeKey) []RangeTab {
 }
 
 // rangeAnchor returns the moment a range should be measured back
-// from. In live mode (at <= 0) that is now; under the time-travel
-// upper bound `?at=<event id>` it is that event's own timestamp, so a
+// from. In live mode (a zero `at`) that is now; under the time-travel
+// upper bound `?at=<log position>` it is that event's own timestamp, so a
 // 7-day window scrubbed to last month shows the week before *then*.
 // An `at` past the end of the log falls back to the newest event, and
 // an empty log falls back to now.
-func rangeAnchor(ctx context.Context, db *sql.DB, at int64, now time.Time) (time.Time, error) {
-	if at <= 0 {
+func rangeAnchor(ctx context.Context, db *sql.DB, at eventlog.Position, now time.Time) (time.Time, error) {
+	if at == (eventlog.Position{}) {
 		return now, nil
 	}
+	expr := job.EventPositionExpr("e")
+	query := `SELECT e.created_at FROM events e WHERE ` + expr + ` <= (?, ?, ?)
+		ORDER BY e.ts DESC, e.rep DESC, CASE WHEN e.rep = '' THEN e.id ELSE e.seq END DESC LIMIT 1`
 	var createdAt int64
-	err := db.QueryRowContext(ctx,
-		`SELECT created_at FROM events WHERE id <= ? ORDER BY id DESC LIMIT 1`, at).Scan(&createdAt)
+	err := db.QueryRowContext(ctx, query, job.EventPositionArgs(at)...).Scan(&createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return now, nil
 	}

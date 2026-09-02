@@ -478,19 +478,19 @@ func TestActors_AtFiltersEventWalkToUpperBound(t *testing.T) {
 	db := setupLogTestDB(t)
 	mustAdd(t, db, "alice", "alice-early", nil, nil)
 	idLate := mustAdd(t, db, "bob", "bob-late", nil, nil)
-	atEarly := eventIDForTaskCreate(t, db, idLate) - 1
+	atEarly := positionBeforeTaskCreate(t, db, idLate)
 
 	deps := newLogDeps(t, db)
-	body := stripInitialFrame(fetchActorsQuery(t, deps, "at="+strconv.FormatInt(atEarly, 10)))
+	body := stripInitialFrame(fetchActorsQuery(t, deps, "at="+atEarly))
 
 	if !strings.Contains(body, "alice-early") {
-		t.Errorf("?at=%d should still render alice-early (event id <= at)", atEarly)
+		t.Errorf("?at=%s should still render alice-early (at or before the cursor)", atEarly)
 	}
 	if strings.Contains(body, "bob-late") {
-		t.Errorf("?at=%d should NOT render bob-late (event id > at)", atEarly)
+		t.Errorf("?at=%s should NOT render bob-late (after the cursor)", atEarly)
 	}
 	if strings.Contains(body, `data-actor="bob"`) {
-		t.Errorf("?at=%d should not produce a bob column at all (no events <= at)", atEarly)
+		t.Errorf("?at=%s should not produce a bob column at all (no events at or before the cursor)", atEarly)
 	}
 }
 
@@ -499,7 +499,7 @@ func TestActors_AtAboveHeadRendersAsLive(t *testing.T) {
 	mustAdd(t, db, "alice", "alice-task", nil, nil)
 
 	deps := newLogDeps(t, db)
-	body := fetchActorsQuery(t, deps, "at=999999999")
+	body := fetchActorsQuery(t, deps, "at="+atPastHead)
 
 	mustContain(t, body, `data-actor="alice"`)
 	mustContain(t, body, `alice-task`)
@@ -510,7 +510,8 @@ func TestActors_AtMalformedReturns400(t *testing.T) {
 	mustAdd(t, db, "alice", "alice-task", nil, nil)
 	deps := newLogDeps(t, db)
 
-	for _, raw := range []string{"at=foo", "at=0", "at=-1"} {
+	// A bare row id is no longer a cursor: a rebuild renumbers those.
+	for _, raw := range []string{"at=foo", "at=0", "at=-1", "at=42"} {
 		t.Run(raw, func(t *testing.T) {
 			code, _ := fetchActorsStatus(t, deps, raw)
 			if code != 400 {
@@ -528,13 +529,15 @@ func TestActors_AtDerivesClaimFromEventWalk(t *testing.T) {
 	id := mustAdd(t, db, "alice", "alice-task", nil, nil)
 	mustClaim(t, db, id, "alice")
 
-	// Capture the claim's event id before releasing.
-	var atClaim int64
-	if err := db.QueryRow(`
-		SELECT e.id FROM events e JOIN tasks t ON t.id = e.task_id
-		WHERE t.short_id = ? AND e.event_type = 'claimed'
-	`, id).Scan(&atClaim); err != nil {
-		t.Fatalf("query claimed event: %v", err)
+	// Capture the claim's position before releasing.
+	atClaim := ""
+	for _, e := range allEvents(t, db) {
+		if e.ShortID == id && e.EventType == "claimed" {
+			atClaim = e.Position().String()
+		}
+	}
+	if atClaim == "" {
+		t.Fatal("no claimed event")
 	}
 
 	if err := job.RunRelease(db, id, "", "alice"); err != nil {
@@ -552,7 +555,7 @@ func TestActors_AtDerivesClaimFromEventWalk(t *testing.T) {
 	// ?at=<claim event>: pinned at the moment of the claim, the card
 	// should appear as the actor's active claim — verb = claimed, and
 	// the column status text should report 1 claim.
-	body := fetchActorsQuery(t, deps, "at="+strconv.FormatInt(atClaim, 10))
+	body := fetchActorsQuery(t, deps, "at="+atClaim)
 	if !strings.Contains(body, `c-log-row__verb--claimed`) {
 		t.Errorf("?at=<claim event> should render the card with verb=claimed:\n%s", body)
 	}
@@ -716,15 +719,18 @@ func TestActors_RangeIsAnchoredOnTheScrubberCursor(t *testing.T) {
 	backdateActorEvents(t, db, "alice", 40*24*time.Hour)
 	backdateActorEvents(t, db, "bob", 38*24*time.Hour)
 
-	var bobEventID int64
-	err := db.QueryRow(`SELECT id FROM events WHERE actor = 'bob' ORDER BY id DESC LIMIT 1`).Scan(&bobEventID)
-	if err != nil {
-		t.Fatalf("select bob event: %v", err)
+	bobAt := ""
+	for _, e := range allEvents(t, db) {
+		if e.Actor == "bob" {
+			bobAt = e.Position().String()
+		}
+	}
+	if bobAt == "" {
+		t.Fatal("no bob event")
 	}
 
 	deps := newLogDeps(t, db)
-	body := stripInitialFrame(fetchActorsRange(t, deps,
-		"at="+strconv.FormatInt(bobEventID, 10)+"&range=7d"))
+	body := stripInitialFrame(fetchActorsRange(t, deps, "at="+bobAt+"&range=7d"))
 
 	if n := countActorColumns(body); n != 2 {
 		t.Errorf("column count: got %d, want 2 (alice at -40d and bob at -38d are both inside the week before the cursor)\n---\n%s", n, body)
@@ -742,9 +748,10 @@ func TestActors_RangeTabsPreserveTheAtCursor(t *testing.T) {
 	db := setupLogTestDB(t)
 	mustAdd(t, db, "alice", "alice-task", nil, nil)
 
+	at := positionBack(t, db, 0)
 	deps := newLogDeps(t, db)
-	body := fetchActorsRange(t, deps, "at=1")
+	body := fetchActorsRange(t, deps, "at="+at)
 
-	mustContain(t, body, `href="/actors?at=1"`)
-	mustContain(t, body, `href="/actors?at=1&amp;range=all"`)
+	mustContain(t, body, `href="/actors?at=`+at+`"`)
+	mustContain(t, body, `href="/actors?at=`+at+`&amp;range=all"`)
 }

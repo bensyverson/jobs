@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/bensyverson/jobs/internal/eventlog"
 )
 
 // ErrTailTimeout is returned by RunTailUntilClose when --timeout expires
@@ -274,9 +276,13 @@ func RunTail(ctx context.Context, db *sql.DB, shortID string, pollInterval time.
 		}
 	}
 
-	var lastID int64
+	// The cursor is the log position of the last event handed to the
+	// callback, never its row id: a rebuild triggered by a pull renumbers
+	// every row, so an id cursor would replay or skip whatever the foreign
+	// events displaced.
+	var cursor eventlog.Position
 	for {
-		events, err := getEventsAfterID(db, shortID, lastID)
+		events, err := GetEventsAfterPosition(db, shortID, cursor)
 		if err != nil {
 			return err
 		}
@@ -284,7 +290,7 @@ func RunTail(ctx context.Context, db *sql.DB, shortID string, pollInterval time.
 			if err := callback(events); err != nil {
 				return err
 			}
-			lastID = events[len(events)-1].ID
+			cursor = events[len(events)-1].Position()
 		}
 
 		select {

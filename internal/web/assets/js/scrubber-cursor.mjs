@@ -1,7 +1,7 @@
 /*
   Scrubber math, side-effect-free.
 
-  Maps cursor x-fraction (0..1 across the strip) to event ids and
+  Maps cursor x-fraction (0..1 across the strip) to log positions and
   back, using event timestamps as the time axis. The strip's left
   edge is "24h ago" and the right edge is "now"; events outside that
   window aren't navigable through the strip but are still reachable
@@ -12,27 +12,29 @@
   future module that needs to project events onto the strip.
 */
 
+import { isPosition, samePosition } from "./position.mjs";
+
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
-// xToEventId maps a cursor x-fraction (0 = window start, 1 = window
-// end) to the largest event id whose created_at falls at or before
-// that moment. Empty events arrays return 0; x past the most recent
-// event clamps to head; x before the window's oldest event clamps
-// to its id.
+// xToPosition maps a cursor x-fraction (0 = window start, 1 = window
+// end) to the log position of the newest event whose created_at falls at
+// or before that moment. An empty events array returns null; x past the
+// most recent event clamps to head; x before the window's oldest event
+// clamps to that event.
 //
 // `windowStartMs` defaults to `nowMs - windowMs` — the original
 // "trailing 24h ending now" mode. Pan and zoom override it.
 //
 // Events are expected to be sorted ascending by created_at — the
 // /events endpoint returns them in that order.
-export function xToEventId(
+export function xToPosition(
   xFrac,
   events,
   nowMs,
   windowMs = ONE_DAY_MS,
   windowStartMs = nowMs - windowMs,
 ) {
-  if (events.length === 0) return 0;
+  if (events.length === 0) return null;
   const targetMs = windowStartMs + xFrac * windowMs;
   // Binary search for the rightmost event with created_at*1000 <= targetMs.
   let lo = 0;
@@ -42,23 +44,23 @@ export function xToEventId(
     if (events[mid].created_at * 1000 <= targetMs) lo = mid + 1;
     else hi = mid;
   }
-  if (lo === 0) return events[0].id;
-  return events[lo - 1].id;
+  if (lo === 0) return events[0].position;
+  return events[lo - 1].position;
 }
 
-// eventIdToX is the inverse: returns the x-fraction of the cursor
-// that corresponds to the given event id, by looking up the event's
+// positionToX is the inverse: returns the x-fraction of the cursor
+// that corresponds to the given log position, by looking up the event's
 // created_at and projecting it into the [windowStartMs,
 // windowStartMs + windowMs] window. Events outside the window clamp
-// to 0 or 1; unknown ids return 1.
-export function eventIdToX(
-  eventId,
+// to 0 or 1; an unknown cursor returns 1.
+export function positionToX(
+  position,
   events,
   nowMs,
   windowMs = ONE_DAY_MS,
   windowStartMs = nowMs - windowMs,
 ) {
-  const event = events.find((e) => e.id === eventId);
+  const event = events.find((e) => samePosition(e.position, position));
   if (!event) return 1;
   const eventMs = event.created_at * 1000;
   const offset = eventMs - windowStartMs;
@@ -152,20 +154,20 @@ export function clampWindowStartToFloor(windowStartMs, windowMs, floorMs) {
   return { windowStartMs: floorMs, windowMs };
 }
 
-// windowForEventId picks the visible window for a cold-load with
-// ?at=<eventId>. When the target event sits inside the trailing
+// windowForPosition picks the visible window for a cold-load with
+// ?at=<position>. When the target event sits inside the trailing
 // `defaultWindowMs` ending at `nowMs`, the default window is returned
 // unchanged. When the event is older than the default window, the
 // window is widened so the event lands inside it (right edge pinned
 // to nowMs so the user can still scrub forward to live). Returns the
-// default for unknown or future-dated event ids.
+// default for an unknown or future-dated cursor.
 //
 // Pure: no DOM, no clamping against the history floor — that happens
-// in the UI layer when needed. Exists so cold-loading ?at=N for an
-// event older than 24h doesn't pin the cursor to xFrac=0 and silently
+// in the UI layer when needed. Exists so cold-loading ?at=<position> for
+// an event older than 24h doesn't pin the cursor to xFrac=0 and silently
 // re-resolve to a different event.
-export function windowForEventId(
-  eventId,
+export function windowForPosition(
+  position,
   events,
   nowMs,
   defaultWindowMs = ONE_DAY_MS,
@@ -174,7 +176,7 @@ export function windowForEventId(
     windowStartMs: nowMs - defaultWindowMs,
     windowMs: defaultWindowMs,
   };
-  const event = events.find((e) => e.id === eventId);
+  const event = events.find((e) => samePosition(e.position, position));
   if (!event) return defaults;
   const eventMs = event.created_at * 1000;
   if (eventMs >= nowMs - defaultWindowMs) return defaults;
@@ -275,7 +277,7 @@ export function formatAge(ageMs) {
   return `${d}d ago`;
 }
 
-// formatHistoryBannerText builds the "?at=N · Ns ago · YYYY-MM-DD HH:MM:SS"
+// formatHistoryBannerText builds the "?at=<position> · Ns ago · YYYY-MM-DD HH:MM:SS"
 // string the history banner shows. UTC timestamp keeps the wire
 // representation consistent regardless of viewer locale; the relative
 // part follows the local clock-derived `ageMs`.
@@ -283,33 +285,31 @@ export function formatHistoryBannerText(event, nowMs) {
   const ageMs = nowMs - event.created_at * 1000;
   const age = formatAge(ageMs);
   const iso = new Date(event.created_at * 1000).toISOString().replace("T", " ").slice(0, 19);
-  return `?at=${event.id} · ${age} · ${iso}`;
+  return `?at=${event.position} · ${age} · ${iso}`;
 }
 
-// parseAtFromQuery extracts a positive integer ?at value from a URL
-// query string. Returns null for missing, empty, non-numeric, or
-// non-positive inputs — the caller treats null as "live, no scrub
-// state in URL." Same shape as the server's parseAtParam in
-// internal/web/handlers so client and server agree on what counts as
-// a valid ?at.
+// parseAtFromQuery extracts a log position from a URL query string.
+// Returns null for missing, empty or unparseable input — the caller
+// treats null as "live, no scrub state in URL." Same shape as the
+// server's parseAtParam in internal/web/handlers so client and server
+// agree on what counts as a valid ?at. A bare row id is not a cursor:
+// a rebuild renumbers those, so it is rejected here as the server
+// rejects it.
 export function parseAtFromQuery(searchString) {
   if (!searchString) return null;
   const params = new URLSearchParams(searchString);
   const raw = params.get("at");
   if (!raw) return null;
-  // Reject 1.5, 1e3, hex, etc. — only a plain positive integer.
-  if (!/^\d+$/.test(raw)) return null;
-  const n = Number(raw);
-  return n > 0 ? n : null;
+  return isPosition(raw) ? raw : null;
 }
 
 // composeURLWithAt returns a same-origin path-and-query string with
-// ?at=<eventId> set, preserving every other query parameter and the
+// ?at=<position> set, preserving every other query parameter and the
 // hash fragment. Pure: takes a path-or-URL string in, returns a
 // string out — no DOM, no location.
-export function composeURLWithAt(href, eventId) {
+export function composeURLWithAt(href, position) {
   const u = new URL(href, "http://placeholder.invalid/");
-  u.searchParams.set("at", String(eventId));
+  u.searchParams.set("at", String(position));
   return u.pathname + u.search + u.hash;
 }
 

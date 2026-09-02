@@ -403,7 +403,7 @@ Run `job schema` for the full JSON Schema.
 | `job log [<id>\|all]` | Show full event history for a task and its descendants. With no arg (or the literal `all`), streams events from every top-level tree — effectively the whole database. |
 | | `-s, --since <rfc3339>` Only events at or after the given timestamp. |
 | | `--format=json` Pretty-printed JSON array. |
-| `job tail [<id>\|all]` | Stream events in real-time. Polls every second until Ctrl+C. With no arg (or `all`), streams globally from every top-level tree. |
+| `job tail [<id>\|all]` | Stream events in real-time. Polls every second until Ctrl+C. With no arg (or `all`), streams globally from every top-level tree. The poll cursor is the log position `(ts, rep, seq)`, not the cache's row id, so a `git pull` that brings in another replica's events and rebuilds the cache neither replays nor skips anything. `--format=json` frames carry that cursor as `position`. |
 | | `--format=json` Emits one JSON object per line (JSON-lines), suitable for `jq -c` or line-based subscriber agents. |
 | | `-e, --events <type,type,...>` Only emit events of the listed types. By default `heartbeat` events are hidden; pass `--events heartbeat` to opt in. |
 | | `-u, --users <name,...>` Only emit events from the listed actors. |
@@ -472,14 +472,14 @@ Views:
 
 `/events` is a stable HTTP API for consumers outside the dashboard (terminal TUIs, Slack bots, editor integrations). It has two modes on the same URL:
 
-- **SSE stream** when the request includes `Accept: text/event-stream`. Replays a backfill since `?since=<id>`, then live-tails via the broadcaster. Each frame has `id:`, `event:`, and `data:` lines; `data:` is a JSON event object.
+- **SSE stream** when the request includes `Accept: text/event-stream`. Replays a backfill since `?since=<position>`, then live-tails via the broadcaster. Each frame has `id:`, `event:`, and `data:` lines; the `id:` line carries the event's log position (so a browser's `Last-Event-ID` is usable verbatim as `?since=`) and `data:` is a JSON event object.
 - **JSON replay** otherwise. Returns a JSON array of events matching the query. No streaming.
 
 Query parameters (all optional, AND-composed):
 
 | Param   | Semantics                                                                 |
 |---------|---------------------------------------------------------------------------|
-| `since` | Only events with `id > since`. Integer (event id).                        |
+| `since` | Only events after this **log position** (`<ts>-<replica>-<seq>`), as each event's `position` field carries it. |
 | `limit` | JSON mode only; caps the returned array. Default 500, no upper clamp.     |
 | `actor` | Match on `actor` field exactly.                                           |
 | `task`  | Match on the task's short id. Matches events on that task only.           |
@@ -491,6 +491,7 @@ Response event shape (same in both modes):
 ```json
 {
   "id": 1234,
+  "position": "1756742400123-k7Qx2m-412",
   "task_id": "aM8eT",
   "task_title": "Ship the migration",
   "event_type": "claimed",
@@ -502,13 +503,15 @@ Response event shape (same in both modes):
 
 `task_title` is omitted when the event's task has been deleted.
 
+`position` is the cursor — the event's log position, agreed on by every replica. `id` is the local cache's row id and is renumbered whenever the cache is rebuilt from `.jobs/log`, so never resume from it.
+
 `detail` is an opaque JSON string whose schema varies per `event_type`; current keys include `note` (done/canceled), `text` (noted), and structural metadata for blocker/move events. Treat unknown keys as forward-compatible.
 
 Examples:
 
 ```sh
-# Backfill and live-tail everything since event 500
-curl -N -H 'Accept: text/event-stream' 'http://127.0.0.1:7823/events?since=500'
+# Backfill and live-tail everything after a known position
+curl -N -H 'Accept: text/event-stream' 'http://127.0.0.1:7823/events?since=1756742400123-k7Qx2m-412'
 
 # One-shot JSON of the 50 most recent `done` events by alice
 curl 'http://127.0.0.1:7823/events?actor=alice&type=done&limit=50'

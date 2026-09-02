@@ -394,35 +394,63 @@ func fetchLogStatus(t *testing.T, deps handlers.Deps, query string) (int, string
 	return w.Code, w.Body.String()
 }
 
-// maxEventID returns the current max event id in the test DB. Used to
-// fix `?at` boundaries in tests that need to compare against absolute
-// event ids the seed produced.
-func maxEventID(t *testing.T, db *sql.DB) int64 {
+// allEvents returns every event in the test DB, in log-position order.
+func allEvents(t *testing.T, db *sql.DB) []job.EventEntry {
 	t.Helper()
-	var id int64
-	if err := db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM events`).Scan(&id); err != nil {
-		t.Fatalf("maxEventID: %v", err)
+	events, err := job.GetEventsForTaskTree(db, "")
+	if err != nil {
+		t.Fatalf("GetEventsForTaskTree: %v", err)
 	}
-	return id
+	return events
 }
 
-// eventIDForTaskCreate returns the id of the `created` event for a
-// given short task id — the most reliable way to pin `?at` to a known
-// state ("just before" / "at" / "after" a particular task's creation).
-func eventIDForTaskCreate(t *testing.T, db *sql.DB, shortID string) int64 {
+// positionBack returns the encoded log position of the event `back` places
+// before the newest (0 = newest). The cursor `?at` takes is a position, not
+// a row id, so tests pin their boundaries the same way.
+func positionBack(t *testing.T, db *sql.DB, back int) string {
 	t.Helper()
-	var id int64
-	err := db.QueryRow(`
-		SELECT e.id FROM events e
-		JOIN tasks t ON t.id = e.task_id
-		WHERE t.short_id = ? AND e.event_type = 'created'
-		LIMIT 1
-	`, shortID).Scan(&id)
-	if err != nil {
-		t.Fatalf("eventIDForTaskCreate(%q): %v", shortID, err)
+	events := allEvents(t, db)
+	i := len(events) - 1 - back
+	if i < 0 {
+		t.Fatalf("positionBack(%d): only %d events", back, len(events))
 	}
-	return id
+	return events[i].Position().String()
 }
+
+// positionForTaskCreate returns the encoded position of the `created` event
+// for a short task id — the most reliable way to pin `?at` to a known state
+// ("just before" / "at" / "after" a particular task's creation).
+func positionForTaskCreate(t *testing.T, db *sql.DB, shortID string) string {
+	t.Helper()
+	for _, e := range allEvents(t, db) {
+		if e.ShortID == shortID && e.EventType == "created" {
+			return e.Position().String()
+		}
+	}
+	t.Fatalf("positionForTaskCreate(%q): no created event", shortID)
+	return ""
+}
+
+// positionBeforeTaskCreate returns the position of the event immediately
+// preceding a task's `created` event.
+func positionBeforeTaskCreate(t *testing.T, db *sql.DB, shortID string) string {
+	t.Helper()
+	events := allEvents(t, db)
+	for i, e := range events {
+		if e.ShortID == shortID && e.EventType == "created" {
+			if i == 0 {
+				t.Fatalf("positionBeforeTaskCreate(%q): it is the first event", shortID)
+			}
+			return events[i-1].Position().String()
+		}
+	}
+	t.Fatalf("positionBeforeTaskCreate(%q): no created event", shortID)
+	return ""
+}
+
+// atPastHead is a position later than any event a test can produce, used to
+// assert that a cursor beyond the log renders as live.
+const atPastHead = "9999999999999-zzzzzz-1"
 
 func TestLog_AtFiltersToUpperBoundInclusive(t *testing.T) {
 	db := setupLogTestDB(t)
@@ -432,19 +460,19 @@ func TestLog_AtFiltersToUpperBoundInclusive(t *testing.T) {
 
 	// Pin ?at to second-task's created event id. Inclusive: rows for
 	// first and second appear; third does not.
-	at := eventIDForTaskCreate(t, db, idSecond)
+	at := positionForTaskCreate(t, db, idSecond)
 
 	deps := newLogDeps(t, db)
-	body := stripInitialFrame(fetchLog(t, deps, "at="+strconv.FormatInt(at, 10)))
+	body := stripInitialFrame(fetchLog(t, deps, "at="+at))
 
 	if !strings.Contains(body, "first-task") {
-		t.Errorf("?at=%d should include first-task (event id < at)", at)
+		t.Errorf("?at=%s should include first-task (before the cursor)", at)
 	}
 	if !strings.Contains(body, "second-task") {
-		t.Errorf("?at=%d should include second-task (event id == at, inclusive)", at)
+		t.Errorf("?at=%s should include second-task (at the cursor, inclusive)", at)
 	}
 	if strings.Contains(body, "third-task") {
-		t.Errorf("?at=%d should NOT include third-task (event id > at)", at)
+		t.Errorf("?at=%s should NOT include third-task (after the cursor)", at)
 	}
 }
 
@@ -454,7 +482,7 @@ func TestLog_AtAboveHeadRendersAsLive(t *testing.T) {
 
 	// at far above any real event id behaves as if there were no filter.
 	deps := newLogDeps(t, db)
-	body := fetchLog(t, deps, "at=999999999")
+	body := fetchLog(t, deps, "at="+atPastHead)
 
 	if !strings.Contains(body, "live-task") {
 		t.Errorf("?at past head should render the same as live")
@@ -466,7 +494,8 @@ func TestLog_AtMalformedReturns400(t *testing.T) {
 	mustAdd(t, db, "alice", "task", nil, nil)
 	deps := newLogDeps(t, db)
 
-	for _, raw := range []string{"at=foo", "at=0", "at=-1", "at=1.5"} {
+	// A bare row id is no longer a cursor: a rebuild renumbers those.
+	for _, raw := range []string{"at=foo", "at=0", "at=-1", "at=1.5", "at=42"} {
 		t.Run(raw, func(t *testing.T) {
 			code, _ := fetchLogStatus(t, deps, raw)
 			if code != 400 {
@@ -483,10 +512,10 @@ func TestLog_AtScopesTotalEventsCounter(t *testing.T) {
 	mustAdd(t, db, "alice", "c", nil, nil)
 
 	// Pin ?at to the first event. TotalEvents should reflect 1, not 3.
-	at := eventIDForTaskCreate(t, db, idA)
+	at := positionForTaskCreate(t, db, idA)
 
 	deps := newLogDeps(t, db)
-	body := fetchLog(t, deps, "at="+strconv.FormatInt(at, 10))
+	body := fetchLog(t, deps, "at="+at)
 
 	// The total-events counter renders inline as part of the log meta
 	// strip. The exact wording can vary, but "1 event" should be
@@ -494,7 +523,7 @@ func TestLog_AtScopesTotalEventsCounter(t *testing.T) {
 	// We assert by looking at the page header copy that includes the
 	// total — searching for the exact strings the template emits.
 	if strings.Contains(body, "3 events") || strings.Contains(body, "of 3") {
-		t.Errorf("?at=%d should not surface the live-mode 3 events count", at)
+		t.Errorf("?at=%s should not surface the live-mode 3 events count", at)
 	}
 }
 
@@ -503,23 +532,22 @@ func TestLog_AtComposesWithActorFilter(t *testing.T) {
 	mustAdd(t, db, "alice", "alice-1", nil, nil)
 	mustAdd(t, db, "bob", "bob-1", nil, nil)
 	idLast := mustAdd(t, db, "alice", "alice-2", nil, nil)
-	atLast := eventIDForTaskCreate(t, db, idLast)
 
 	// Walk back one event from alice-2 — bob-1 is the most recent
 	// alice/bob mix before alice-2.
-	at := atLast - 1
+	at := positionBeforeTaskCreate(t, db, idLast)
 
 	deps := newLogDeps(t, db)
-	body := stripInitialFrame(fetchLog(t, deps, "actor=alice&at="+strconv.FormatInt(at, 10)))
+	body := stripInitialFrame(fetchLog(t, deps, "actor=alice&at="+at))
 
 	if !strings.Contains(body, "alice-1") {
-		t.Errorf("?actor=alice&at=%d should include alice-1", at)
+		t.Errorf("?actor=alice&at=%s should include alice-1", at)
 	}
 	if strings.Contains(body, "bob-1") {
-		t.Errorf("?actor=alice&at=%d should NOT include bob-1 (filtered by actor)", at)
+		t.Errorf("?actor=alice&at=%s should NOT include bob-1 (filtered by actor)", at)
 	}
 	if strings.Contains(body, "alice-2") {
-		t.Errorf("?actor=alice&at=%d should NOT include alice-2 (event id > at)", at)
+		t.Errorf("?actor=alice&at=%s should NOT include alice-2 (after the cursor)", at)
 	}
 }
 
@@ -531,19 +559,19 @@ func TestLog_AtComposesWithTypeFilter(t *testing.T) {
 	idA := mustAdd(t, db, "alice", "task-a", nil, nil)
 	mustClaim(t, db, idA, "alice")
 	mustAdd(t, db, "alice", "task-b", nil, nil) // created event, post-claim
-	atClaim := maxEventID(t, db) - 1            // pin to the claim event of task-a
+	atClaim := positionBack(t, db, 1)           // pin to the claim event of task-a
 
 	deps := newLogDeps(t, db)
-	body := stripInitialFrame(fetchLog(t, deps, "type=claimed&at="+strconv.FormatInt(atClaim, 10)))
+	body := stripInitialFrame(fetchLog(t, deps, "type=claimed&at="+atClaim))
 
 	// The claimed event for task-a is included; the created events
 	// for task-a and task-b are filtered out by ?type=claimed.
 	if !strings.Contains(body, "task-a") {
-		t.Errorf("?type=claimed&at=%d should surface task-a (its claim event matches both filters)", atClaim)
+		t.Errorf("?type=claimed&at=%s should surface task-a (its claim event matches both filters)", atClaim)
 	}
 	// task-b's only event is its `created`, which is filtered out.
 	if strings.Contains(body, "task-b") {
-		t.Errorf("?type=claimed&at=%d should NOT surface task-b (no claim event)", atClaim)
+		t.Errorf("?type=claimed&at=%s should NOT surface task-b (no claim event)", atClaim)
 	}
 }
 
@@ -555,20 +583,20 @@ func TestLog_AtComposesWithLabelFilter(t *testing.T) {
 	idLabeled := mustAdd(t, db, "alice", "labeled-task", nil, []string{"web"})
 	mustAdd(t, db, "alice", "plain-task", nil, nil)
 	idLater := mustAdd(t, db, "alice", "later-labeled", nil, []string{"web"})
-	atMid := eventIDForTaskCreate(t, db, idLater) - 1
+	atMid := positionBeforeTaskCreate(t, db, idLater)
 	_ = idLabeled
 
 	deps := newLogDeps(t, db)
-	body := stripInitialFrame(fetchLog(t, deps, "label=web&at="+strconv.FormatInt(atMid, 10)))
+	body := stripInitialFrame(fetchLog(t, deps, "label=web&at="+atMid))
 
 	if !strings.Contains(body, "labeled-task") {
-		t.Errorf("?label=web&at=%d should include labeled-task", atMid)
+		t.Errorf("?label=web&at=%s should include labeled-task", atMid)
 	}
 	if strings.Contains(body, "plain-task") {
-		t.Errorf("?label=web&at=%d should NOT include plain-task (no matching label)", atMid)
+		t.Errorf("?label=web&at=%s should NOT include plain-task (no matching label)", atMid)
 	}
 	if strings.Contains(body, "later-labeled") {
-		t.Errorf("?label=web&at=%d should NOT include later-labeled (event id > at)", atMid)
+		t.Errorf("?label=web&at=%s should NOT include later-labeled (after the cursor)", atMid)
 	}
 }
 
@@ -581,22 +609,22 @@ func TestLog_AtComposesWithTaskFilter(t *testing.T) {
 	mustAdd(t, db, "alice", "task-b", nil, nil) // separate task
 	mustClaim(t, db, idA, "alice")              // late event on task-a
 
-	atCreate := eventIDForTaskCreate(t, db, idA)
+	atCreate := positionForTaskCreate(t, db, idA)
 
 	deps := newLogDeps(t, db)
-	body := stripInitialFrame(fetchLog(t, deps, "task="+idA+"&at="+strconv.FormatInt(atCreate, 10)))
+	body := stripInitialFrame(fetchLog(t, deps, "task="+idA+"&at="+atCreate))
 
 	if !strings.Contains(body, "task-a") {
-		t.Errorf("?task=%s&at=%d should include task-a's creation event", idA, atCreate)
+		t.Errorf("?task=%s&at=%s should include task-a's creation event", idA, atCreate)
 	}
 	if strings.Contains(body, "task-b") {
-		t.Errorf("?task=%s&at=%d should NOT include task-b (different task tree)", idA, atCreate)
+		t.Errorf("?task=%s&at=%s should NOT include task-b (different task tree)", idA, atCreate)
 	}
 	// task-a's claim is event id > atCreate; the verb must not appear.
 	rows := splitLogRows(body)
 	for _, r := range rows {
 		if strings.Contains(r, "claimed") {
-			t.Errorf("?task=%s&at=%d should NOT include the post-at claim event, got row:\n%s", idA, atCreate, r)
+			t.Errorf("?task=%s&at=%s should NOT include the post-at claim event, got row:\n%s", idA, atCreate, r)
 		}
 	}
 }

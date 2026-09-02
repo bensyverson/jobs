@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bensyverson/jobs/internal/eventlog"
 	"github.com/bensyverson/jobs/internal/web/handlers"
 )
 
@@ -102,26 +103,37 @@ func TestParseLogFilters_TableDriven(t *testing.T) {
 	}
 }
 
-// TestParseLogFilters_At covers the new ?at upper-bound event filter.
+// TestParseLogFilters_At covers the ?at upper-bound cursor.
 // Unlike since/before/limit (forgiving — malformed values silently zero),
 // ?at follows the time-travel scope: a present-but-unparseable value sets
 // AtInvalid so the handler can return 400. Empty / absent ?at means "no
-// upper bound" (live). Non-positive values are also flagged invalid since
-// 0 is the sentinel for "unset" and event ids start at 1.
+// upper bound" (live). A bare row id is no longer a valid cursor — a
+// rebuild renumbers those — so it is rejected rather than silently
+// resolving to a different event.
 func TestParseLogFilters_At(t *testing.T) {
 	cases := []struct {
 		name        string
 		raw         string
-		wantAt      int64
+		wantAt      eventlog.Position
 		wantInvalid bool
 	}{
-		{name: "absent → zero, valid", raw: "", wantAt: 0, wantInvalid: false},
-		{name: "empty value → zero, valid", raw: "at=", wantAt: 0, wantInvalid: false},
-		{name: "positive int → set, valid", raw: "at=42", wantAt: 42, wantInvalid: false},
-		{name: "non-numeric → zero, invalid", raw: "at=foo", wantAt: 0, wantInvalid: true},
-		{name: "zero → invalid (0 is sentinel)", raw: "at=0", wantAt: 0, wantInvalid: true},
-		{name: "negative → invalid", raw: "at=-1", wantAt: 0, wantInvalid: true},
-		{name: "huge positive → set, valid", raw: "at=999999999", wantAt: 999999999, wantInvalid: false},
+		{name: "absent → zero, valid", raw: ""},
+		{name: "empty value → zero, valid", raw: "at="},
+		{
+			name:   "position → set, valid",
+			raw:    "at=1756742400123-k7Qx2m-412",
+			wantAt: eventlog.Position{TS: 1756742400123, Rep: "k7Qx2m", Seq: 412},
+		},
+		{
+			name:   "legacy position (empty rep) → set, valid",
+			raw:    "at=1756742400000--991",
+			wantAt: eventlog.Position{TS: 1756742400000, Seq: 991},
+		},
+		{name: "non-numeric → invalid", raw: "at=foo", wantInvalid: true},
+		{name: "a bare row id is not a position → invalid", raw: "at=42", wantInvalid: true},
+		{name: "zero → invalid", raw: "at=0", wantInvalid: true},
+		{name: "negative → invalid", raw: "at=-1", wantInvalid: true},
+		{name: "seq zero → invalid", raw: "at=1756742400123-k7Qx2m-0", wantInvalid: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -131,10 +143,13 @@ func TestParseLogFilters_At(t *testing.T) {
 			}
 			got := handlers.ParseLogFilters(q)
 			if got.At != tc.wantAt {
-				t.Errorf("At = %d, want %d", got.At, tc.wantAt)
+				t.Errorf("At = %+v, want %+v", got.At, tc.wantAt)
 			}
 			if got.AtInvalid != tc.wantInvalid {
 				t.Errorf("AtInvalid = %v, want %v", got.AtInvalid, tc.wantInvalid)
+			}
+			if got.Live() != (tc.wantAt == eventlog.Position{}) {
+				t.Errorf("Live() = %v for At = %+v", got.Live(), got.At)
 			}
 		})
 	}

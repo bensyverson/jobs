@@ -375,11 +375,12 @@ func isTimelineVerb(v string) bool {
 // a later phase task if needed.
 func loadActorEvents(ctx context.Context, db *sql.DB, name string, now time.Time) ([]LogEventRow, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT e.id, e.task_id, e.event_type, e.created_at, e.detail, t.short_id, t.title
+		SELECT e.id, e.task_id, e.event_type, e.created_at, e.detail, e.ts, e.rep, e.seq,
+		       t.short_id, t.title
 		FROM events e
 		JOIN tasks t ON t.id = e.task_id
 		WHERE e.actor = ? AND t.deleted_at IS NULL
-		ORDER BY e.created_at DESC, e.id DESC
+		ORDER BY e.ts DESC, e.rep DESC, CASE WHEN e.rep = '' THEN e.id ELSE e.seq END DESC
 		LIMIT ?
 	`, name, ActorEventListLimit)
 	if err != nil {
@@ -391,7 +392,8 @@ func loadActorEvents(ctx context.Context, db *sql.DB, name string, now time.Time
 	for rows.Next() {
 		var e job.EventEntry
 		var title string
-		if err := rows.Scan(&e.ID, &e.TaskID, &e.EventType, &e.CreatedAt, &e.Detail, &e.ShortID, &title); err != nil {
+		if err := rows.Scan(&e.ID, &e.TaskID, &e.EventType, &e.CreatedAt, &e.Detail,
+			&e.TS, &e.Rep, &e.Seq, &e.ShortID, &title); err != nil {
 			return nil, err
 		}
 		e.Actor = name

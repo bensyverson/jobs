@@ -7,6 +7,9 @@ import (
 	"slices"
 	"strconv"
 	"time"
+
+	"github.com/bensyverson/jobs/internal/eventlog"
+	job "github.com/bensyverson/jobs/internal/job"
 )
 
 // logChipCap is how many entity chips a strip shows before the rest
@@ -63,8 +66,8 @@ func (c logChipCtx) url(setKey, setValue string) string {
 	// buildRangeTabs preserves it: a chip toggles one filter axis, it
 	// doesn't exit history. Absent (0) means live, so the parameter is
 	// omitted rather than written as "at=0".
-	if c.f.At > 0 {
-		q.Set("at", strconv.FormatInt(c.f.At, 10))
+	if !c.f.Live() {
+		q.Set("at", c.f.At.String())
 	}
 	if setValue == "" {
 		q.Del(setKey)
@@ -226,23 +229,23 @@ func (c logChipCtx) strip(lead LogChip, entity []LogChip) LogChipStrip {
 //
 // at is the time-travel upper bound (0 when live), so under ?at= the
 // strip reflects who was active as of that moment.
-func actorsInRange(ctx context.Context, db *sql.DB, at int64, rg Range) ([]string, error) {
+func actorsInRange(ctx context.Context, db *sql.DB, at eventlog.Position, rg Range) ([]string, error) {
 	query := `
-		SELECT actor, MAX(created_at) AS last_at, MAX(id) AS last_id
-		FROM events
-		WHERE actor <> ''`
+		SELECT e.actor, MAX(e.created_at) AS last_at, MAX(e.ts) AS last_ts
+		FROM events e
+		WHERE e.actor <> ''`
 	args := []any{}
-	if at > 0 {
-		query += " AND id <= ?"
-		args = append(args, at)
+	if at != (eventlog.Position{}) {
+		query += " AND " + job.EventPositionExpr("e") + " <= (?, ?, ?)"
+		args = append(args, job.EventPositionArgs(at)...)
 	}
 	if rg.Bounded() {
-		query += " AND created_at >= ?"
+		query += " AND e.created_at >= ?"
 		args = append(args, rg.Cutoff)
 	}
 	query += `
-		GROUP BY actor
-		ORDER BY last_at DESC, last_id DESC, actor ASC`
+		GROUP BY e.actor
+		ORDER BY last_at DESC, last_ts DESC, e.actor ASC`
 	return queryNames(ctx, db, query, args...)
 }
 
@@ -250,17 +253,17 @@ func actorsInRange(ctx context.Context, db *sql.DB, at int64, rg Range) ([]strin
 // event inside the window, ordered by that most recent event. Same
 // argument as actorsInRange: the strip should offer the filters this
 // window can actually produce rows for.
-func labelsInRange(ctx context.Context, db *sql.DB, at int64, rg Range) ([]string, error) {
+func labelsInRange(ctx context.Context, db *sql.DB, at eventlog.Position, rg Range) ([]string, error) {
 	query := `
-		SELECT tl.name, MAX(e.created_at) AS last_at, MAX(e.id) AS last_id
+		SELECT tl.name, MAX(e.created_at) AS last_at, MAX(e.ts) AS last_ts
 		FROM task_labels tl
 		JOIN tasks t ON t.id = tl.task_id
 		JOIN events e ON e.task_id = tl.task_id
 		WHERE t.deleted_at IS NULL`
 	args := []any{}
-	if at > 0 {
-		query += " AND e.id <= ?"
-		args = append(args, at)
+	if at != (eventlog.Position{}) {
+		query += " AND " + job.EventPositionExpr("e") + " <= (?, ?, ?)"
+		args = append(args, job.EventPositionArgs(at)...)
 	}
 	if rg.Bounded() {
 		query += " AND e.created_at >= ?"
@@ -268,14 +271,15 @@ func labelsInRange(ctx context.Context, db *sql.DB, at int64, rg Range) ([]strin
 	}
 	query += `
 		GROUP BY tl.name
-		ORDER BY last_at DESC, last_id DESC, tl.name ASC`
+		ORDER BY last_at DESC, last_ts DESC, tl.name ASC`
 	return queryNames(ctx, db, query, args...)
 }
 
-// queryNames runs a (name, last_at, last_id) query and returns the
-// names in the order the query produced them. created_at has
-// one-second granularity, so the event id breaks the ties a busy
-// second produces — the same tiebreak the event list itself uses.
+// queryNames runs a (name, last_at, last_ts) query and returns the names in
+// the order the query produced them. created_at has one-second granularity,
+// so the event's millisecond log clock breaks the ties a busy second
+// produces. The row id would have done as well until a rebuild renumbered
+// it; ts does not move.
 func queryNames(ctx context.Context, db *sql.DB, query string, args ...any) ([]string, error) {
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -285,8 +289,8 @@ func queryNames(ctx context.Context, db *sql.DB, query string, args ...any) ([]s
 	var out []string
 	for rows.Next() {
 		var name string
-		var lastAt, lastID int64
-		if err := rows.Scan(&name, &lastAt, &lastID); err != nil {
+		var lastAt, lastTS int64
+		if err := rows.Scan(&name, &lastAt, &lastTS); err != nil {
 			return nil, err
 		}
 		out = append(out, name)
@@ -308,10 +312,10 @@ func logEmptyText(f LogFilters, rg Range) string {
 	return "No events in the last " + rangeSpanWords(rg.Key) + "."
 }
 
-// moreURL returns /log?…&before=<oldestID>, preserving every other
+// moreURL returns /log?…&before=<oldest position>, preserving every other
 // filter — the window included — so paging through to older events
 // keeps the same view rather than escaping the range.
-func moreURL(c logChipCtx, oldestID int64) string {
+func moreURL(c logChipCtx, oldest eventlog.Position) string {
 	q := url.Values{}
 	set := func(k, v string) {
 		if v != "" {
@@ -334,9 +338,9 @@ func moreURL(c logChipCtx, oldestID int64) string {
 	if c.chipsAll {
 		q.Set("chips", chipsAllValue)
 	}
-	if c.f.At > 0 {
-		q.Set("at", strconv.FormatInt(c.f.At, 10))
+	if !c.f.Live() {
+		q.Set("at", c.f.At.String())
 	}
-	q.Set("before", strconv.FormatInt(oldestID, 10))
+	q.Set("before", oldest.String())
 	return "/log?" + q.Encode()
 }

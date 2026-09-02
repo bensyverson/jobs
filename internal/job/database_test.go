@@ -2297,7 +2297,7 @@ func TestRunLog_FormattedJSON(t *testing.T) {
 
 // --- Tail ---
 
-func TestGetEventsAfterID_ReturnsNewEvents(t *testing.T) {
+func TestGetEventsAfterPosition_ReturnsNewEvents(t *testing.T) {
 	db := SetupTestDB(t)
 	id := MustAdd(t, db, "", "Task")
 
@@ -2311,9 +2311,9 @@ func TestGetEventsAfterID_ReturnsNewEvents(t *testing.T) {
 
 	MustClaim(t, db, id, "1h")
 
-	newEvents, err := getEventsAfterID(db, id, allEvents[0].ID)
+	newEvents, err := GetEventsAfterPosition(db, id, allEvents[0].Position())
 	if err != nil {
-		t.Fatalf("getEventsAfterID: %v", err)
+		t.Fatalf("GetEventsAfterPosition: %v", err)
 	}
 	// The claim emits claimed and nothing else: the focus flip is local.
 	if len(newEvents) != 1 {
@@ -2324,7 +2324,7 @@ func TestGetEventsAfterID_ReturnsNewEvents(t *testing.T) {
 	}
 }
 
-func TestGetEventsAfterID_NoNewEvents(t *testing.T) {
+func TestGetEventsAfterPosition_NoNewEvents(t *testing.T) {
 	db := SetupTestDB(t)
 	id := MustAdd(t, db, "", "Task")
 
@@ -2333,9 +2333,9 @@ func TestGetEventsAfterID_NoNewEvents(t *testing.T) {
 		t.Fatalf("GetEventsForTaskTree: %v", err)
 	}
 
-	newEvents, err := getEventsAfterID(db, id, allEvents[0].ID)
+	newEvents, err := GetEventsAfterPosition(db, id, allEvents[0].Position())
 	if err != nil {
-		t.Fatalf("getEventsAfterID: %v", err)
+		t.Fatalf("GetEventsAfterPosition: %v", err)
 	}
 	if len(newEvents) != 0 {
 		t.Errorf("expected 0 new events, got %d", len(newEvents))

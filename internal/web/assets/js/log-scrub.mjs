@@ -1,7 +1,7 @@
 /*
   Log-view scrubber driver.
 
-  /log is an event-window view: the server already honors ?at=N
+  /log is an event-window view: the server already honors ?at=<position>
   (R0Ro4) and emits the right HTML at any cursor — the chip
   vocabulary, the "showing N of M events" counter, and the rendered
   rows are all scoped to the at-window, and every chip href (like the
@@ -67,7 +67,7 @@ if (typeof document !== "undefined") {
   function init() {
     if (!findLog(document)) return;
     document.addEventListener("jobs:scrubber-frame", () => {
-      // syncURL has already set ?at=N on the address bar by the time
+      // syncURL has already set ?at=<position> on the address bar by the time
       // this fires; refetching window.location.href returns the
       // server-rendered page at that cursor.
       refetchAndSwap(window.location.href);

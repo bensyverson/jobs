@@ -1,5 +1,5 @@
 // replay-snapshot reproduces the server-side state of the dashboard
-// graph at any historical event id.
+// graph at any historical log position.
 //
 // The dashboard's scrubber moves the cursor through past events; the
 // JS replay buffer reduces SQLite events into a Frame and POSTs a
@@ -10,10 +10,12 @@
 //
 // Usage:
 //
-//	go run ./scripts/replay-snapshot --db=.jobs.db --at=1288
+//	go run ./scripts/replay-snapshot --db=.jobs.db --at=1756742400123-k7Qx2m-412
 //
-// --at=0 (the default) replays every event — equivalent to the
-// current world the live server would render.
+// --at is the same cursor the dashboard's ?at= carries: a log position
+// (<ts>-<replica>-<seq>), not a row id, because a rebuild renumbers row
+// ids. An empty --at (the default) replays every event — equivalent to
+// the current world the live server would render.
 //
 // The sort key is taken from the current tasks table rather than from
 // "created" event payloads. This mirrors the dashboard's JS replay,
@@ -40,18 +42,29 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/bensyverson/jobs/internal/eventlog"
+	job "github.com/bensyverson/jobs/internal/job"
 	"github.com/bensyverson/jobs/internal/web/render"
 	"github.com/bensyverson/jobs/internal/web/signals"
 )
 
 func main() {
 	var dbPath string
-	var atEvent int64
+	var atRaw string
 	var inputOnly bool
 	flag.StringVar(&dbPath, "db", ".jobs.db", "path to the Jobs SQLite DB")
-	flag.Int64Var(&atEvent, "at", 0, "replay through this event id (0 = all events)")
+	flag.StringVar(&atRaw, "at", "", "replay through this log position, as ?at= carries it (empty = all events)")
 	flag.BoolVar(&inputOnly, "input-only", false, "print only the SubwayInput JSON (useful for piping into /home/graph)")
 	flag.Parse()
+
+	var atEvent eventlog.Position
+	if atRaw != "" {
+		p, perr := eventlog.ParsePosition(atRaw)
+		if perr != nil {
+			log.Fatalf("--at: %v", perr)
+		}
+		atEvent = p
+	}
 
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -79,8 +92,12 @@ func main() {
 		return
 	}
 
-	fmt.Printf("# replay-snapshot · db=%s · at=%d · last replayed event=%d\n",
-		dbPath, atEvent, f.eventID)
+	at := "all"
+	if atEvent != (eventlog.Position{}) {
+		at = atEvent.String()
+	}
+	fmt.Printf("# replay-snapshot · db=%s · at=%s · last replayed event=%s\n",
+		dbPath, at, f.position)
 	fmt.Printf("# %d tasks · %d blocks\n\n", len(in.Tasks), len(in.Blocks))
 
 	sub := signals.BuildSubwayFromInput(in)
@@ -158,7 +175,7 @@ type frame struct {
 	tasks           map[string]*ftask
 	blocks          map[string]map[string]bool // blocked_short → set of blocker_short
 	currentSortKeys map[string]string
-	eventID         int64
+	position        string
 }
 
 type ftask struct {
@@ -188,30 +205,29 @@ func loadCurrentSortKeys(ctx context.Context, db *sql.DB) (map[string]string, er
 	return out, rows.Err()
 }
 
-func buildFrameAt(ctx context.Context, db *sql.DB, atEvent int64, currentSortKeys map[string]string) (*frame, error) {
+func buildFrameAt(ctx context.Context, db *sql.DB, atEvent eventlog.Position, currentSortKeys map[string]string) (*frame, error) {
 	f := &frame{
 		tasks:           map[string]*ftask{},
 		blocks:          map[string]map[string]bool{},
 		currentSortKeys: currentSortKeys,
 	}
 
+	// Order and bound by the log position, the same cursor the dashboard
+	// uses: a rebuild renumbers e.id, so replaying "up to id N" walks a
+	// different prefix after every pull.
+	const cols = `SELECT e.id, e.ts, e.rep, e.seq, COALESCE(t.short_id, ''), e.event_type, e.actor, COALESCE(e.detail, '')
+			FROM events e
+			LEFT JOIN tasks t ON t.id = e.task_id`
+	const order = ` ORDER BY e.ts, e.rep, CASE WHEN e.rep = '' THEN e.id ELSE e.seq END`
+
 	var rows *sql.Rows
 	var err error
-	if atEvent <= 0 {
-		rows, err = db.QueryContext(ctx, `
-			SELECT e.id, COALESCE(t.short_id, ''), e.event_type, e.actor, COALESCE(e.detail, '')
-			FROM events e
-			LEFT JOIN tasks t ON t.id = e.task_id
-			ORDER BY e.id
-		`)
+	if atEvent == (eventlog.Position{}) {
+		rows, err = db.QueryContext(ctx, cols+order)
 	} else {
-		rows, err = db.QueryContext(ctx, `
-			SELECT e.id, COALESCE(t.short_id, ''), e.event_type, e.actor, COALESCE(e.detail, '')
-			FROM events e
-			LEFT JOIN tasks t ON t.id = e.task_id
-			WHERE e.id <= ?
-			ORDER BY e.id
-		`, atEvent)
+		rows, err = db.QueryContext(ctx,
+			cols+" WHERE "+job.EventPositionExpr("e")+" <= (?, ?, ?)"+order,
+			job.EventPositionArgs(atEvent)...)
 	}
 	if err != nil {
 		return nil, err
@@ -219,9 +235,11 @@ func buildFrameAt(ctx context.Context, db *sql.DB, atEvent int64, currentSortKey
 	defer rows.Close()
 
 	for rows.Next() {
-		var id int64
+		var id, ts int64
+		var rep string
+		var seq uint64
 		var taskShort, eventType, actor, detailStr string
-		if err := rows.Scan(&id, &taskShort, &eventType, &actor, &detailStr); err != nil {
+		if err := rows.Scan(&id, &ts, &rep, &seq, &taskShort, &eventType, &actor, &detailStr); err != nil {
 			return nil, err
 		}
 		var detail map[string]any
@@ -229,7 +247,7 @@ func buildFrameAt(ctx context.Context, db *sql.DB, atEvent int64, currentSortKey
 			_ = json.Unmarshal([]byte(detailStr), &detail)
 		}
 		applyEventReplay(f, taskShort, eventType, actor, detail, f.currentSortKeys)
-		f.eventID = id
+		f.position = job.EventEntry{ID: id, TS: ts, Rep: rep, Seq: seq}.Position().String()
 	}
 	return f, rows.Err()
 }

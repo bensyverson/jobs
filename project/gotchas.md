@@ -61,3 +61,7 @@ Also: sleepy renders offscreen with `document.visibilityState === "hidden"`, so 
 - `which woodcase` reported "not found" inside the sandbox while the binary ran, because `~/.swiftpm/bin` was unreadable; it is allow-listed now. Don't conclude a working command is a shell function.
 - In zsh a bare word starting with `=` (`echo =====`) is `=cmd` expansion and errors as "not found"; quote separators.
 - Lucide's check icon is `circle-check`; `check-circle-2` renders nothing, silently — read the PNG.
+
+## 2026-09-01 — a shared JS module must be listed in the layout's importmap, or it 404s silently
+
+**Assets are content-fingerprinted, so `import … from "./position.mjs"` inside a hashed module resolves to `/static/js/position.mjs`, which `Manifest.Handler` 404s on purpose.** The layout's `<script type="importmap">` block is what maps each unhashed specifier onto the fingerprinted URL — and a module missing from it takes down the *whole* module graph downstream of it with **no console error at all**: `sleepy load` reported zero console errors while the scrubber silently never entered history mode. `sleepy wire` was what showed the 404. `internal/web/templates/importmap_test.go` now scans every relative import under `assets/js/` and fails when one has no importmap entry.

@@ -18,16 +18,26 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+
+	"github.com/bensyverson/jobs/internal/eventlog"
+	job "github.com/bensyverson/jobs/internal/job"
 )
 
 // Frame is the JSON shape the JS reducer's initialFrame() consumes.
 // Field tags match the JS field names exactly — the server is
 // authoritative on the wire format.
 type Frame struct {
-	HeadEventID int64        `json:"headEventId"`
-	Tasks       []TaskState  `json:"tasks"`
-	Blocks      []BlockEdge  `json:"blocks"`
-	Claims      []ClaimState `json:"claims"`
+	// HeadPosition is the log position of the newest event — the cursor the
+	// scrubber's head frame sits at. Empty when the log is empty. A log
+	// position rather than a row id because a rebuild renumbers row ids.
+	HeadPosition string `json:"headPosition"`
+	// EventCount is how many events the head frame is that many steps past
+	// genesis. The replay buffer uses it as the head frame's ordinal and as
+	// the page size for its one events fetch.
+	EventCount int          `json:"eventCount"`
+	Tasks      []TaskState  `json:"tasks"`
+	Blocks     []BlockEdge  `json:"blocks"`
+	Claims     []ClaimState `json:"claims"`
 }
 
 // TaskState describes one task at the head moment. parentShortId is
@@ -91,11 +101,18 @@ type ClaimState struct {
 func Load(ctx context.Context, db *sql.DB) (Frame, error) {
 	var f Frame
 
-	if err := db.QueryRowContext(ctx,
-		`SELECT COALESCE(MAX(id), 0) FROM events`,
-	).Scan(&f.HeadEventID); err != nil {
-		return f, fmt.Errorf("head event id: %w", err)
+	head, err := job.GetHeadPosition(db)
+	if err != nil {
+		return f, fmt.Errorf("head position: %w", err)
 	}
+	if head != (eventlog.Position{}) {
+		f.HeadPosition = head.String()
+	}
+	count, err := job.CountEvents(db)
+	if err != nil {
+		return f, fmt.Errorf("event count: %w", err)
+	}
+	f.EventCount = count
 
 	tasks, err := loadTasks(ctx, db)
 	if err != nil {

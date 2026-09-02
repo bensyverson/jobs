@@ -5,7 +5,7 @@
   the /actors view can rebuild itself off the in-memory event log when
   the scrubber moves the cursor. Same shapes, same defaults, same
   rollup rules — the column DOM matches what plan.go would render at
-  the cursor's event id.
+  the cursor's log position.
 
   Inputs:
     events  Array<Event>  — events with id <= cursor, in id-asc order.

@@ -36,8 +36,20 @@ func (p Position) Compare(q Position) int {
 // Less reports whether p sorts before q.
 func (p Position) Less(q Position) bool { return p.Compare(q) < 0 }
 
+// Legacy reports whether p addresses a row translated from a pre-log database.
+//
+// Before adoption those rows carry no replica and no seq — rep "" and seq 0,
+// with ts = created_at*1000 — so there is nothing globally unique to address
+// them by. Their cursor puts the cache's own row id in the seq slot instead,
+// which makes the position total within one cache and meaningless outside it:
+// a legacy cursor must never be handed to another replica. Adoption gives
+// every such row a real position, so a legacy cursor is only ever seen on a
+// cache read with JOBS_NO_ADOPT set.
+func (p Position) Legacy() bool { return p.Rep == "" }
+
 // String encodes p as "<ts>-<rep>-<seq>", URL-safe because rep is base62 and
-// the other two are decimal.
+// the other two are decimal. A legacy position (see [Position.Legacy]) has an
+// empty rep and encodes as "<ts>--<rowid>".
 //
 // The encoding is a cursor, not a sort key: compare positions by parsing them,
 // not by comparing the strings.
@@ -55,7 +67,7 @@ func ParsePosition(s string) (Position, error) {
 	if err != nil || ts <= 0 {
 		return Position{}, fmt.Errorf("eventlog: %q has no valid ts", s)
 	}
-	if !ValidReplicaID(parts[1]) {
+	if parts[1] != "" && !ValidReplicaID(parts[1]) {
 		return Position{}, fmt.Errorf("eventlog: %q has no valid rep", s)
 	}
 	seq, err := strconv.ParseUint(parts[2], 10, 64)

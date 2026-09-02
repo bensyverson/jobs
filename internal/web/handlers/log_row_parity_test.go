@@ -122,6 +122,7 @@ func TestLogRowParity_ServerAndClientMarkupMatch(t *testing.T) {
 
 	type clientEvent struct {
 		ID        int64  `json:"id"`
+		Position  string `json:"position"`
 		TaskID    string `json:"task_id"`
 		TaskTitle string `json:"task_title"`
 		EventType string `json:"event_type"`
@@ -135,6 +136,9 @@ func TestLogRowParity_ServerAndClientMarkupMatch(t *testing.T) {
 	for i, f := range parityFixtures {
 		e := job.EventEntry{
 			ID:        int64(i + 1),
+			TS:        1756742400000,
+			Rep:       "k7Qx2m",
+			Seq:       uint64(i + 1),
 			TaskID:    7,
 			ShortID:   "AbC12",
 			EventType: f.eventType,
@@ -152,6 +156,7 @@ func TestLogRowParity_ServerAndClientMarkupMatch(t *testing.T) {
 		serverRows = append(serverRows, normalizeRowHTML(sb.String()))
 		events = append(events, clientEvent{
 			ID:        e.ID,
+			Position:  e.Position().String(),
 			TaskID:    e.ShortID,
 			TaskTitle: parityTitle,
 			EventType: e.EventType,
@@ -408,6 +413,7 @@ func TestLogRowParity_ActorPageMatchesClient(t *testing.T) {
 
 	type clientEvent struct {
 		ID        int64  `json:"id"`
+		Position  string `json:"position"`
 		TaskID    string `json:"task_id"`
 		TaskTitle string `json:"task_title"`
 		EventType string `json:"event_type"`
@@ -421,6 +427,9 @@ func TestLogRowParity_ActorPageMatchesClient(t *testing.T) {
 	for i, f := range parityFixtures {
 		e := job.EventEntry{
 			ID:        int64(i + 1),
+			TS:        1756742400000,
+			Rep:       "k7Qx2m",
+			Seq:       uint64(i + 1),
 			TaskID:    7,
 			ShortID:   "AbC12",
 			EventType: f.eventType,
@@ -436,6 +445,7 @@ func TestLogRowParity_ActorPageMatchesClient(t *testing.T) {
 		serverRows = append(serverRows, normalizeRowHTML(sb.String()))
 		events = append(events, clientEvent{
 			ID:        e.ID,
+			Position:  e.Position().String(),
 			TaskID:    e.ShortID,
 			TaskTitle: parityTitle,
 			EventType: e.EventType,

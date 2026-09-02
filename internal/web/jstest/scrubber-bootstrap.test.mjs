@@ -24,13 +24,15 @@ import {
 
 test("parseInitialFrameJSON: valid payload returns the parsed object", () => {
   const raw = JSON.stringify({
-    headEventId: 5,
+    headPosition: "1000-aaaaaa-5",
+    eventCount: 5,
     tasks: [{ shortId: "ABC12", title: "T", status: "available", sortKey: "000000" }],
     blocks: [],
     claims: [],
   });
   const payload = parseInitialFrameJSON(raw);
-  assert.equal(payload.headEventId, 5);
+  assert.equal(payload.headPosition, "1000-aaaaaa-5");
+  assert.equal(payload.eventCount, 5);
   assert.equal(payload.tasks.length, 1);
 });
 
@@ -53,7 +55,8 @@ test("createScrubber: returns null when payload is null", () => {
 
 test("createScrubber: returns a ReplayBuffer wired to the head event", async () => {
   const payload = {
-    headEventId: 0,
+    headPosition: "",
+    eventCount: 0,
     tasks: [],
     blocks: [],
     claims: [],
@@ -61,8 +64,9 @@ test("createScrubber: returns a ReplayBuffer wired to the head event", async () 
   const buf = createScrubber(payload, async () => []);
   assert.notEqual(buf, null);
   // Head lookup must not call the fetcher and must return the seed.
-  const head = await buf.frameAt(0);
-  assert.equal(head.eventId, 0);
+  const head = await buf.frameAt(null);
+  assert.equal(head.ordinal, 0);
+  assert.equal(head.position, null);
 });
 
 // --- buildEventsFetcher ---
@@ -75,15 +79,15 @@ test("buildEventsFetcher: composes the URL with since and limit", async () => {
     return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
   };
   const fetcher = buildEventsFetcher({ baseURL: "http://example.test/events", fetch: stubFetch });
-  await fetcher({ since: 42, limit: 10 });
+  await fetcher({ since: "1000-aaaaaa-42", limit: 10 });
 
   assert.equal(urls.length, 1);
   const url = new URL(urls[0]);
-  assert.equal(url.searchParams.get("since"), "42");
+  assert.equal(url.searchParams.get("since"), "1000-aaaaaa-42");
   assert.equal(url.searchParams.get("limit"), "10");
 });
 
-test("buildEventsFetcher: omits since when zero (matches /events default)", async () => {
+test("buildEventsFetcher: omits since when there is no cursor (matches the /events default)", async () => {
   const urls = [];
   const stubFetch = async (input) => {
     urls.push(typeof input === "string" ? input : input.toString());
@@ -96,11 +100,24 @@ test("buildEventsFetcher: omits since when zero (matches /events default)", asyn
   assert.equal(url.searchParams.has("since"), false);
 });
 
+test("buildEventsFetcher: a bare row id is not a cursor and is never sent", async () => {
+  const urls = [];
+  const stubFetch = async (input) => {
+    urls.push(typeof input === "string" ? input : input.toString());
+    return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const fetcher = buildEventsFetcher({ baseURL: "http://example.test/events", fetch: stubFetch });
+  await fetcher({ since: 42, limit: 5 });
+
+  const url = new URL(urls[0]);
+  assert.equal(url.searchParams.has("since"), false);
+});
+
 test("buildEventsFetcher: surfaces non-2xx responses as thrown errors", async () => {
   const stubFetch = async () =>
     new Response("nope", { status: 500 });
   const fetcher = buildEventsFetcher({ baseURL: "http://example.test/events", fetch: stubFetch });
-  await assert.rejects(() => fetcher({ since: 0, limit: 10 }), /500/);
+  await assert.rejects(() => fetcher({ since: null, limit: 10 }), /500/);
 });
 
 test("buildEventsFetcher: normalizes wire shape (detail string → object, RFC3339 → unix)", async () => {

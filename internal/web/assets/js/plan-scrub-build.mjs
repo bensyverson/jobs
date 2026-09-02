@@ -6,7 +6,7 @@
   pickStripLabels, planURL, DisplayStatus) and internal/web/render/relative_time.go (RelativeTime).
   Same shapes, same defaults — when a user scrubs through history the
   Plan section reads identically to its SSR cousin at the cursor's
-  event id, with notes and rel-times pinned to that moment.
+  log position, with notes and rel-times pinned to that moment.
 
   Inputs are Frame objects produced by replay.mjs. Outputs are plain
   PlanNode trees the renderer walks; no DOM, no globals, no async.

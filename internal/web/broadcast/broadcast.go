@@ -3,7 +3,7 @@
 // polls once per interval and fans each batch of new events out to
 // every subscriber's channel.
 //
-// Startup seed: on [Broadcaster.Start] the current MAX(events.id) is
+// Startup seed: on [Broadcaster.Start] the newest event's log position is
 // captured and used as the initial poll cursor, so the first poll
 // only delivers events that arrived after startup. Without this seed
 // the first poll would re-deliver every event already in the DB —
@@ -11,16 +11,18 @@
 // code path that reads Subscribe() as "future events."
 //
 // Subscription handoff: [Broadcaster.Subscribe] returns the channel
-// plus a LastID snapshot captured under the same lock that registered
+// plus a Cutoff snapshot captured under the same lock that registered
 // the subscriber. Callers that splice a backfill into a live stream
-// use LastID as the backfill's upper bound and dedup anything on the
-// channel whose id <= LastID.
+// use Cutoff as the backfill's upper bound and dedup anything on the
+// channel at or before it. The cursor is the log position, never the
+// cache's row id: a rebuild renumbers row ids, so an id cursor would
+// replay or skip whatever a pull displaced.
 //
 // Backpressure: fanout uses a non-blocking send with a per-subscriber
 // buffered channel. If a subscriber can't keep up, the broadcaster
 // drops the event for that subscriber rather than blocking the fleet.
 // The subscriber's recovery strategy is to reconnect with
-// ?since=<last_id>. Dropped events are counted in [Broadcaster.Dropped].
+// ?since=<position>. Dropped events are counted in [Broadcaster.Dropped].
 //
 // Lifecycle: [Broadcaster.Start] blocks until ctx cancel, then closes
 // every subscriber's channel so consumers see a closed-channel signal
@@ -33,9 +35,9 @@ import (
 	"database/sql"
 	"log"
 	"sync"
-	"sync/atomic"
 	"time"
 
+	"github.com/bensyverson/jobs/internal/eventlog"
 	job "github.com/bensyverson/jobs/internal/job"
 )
 
@@ -56,11 +58,10 @@ type Broadcaster struct {
 	db           *sql.DB
 	pollInterval time.Duration
 
-	// lastID is the highest event id the poll loop has delivered.
-	// Updated monotonically from the poll goroutine; read atomically
-	// elsewhere so Subscribe can hand out a cutoff snapshot without
-	// taking the subscribers-map lock on the read path.
-	lastID atomic.Int64
+	// cursor is the log position of the newest event the poll loop has
+	// delivered. Updated monotonically from the poll goroutine; guarded by
+	// mu (a Position is three fields, so it cannot ride an atomic).
+	cursor eventlog.Position
 
 	mu          sync.Mutex
 	subscribers map[int64]*subscriber
@@ -80,7 +81,7 @@ type subscriber struct {
 // idempotent Cancel.
 type Subscription struct {
 	Events <-chan job.EventEntry
-	LastID int64
+	Cutoff eventlog.Position
 	Cancel func()
 }
 
@@ -101,11 +102,13 @@ func New(db *sql.DB, pollInterval time.Duration) *Broadcaster {
 // clean shutdown; DB errors from the seed or any poll bubble up.
 // Safe to call only once per broadcaster.
 func (b *Broadcaster) Start(ctx context.Context) error {
-	seed, err := job.GetMaxEventID(b.db)
+	seed, err := job.GetHeadPosition(b.db)
 	if err != nil {
 		return err
 	}
-	b.lastID.Store(seed)
+	b.mu.Lock()
+	b.cursor = seed
+	b.mu.Unlock()
 
 	ticker := time.NewTicker(b.pollInterval)
 	defer ticker.Stop()
@@ -127,8 +130,10 @@ func (b *Broadcaster) Start(ctx context.Context) error {
 }
 
 func (b *Broadcaster) pollOnce() error {
-	cursor := b.lastID.Load()
-	events, err := job.GetEventsAfterID(b.db, "", cursor)
+	b.mu.Lock()
+	cursor := b.cursor
+	b.mu.Unlock()
+	events, err := job.GetEventsAfterPosition(b.db, "", cursor)
 	if err != nil {
 		return err
 	}
@@ -136,14 +141,16 @@ func (b *Broadcaster) pollOnce() error {
 		return nil
 	}
 	b.fanout(events)
-	b.lastID.Store(events[len(events)-1].ID)
+	b.mu.Lock()
+	b.cursor = events[len(events)-1].Position()
+	b.mu.Unlock()
 	return nil
 }
 
 // Subscribe registers a new consumer. The returned Subscription's
 // Events channel receives every event the broadcaster observes after
-// Subscribe returned; LastID is the broadcaster's cursor at subscribe
-// time, suitable as a backfill upper bound.
+// Subscribe returned; Cutoff is the broadcaster's log-position cursor at
+// subscribe time, suitable as a backfill upper bound.
 func (b *Broadcaster) Subscribe() Subscription {
 	b.mu.Lock()
 	b.nextSubID++
@@ -153,7 +160,7 @@ func (b *Broadcaster) Subscribe() Subscription {
 		cancel: make(chan struct{}),
 	}
 	b.subscribers[s.id] = s
-	cutoff := b.lastID.Load()
+	cutoff := b.cursor
 	b.mu.Unlock()
 
 	cancel := func() {
@@ -165,7 +172,7 @@ func (b *Broadcaster) Subscribe() Subscription {
 			close(s.ch)
 		})
 	}
-	return Subscription{Events: s.ch, LastID: cutoff, Cancel: cancel}
+	return Subscription{Events: s.ch, Cutoff: cutoff, Cancel: cancel}
 }
 
 // fanout delivers a batch to every subscriber. Sends are non-blocking;

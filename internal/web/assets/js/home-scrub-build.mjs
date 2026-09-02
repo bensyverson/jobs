@@ -24,6 +24,7 @@
 */
 
 import { relativeTime } from "./scrub-util.mjs";
+import { comparePositions } from "./position.mjs";
 
 // Window/threshold constants mirror internal/web/signals/signals.go.
 const ACTIVITY_WINDOW_SEC = 60 * 60;
@@ -133,16 +134,18 @@ export function buildActivity(events, nowSec) {
 export function buildNewlyBlocked(events, nowSec) {
   const cutoff = nowSec - NEWLY_BLOCKED_WINDOW_SEC;
   // Match the server's ORDER BY b.created_at DESC: collect, then sort.
-  // (Event id and created_at usually correlate, but not always — e.g.
-  // backfilled or replayed events can land with an id newer than their
-  // created_at.)
+  // (The log position and created_at usually correlate, but not always —
+  // a replica whose clock ran behind lands an event at a position newer
+  // than its created_at.)
   const matches = [];
   for (const e of events) {
     if (e.event_type !== "blocked") continue;
     if (e.created_at <= cutoff || e.created_at > nowSec) continue;
     matches.push(e);
   }
-  matches.sort((a, b) => b.created_at - a.created_at || b.id - a.id);
+  matches.sort(
+    (a, b) => b.created_at - a.created_at || comparePositions(b.position, a.position),
+  );
   const items = [];
   for (const e of matches) {
     if (items.length >= NEWLY_BLOCKED_ITEM_LIMIT) break;

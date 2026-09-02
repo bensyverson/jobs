@@ -12,7 +12,7 @@
 
   Public API (scoped to what the scrubber UI and timeline need):
 
-    initialFrame({ headEventId, tasks, blocks, claims }) -> Frame
+    initialFrame({ headPosition, eventCount, tasks, blocks, claims }) -> Frame
         Build the frame the SSR layer hydrated us with — the "head"
         the cache pins as the live state.
 
@@ -26,12 +26,19 @@
         snapshot.
 
     FrameCache({ snapshotEvery })
-        Stores frames by event id. nearestAtOrBefore(target) returns
-        the largest cached frame <= target; nearestAtOrAfter(target)
-        returns the smallest cached frame >= target. set(frame) is
-        idempotent on event id; size() reports cache fill;
-        shouldSnapshot(eventId, anchor) is the cadence helper used by
-        replay loops to decide when to checkpoint.
+        Stores frames by ordinal — how many events separate the frame
+        from genesis. nearestAtOrBefore(target) returns the largest
+        cached frame <= target; nearestAtOrAfter(target) returns the
+        smallest cached frame >= target. set(frame) is idempotent on
+        ordinal; size() reports cache fill; shouldSnapshot(ordinal,
+        anchor) is the cadence helper used by replay loops to decide
+        when to checkpoint.
+
+  Cursors are log positions, never row ids. A rebuild on the server
+  renumbers events.id, so a frame addressed by id would land on a
+  different event after any pull. The buffer keeps its own ordered
+  array of events and maps a position to an index in it; the ordinal
+  the frame cache keys on is that index + 1.
 
   Out of scope here: HTTP fetching from /events, view-specific DOM
   updates, the scrubber pill UI. Those land in the per-view *-live.mjs
@@ -40,7 +47,8 @@
 
 // Frame shape:
 //   {
-//     eventId: number,
+//     position: string | null,   // the cursor of the last applied event
+//     ordinal: number,           // events applied since genesis (0 = genesis)
 //     tasks: Map<shortId, TaskState>,
 //     blocks: Map<blockedShortId, Set<blockerShortId>>,
 //     claims: Map<shortId, { claimedBy, expiresAt }>,
@@ -59,6 +67,18 @@
 // so live mode doesn't need them. Scrubbing populates notes via the
 // forward fold of `noted` events from the genesis snapshot, which the
 // frame cache pins.
+
+import {
+  comparePositions,
+  isPosition,
+  samePosition,
+  sortByPosition,
+} from "./position.mjs";
+
+// genesisFrame is the empty world: ordinal 0, no cursor.
+function genesisFrame() {
+  return initialFrame({ headPosition: "", eventCount: 0, tasks: [], blocks: [], claims: [] });
+}
 
 function defaultTask(shortId) {
   return {
@@ -98,7 +118,8 @@ function cloneFrame(frame) {
     blocks.set(k, new Set(set));
   }
   return {
-    eventId: frame.eventId,
+    position: frame.position,
+    ordinal: frame.ordinal,
     tasks,
     blocks,
     claims: new Map(frame.claims),
@@ -131,7 +152,8 @@ export function initialFrame(payload) {
     claims.set(c.shortId, { claimedBy: c.claimedBy, expiresAt: c.expiresAt });
   }
   return {
-    eventId: payload.headEventId ?? 0,
+    position: payload.headPosition || null,
+    ordinal: payload.eventCount ?? 0,
     tasks,
     blocks,
     claims,
@@ -327,7 +349,8 @@ export function applyEvent(frame, event) {
   const next = cloneFrame(frame);
   const handler = FORWARD[event.event_type];
   if (handler) handler(next, event);
-  next.eventId = event.id;
+  next.position = event.position ?? null;
+  next.ordinal = frame.ordinal + 1;
   return next;
 }
 
@@ -537,34 +560,42 @@ const REVERSE = {
   },
 };
 
+// reverseEvent cannot know which event now sits at the cursor — that is a
+// fact about the ordered log, not about this event — so it leaves position
+// null and drops the ordinal by one. ReplayBuffer._replayBackward, which
+// does hold the ordered array, fills the position back in.
 export function reverseEvent(frame, event) {
   const handler = REVERSE[event.event_type];
   if (!handler) return null;
   const next = cloneFrame(frame);
-  next.eventId = event.id - 1;
+  next.position = null;
+  next.ordinal = frame.ordinal - 1;
   if (!handler(next, event)) return null;
   return next;
 }
 
-// FrameCache stores frames by event id and answers "nearest snapshot"
-// queries. The cache is a Map plus a sorted index of event ids; both
-// are kept in sync. Insertions are O(log n) via binary search; lookups
-// are O(log n). Cache eviction is intentionally not implemented in v1
-// — the dashboard's event volume in practice is low enough that the
-// memory footprint is bounded by the head event id divided by
-// snapshotEvery, which is fine for a local-first tool.
+// FrameCache stores frames by ordinal — the number of events between
+// genesis and the frame — and answers "nearest snapshot" queries. An
+// ordinal rather than a cursor because the cache's whole job is
+// "how far apart are these two frames", which a position cannot answer.
+// The cache is a Map plus a sorted index of ordinals; both are kept in
+// sync. Insertions are O(log n) via binary search; lookups are O(log n).
+// Cache eviction is intentionally not implemented in v1 — the dashboard's
+// event volume in practice is low enough that the memory footprint is
+// bounded by the event count divided by snapshotEvery, which is fine for
+// a local-first tool.
 export class FrameCache {
   constructor(opts = {}) {
     this.snapshotEvery = opts.snapshotEvery ?? 50;
-    this.frames = new Map(); // eventId -> Frame
-    this.sortedIds = [];     // sorted ascending
+    this.frames = new Map(); // ordinal -> Frame
+    this.sortedIds = [];     // ordinals, sorted ascending
   }
 
   set(frame) {
-    if (this.frames.has(frame.eventId)) return;
-    this.frames.set(frame.eventId, frame);
+    if (this.frames.has(frame.ordinal)) return;
+    this.frames.set(frame.ordinal, frame);
     // Insertion-sort into sortedIds.
-    const id = frame.eventId;
+    const id = frame.ordinal;
     let lo = 0;
     let hi = this.sortedIds.length;
     while (lo < hi) {
@@ -580,7 +611,7 @@ export class FrameCache {
   }
 
   // nearestAtOrBefore(target) returns the cached frame with the
-  // largest event id <= target, or null if no such frame exists.
+  // largest ordinal <= target, or null if no such frame exists.
   nearestAtOrBefore(target) {
     let lo = 0;
     let hi = this.sortedIds.length;
@@ -595,7 +626,7 @@ export class FrameCache {
   }
 
   // nearestAtOrAfter(target) returns the cached frame with the
-  // smallest event id >= target, or null if no such frame exists.
+  // smallest ordinal >= target, or null if no such frame exists.
   nearestAtOrAfter(target) {
     let lo = 0;
     let hi = this.sortedIds.length;
@@ -608,38 +639,43 @@ export class FrameCache {
     return this.frames.get(this.sortedIds[lo]);
   }
 
-  // shouldSnapshot decides whether a replay loop should checkpoint
-  // after applying the event with id `eventId`, given that the loop
-  // started from an anchor with id `anchor`. Snapshots fire every
-  // snapshotEvery events from the anchor.
-  shouldSnapshot(eventId, anchor) {
-    if (eventId === anchor) return false;
-    return (eventId - anchor) % this.snapshotEvery === 0;
+  // shouldSnapshot decides whether a replay loop should checkpoint at
+  // `ordinal`, given that the loop started from `anchor`. Snapshots fire
+  // every snapshotEvery events from the anchor.
+  shouldSnapshot(ordinal, anchor) {
+    if (ordinal === anchor) return false;
+    return (ordinal - anchor) % this.snapshotEvery === 0;
   }
 }
 
 // ReplayBuffer wraps the reducer and frame cache with an injected
 // async event fetcher so the scrubber can ask "what did the world
-// look like at event N?" without round-tripping the full event log.
+// look like at <position>?" without round-tripping the full event log.
 //
 // Constructor: { headFrame, fetchEvents, snapshotEvery? }
 //   headFrame    — the live frame produced by initialFrame() at page
 //                  load. Pinned in the cache; the head answer is
 //                  zero-cost.
 //   fetchEvents  — async ({ since, limit }) -> Promise<Event[]>. The
-//                  contract mirrors GET /events?since=X&limit=N: the
-//                  function must return events with id > since,
-//                  ordered ascending, up to limit rows.
+//                  contract mirrors GET /events?since=<position>&limit=N:
+//                  the function must return events after `since`, ordered
+//                  ascending by position, up to limit rows. `since` is a
+//                  position string, or null for "from the beginning".
 //   snapshotEvery — optional cadence override; defaults to 50.
 //
 // Methods:
-//   async frameAt(target)  -> Frame at event id `target`.
-//   async range(from, to)  -> Event[] with id in [from, to] inclusive.
+//   async frameAt(position) -> Frame at that cursor. null / "" is
+//                  genesis; a position past head clamps to head; a
+//                  position no event carries resolves to the newest
+//                  event at or before it, which is what makes a
+//                  bookmarked ?at= survive events arriving around it.
+//   async range(fromPosition, toPosition) -> Event[] in that inclusive
+//                  cursor range. A null bound is open at that end.
 //
-// Internal events are cached in a Map<id, Event> so repeated lookups
-// don't refetch. The cache grows monotonically in v1; eviction is a
-// later concern (event-volume bounded by the dashboard's local-first
-// scope).
+// Events are held once in an array ordered by position, plus an index
+// from position string to array slot. The array grows monotonically in
+// v1; eviction is a later concern (event-volume bounded by the
+// dashboard's local-first scope).
 export class ReplayBuffer {
   constructor({ headFrame, fetchEvents, snapshotEvery = 50 }) {
     if (!headFrame) throw new Error("ReplayBuffer: headFrame required");
@@ -649,58 +685,91 @@ export class ReplayBuffer {
     this.headFrame = headFrame;
     this.fetchEvents = fetchEvents;
     this.frames = new FrameCache({ snapshotEvery });
-    // Pin head and genesis frames. Genesis (event 0, empty world)
+    // Pin head and genesis frames. Genesis (ordinal 0, empty world)
     // bounds backward replays; head bounds forward replays.
     this.frames.set(headFrame);
-    if (headFrame.eventId !== 0) {
-      this.frames.set(
-        initialFrame({ headEventId: 0, tasks: [], blocks: [], claims: [] }),
-      );
+    if (headFrame.ordinal !== 0) {
+      this.frames.set(genesisFrame());
     }
-    this.events = new Map();
+    this.ordered = [];      // events ascending by position
+    this.indexOf = new Map(); // position string -> slot in `ordered`
     this._fetchPromise = null;
   }
 
-  // Lazily loads events through the head event id. Subsequent calls
-  // are no-ops; concurrent calls share the same in-flight promise so
-  // we never issue two parallel fetches.
+  // Lazily loads every event up to head. Subsequent calls are no-ops;
+  // concurrent calls share the same in-flight promise so we never issue
+  // two parallel fetches.
   async _ensureEventsLoaded() {
     if (this._fetchPromise) return this._fetchPromise;
     this._fetchPromise = (async () => {
       const fetched = await this.fetchEvents({
-        since: 0,
-        limit: this.headFrame.eventId,
+        since: null,
+        limit: this.headFrame.ordinal,
       });
-      for (const e of fetched) this.events.set(e.id, e);
+      this.ordered = sortByPosition(fetched);
+      this.indexOf = new Map();
+      for (const [i, e] of this.ordered.entries()) {
+        this.indexOf.set(e.position, i);
+      }
     })();
     return this._fetchPromise;
   }
 
+  // _ordinalAt maps a cursor to the ordinal of the frame that stands
+  // just after the newest event at or before it. An exact hit is the
+  // event's own slot + 1; anything else is resolved by binary search,
+  // so a cursor whose event is gone lands on its neighbour rather than
+  // on nothing.
+  _ordinalAt(position) {
+    if (!isPosition(position)) return 0;
+    const exact = this.indexOf.get(position);
+    if (exact !== undefined) return exact + 1;
+    let lo = 0;
+    let hi = this.ordered.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (comparePositions(this.ordered[mid].position, position) <= 0) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  // _positionAtOrdinal is the inverse: the cursor a frame at `ordinal`
+  // sits on, or null for genesis.
+  _positionAtOrdinal(ordinal) {
+    if (ordinal <= 0) return null;
+    const e = this.ordered[ordinal - 1];
+    return e ? e.position : null;
+  }
+
   async frameAt(target) {
-    if (target === this.headFrame.eventId) return this.headFrame;
+    if (samePosition(target, this.headFrame.position)) return this.headFrame;
     await this._ensureEventsLoaded();
+
+    const ordinal = this._ordinalAt(target);
+    if (ordinal === this.headFrame.ordinal) return this.headFrame;
 
     // Pick replay direction. Forward from nearest snapshot <= target,
     // or backward from nearest snapshot >= target — whichever is fewer
     // events. Snapshot-at-exact-target is already handled by
     // nearestAtOrBefore returning that snapshot and the forward loop
     // running zero iterations.
-    const before = this.frames.nearestAtOrBefore(target);
-    const after = this.frames.nearestAtOrAfter(target);
-    const distFwd = before ? target - before.eventId : Infinity;
-    const distBwd = after ? after.eventId - target : Infinity;
+    const before = this.frames.nearestAtOrBefore(ordinal);
+    const after = this.frames.nearestAtOrAfter(ordinal);
+    const distFwd = before ? ordinal - before.ordinal : Infinity;
+    const distBwd = after ? after.ordinal - ordinal : Infinity;
 
     let frame;
     if (distFwd <= distBwd && before) {
-      frame = this._replayForward(before, target);
+      frame = this._replayForward(before, ordinal);
     } else if (after) {
-      frame = this._replayBackward(after, target, before);
+      frame = this._replayBackward(after, ordinal, before);
     } else if (before) {
-      frame = this._replayForward(before, target);
+      frame = this._replayForward(before, ordinal);
     } else {
       // No anchors at all — shouldn't happen because we pin head and
       // genesis. Defensive fallback to a fresh genesis frame.
-      frame = initialFrame({ headEventId: 0, tasks: [], blocks: [], claims: [] });
+      frame = genesisFrame();
     }
 
     this.frames.set(frame);
@@ -709,41 +778,44 @@ export class ReplayBuffer {
 
   _replayForward(anchor, target) {
     let frame = anchor;
-    for (let id = anchor.eventId + 1; id <= target; id++) {
-      const e = this.events.get(id);
-      if (!e) continue; // gap; should not happen after _ensureEventsLoaded
+    for (let i = anchor.ordinal; i < target; i++) {
+      const e = this.ordered[i];
+      if (!e) break; // past head; nothing left to apply
       frame = applyEvent(frame, e);
-      if (this.frames.shouldSnapshot(id, anchor.eventId)) this.frames.set(frame);
+      if (this.frames.shouldSnapshot(frame.ordinal, anchor.ordinal)) {
+        this.frames.set(frame);
+      }
     }
     return frame;
   }
 
   _replayBackward(anchor, target, fallbackBefore) {
     let frame = anchor;
-    for (let id = anchor.eventId; id > target; id--) {
-      const e = this.events.get(id);
+    for (let i = anchor.ordinal - 1; i >= target; i--) {
+      const e = this.ordered[i];
       if (!e) continue;
       const reversed = reverseEvent(frame, e);
       if (reversed === null) {
         // An event in this range can't be reversed (pre-breadcrumb
         // or inherently lossy like noted). Fall back to forward
         // replay from the nearest snapshot <= target.
-        const start =
-          fallbackBefore ??
-          initialFrame({ headEventId: 0, tasks: [], blocks: [], claims: [] });
-        return this._replayForward(start, target);
+        return this._replayForward(fallbackBefore ?? genesisFrame(), target);
       }
+      // reverseEvent leaves the cursor null: only the ordered array
+      // knows which event the frame now sits on.
+      reversed.position = this._positionAtOrdinal(reversed.ordinal);
       frame = reversed;
     }
     return frame;
   }
 
-  async range(fromId, toId) {
+  async range(fromPosition, toPosition) {
     await this._ensureEventsLoaded();
     const out = [];
-    for (let id = fromId; id <= toId; id++) {
-      const e = this.events.get(id);
-      if (e) out.push(e);
+    for (const e of this.ordered) {
+      if (fromPosition != null && comparePositions(e.position, fromPosition) < 0) continue;
+      if (toPosition != null && comparePositions(e.position, toPosition) > 0) continue;
+      out.push(e);
     }
     return out;
   }

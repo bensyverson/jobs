@@ -21,8 +21,8 @@
 */
 
 import {
-  xToEventId,
-  eventIdToX,
+  xToPosition,
+  positionToX,
   computeDensityBars,
   formatHistoryBannerText,
   parseAtFromQuery,
@@ -34,8 +34,9 @@ import {
   clampWindowEndToNow,
   clampWindowStartToFloor,
   classifyWheelAxis,
-  windowForEventId,
+  windowForPosition,
 } from "./scrubber-cursor.mjs";
+import { samePosition } from "./position.mjs";
 
 const PAGE_SCRUBBING_CLASS = "page--scrubbing";
 const PAGE_PANNING_CLASS = "page--scrubber-panning";
@@ -54,18 +55,18 @@ let initialized = false;
 // gating, promises pile up and DOM updates land out of order.
 let inFlightX = null;
 let queuedX = null;
-// Pinned event id for the queued/in-flight call. When set, applyCursor
-// bypasses xFrac→eventId resolution and uses this id directly. Used
-// by arrow-key stepping so the synchronously committed currentEventId
-// can't be re-rounded off by float arithmetic in xToEventId.
+// Pinned cursor for the queued/in-flight call. When set, applyCursor
+// bypasses xFrac→position resolution and uses it directly. Used by
+// arrow-key stepping so the synchronously committed currentPosition
+// can't be re-rounded off by float arithmetic in xToPosition.
 let inFlightId = null;
 let queuedId = null;
 
-// Most recently applied eventId. Tracks where the cursor "is" in
+// Most recently applied log position. Tracks where the cursor "is" in
 // event-space so the arrow keys can step ±1 from a known anchor
 // (a re-derive from xFrac would round to whichever event the cursor
 // was nearest, which loses the previous step's exact position).
-let currentEventId = null;
+let currentPosition = null;
 
 // Visible window. `windowStartMs === null` means "trailing window
 // ending at nowMs" (the default before any pan). Once panned, we
@@ -213,10 +214,10 @@ function updateBanner(doc, event) {
 // (replaceState during drag, pushState on exit). Falls back to a
 // no-op when window.history is unavailable (node tests, sandboxed
 // embeds).
-function syncURL(eventId, mode = "replace") {
+function syncURL(position, mode = "replace") {
   if (typeof window === "undefined" || !window.history) return;
   const href = window.location.href;
-  const next = eventId == null ? composeURLWithoutAt(href) : composeURLWithAt(href, eventId);
+  const next = position == null ? composeURLWithoutAt(href) : composeURLWithAt(href, position);
   const fn = mode === "push" ? "pushState" : "replaceState";
   try {
     window.history[fn]({}, "", next);
@@ -229,13 +230,13 @@ function syncURL(eventId, mode = "replace") {
 
 async function applyCursor(doc, xFrac, { updateURL = true, pinnedId = null } = {}) {
   if (events.length === 0 || !buf) return;
-  const eventId = pinnedId ?? xToEventId(xFrac, events, nowMs, windowMs, effectiveWindowStartMs());
-  if (eventId === 0) return;
-  const event = events.find((e) => e.id === eventId);
-  const frame = await buf.frameAt(eventId);
-  currentEventId = eventId;
+  const position = pinnedId ?? xToPosition(xFrac, events, nowMs, windowMs, effectiveWindowStartMs());
+  if (position == null) return;
+  const event = events.find((e) => samePosition(e.position, position));
+  const frame = await buf.frameAt(position);
+  currentPosition = position;
   updateBanner(doc, event);
-  if (updateURL) syncURL(eventId, "replace");
+  if (updateURL) syncURL(position, "replace");
   doc.dispatchEvent(
     new CustomEvent("jobs:scrubber-frame", { detail: { frame, event } }),
   );
@@ -260,37 +261,37 @@ export function classifyKeydown({ key, code, altKey, scrubbing }) {
   return null;
 }
 
-// resolveStep is the race-free wrapper around stepEventId: returns
-// both the next eventId and its xFrac in the visible window, or null
+// resolveStep is the race-free wrapper around stepPosition: returns
+// both the next cursor and its xFrac in the visible window, or null
 // when stepping is a no-op (already at the edge in that direction).
 //
 // Pure: same inputs → same output. The keydown handler calls this
 // once per arrow press and then commits the result *synchronously*
-// to currentEventId before kicking off the async frame replay — that
+// to currentPosition before kicking off the async frame replay — that
 // way two rapid presses each see fresh state and advance by two.
-export function resolveStep(events, currentId, direction, nowMs, windowMs, windowStartMs) {
-  const nextId = stepEventId(events, currentId, direction);
-  if (nextId == null || nextId === currentId) return null;
-  const xFrac = eventIdToX(nextId, events, nowMs, windowMs, windowStartMs);
+export function resolveStep(events, current, direction, nowMs, windowMs, windowStartMs) {
+  const nextId = stepPosition(events, current, direction);
+  if (nextId == null || samePosition(nextId, current)) return null;
+  const xFrac = positionToX(nextId, events, nowMs, windowMs, windowStartMs);
   return { nextId, xFrac };
 }
 
-// stepEventId returns the eventId one step earlier (-1) or later
-// (+1) from `currentId`. Pure: takes the current event list + id +
-// direction, returns the new id. Clamps at the array boundaries
+// stepPosition returns the log position one step earlier (-1) or later
+// (+1) from `current`. Pure: takes the current event list + cursor +
+// direction, returns the new cursor. Clamps at the array boundaries
 // (no wrap-around) so holding the arrow key reaches the edge and
-// stops, rather than jumping to the opposite side. When currentId
+// stops, rather than jumping to the opposite side. When `current`
 // isn't in the list (race during initial load), defaults to the
 // edge in the requested direction.
-export function stepEventId(events, currentId, direction) {
+export function stepPosition(events, current, direction) {
   if (events.length === 0) return null;
-  const idx = events.findIndex((e) => e.id === currentId);
+  const idx = events.findIndex((e) => samePosition(e.position, current));
   if (idx === -1) {
-    return direction < 0 ? events[0].id : events[events.length - 1].id;
+    return direction < 0 ? events[0].position : events[events.length - 1].position;
   }
   const next = idx + (direction < 0 ? -1 : 1);
-  if (next < 0 || next >= events.length) return currentId;
-  return events[next].id;
+  if (next < 0 || next >= events.length) return current;
+  return events[next].position;
 }
 
 // setCursorByX runs at most one applyCursor at a time, queuing the
@@ -298,9 +299,9 @@ export function stepEventId(events, currentId, direction) {
 // resolves, we apply the queued x (which may itself be replaced
 // during that resolution) and loop until queuedX drains.
 //
-// `pinnedId` (when supplied) bypasses xFrac→eventId resolution so the
-// arrow-key stepper can guarantee its precomputed nextId lands as-is,
-// even when float rounding in xToEventId would have rounded down.
+// `pinnedId` (when supplied) bypasses xFrac→position resolution so the
+// arrow-key stepper can guarantee its precomputed cursor lands as-is,
+// even when float rounding in xToPosition would have rounded down.
 async function setCursorByX(doc, xFrac, pinnedId = null) {
   setCursor(doc, xFrac);
   if (inFlightX !== null) {
@@ -334,7 +335,7 @@ async function ensureInitialized(doc) {
   if (!buf) return;
   nowMs = Date.now();
   try {
-    events = await buf.range(0, buf.headFrame.eventId);
+    events = await buf.range(null, buf.headFrame.position);
   } catch {
     // If event fetch fails, density bars stay empty; the cursor still
     // toggles visually but frameAt calls are no-ops. The user gets a
@@ -344,19 +345,19 @@ async function ensureInitialized(doc) {
   renderDensityBars(doc);
 }
 
-export async function enterScrubbing(doc = document, { atEventId = null } = {}) {
+export async function enterScrubbing(doc = document, { atPosition = null } = {}) {
   // Reset pan + zoom state so each new scrubbing session starts on
   // the default trailing 24h window. Holding a previous session's
   // viewport would confuse anyone re-entering scrubbing minutes later.
   windowStartMs = null;
   windowMs = ONE_DAY_MS;
   await ensureInitialized(doc);
-  // When cold-loading with ?at=N for an event older than the default
-  // 24h window, widen the window so the event lands inside it.
-  // Otherwise eventIdToX clamps xFrac to 0 and applyCursor's xFrac→
-  // eventId fallback resolves to the wrong event.
-  if (atEventId != null && events.length > 0) {
-    const w = windowForEventId(atEventId, events, nowMs, ONE_DAY_MS);
+  // When cold-loading with ?at=<position> for an event older than the
+  // default 24h window, widen the window so the event lands inside it.
+  // Otherwise positionToX clamps xFrac to 0 and applyCursor's xFrac→
+  // position fallback resolves to the wrong event.
+  if (atPosition != null && events.length > 0) {
+    const w = windowForPosition(atPosition, events, nowMs, ONE_DAY_MS);
     windowStartMs = w.windowStartMs;
     windowMs = w.windowMs;
   }
@@ -365,21 +366,21 @@ export async function enterScrubbing(doc = document, { atEventId = null } = {}) 
   page.classList.add(PAGE_SCRUBBING_CLASS);
   toggleVisibility(doc, true);
   setPillState(doc, "scrubbing");
-  // If a specific eventId is requested (cold-load with ?at=N), seek
-  // there. Otherwise default to "now" — entering scrubbing without a
-  // drag means "I want to see what just happened."
-  if (atEventId != null && events.length > 0) {
-    const xFrac = eventIdToX(atEventId, events, nowMs, windowMs, effectiveWindowStartMs());
+  // If a specific cursor is requested (cold-load with ?at=<position>),
+  // seek there. Otherwise default to "now" — entering scrubbing without
+  // a drag means "I want to see what just happened."
+  if (atPosition != null && events.length > 0) {
+    const xFrac = positionToX(atPosition, events, nowMs, windowMs, effectiveWindowStartMs());
     setCursor(doc, xFrac);
-    // Pin the id so applyCursor doesn't re-resolve xFrac→eventId and
-    // silently land on a different event when the cursor sits at the
-    // window's edge.
-    await applyCursor(doc, xFrac, { updateURL: false, pinnedId: atEventId });
+    // Pin the cursor so applyCursor doesn't re-resolve xFrac→position
+    // and silently land on a different event when the cursor sits at
+    // the window's edge.
+    await applyCursor(doc, xFrac, { updateURL: false, pinnedId: atPosition });
   } else {
     setCursor(doc, 1);
     if (events.length > 0) {
       const last = events[events.length - 1];
-      currentEventId = last.id;
+      currentPosition = last.position;
       updateBanner(doc, last);
     }
   }
@@ -391,7 +392,7 @@ export function exitScrubbing(doc = document) {
   toggleVisibility(doc, false);
   setPillState(doc, "live");
   setCursor(doc, 1);
-  currentEventId = null;
+  currentPosition = null;
   syncURL(null, "push");
   doc.dispatchEvent(new CustomEvent("jobs:scrubber-live"));
 }
@@ -449,8 +450,8 @@ function wireDrag(doc) {
       windowStartMs = clamped.windowStartMs;
       rerenderViewport(doc);
       // Keep the cursor anchored to its event in the new window.
-      if (currentEventId != null) {
-        const xFrac = eventIdToX(currentEventId, events, nowMs, windowMs, effectiveWindowStartMs());
+      if (currentPosition != null) {
+        const xFrac = positionToX(currentPosition, events, nowMs, windowMs, effectiveWindowStartMs());
         setCursor(doc, xFrac);
       }
       return;
@@ -523,8 +524,8 @@ function wireDrag(doc) {
         // pinned under the same screen-x as the window grows/shrinks
         // matches the "this event stays put" mental model. Falls back
         // to the midpoint when no cursor has been established yet.
-        const anchorX = currentEventId != null
-          ? eventIdToX(currentEventId, events, nowMs, windowMs, effectiveWindowStartMs())
+        const anchorX = currentPosition != null
+          ? positionToX(currentPosition, events, nowMs, windowMs, effectiveWindowStartMs())
           : 0.5;
         // deltaY > 0 means "scroll down" — convention is zoom out.
         const factor = ev.deltaY > 0 ? 1.1 : 0.9;
@@ -535,8 +536,8 @@ function wireDrag(doc) {
       }
       rerenderViewport(doc);
       // Keep the cursor anchored to its event in the new window.
-      if (currentEventId != null) {
-        const xFrac = eventIdToX(currentEventId, events, nowMs, windowMs, effectiveWindowStartMs());
+      if (currentPosition != null) {
+        const xFrac = positionToX(currentPosition, events, nowMs, windowMs, effectiveWindowStartMs());
         setCursor(doc, xFrac);
       }
     },
@@ -580,7 +581,7 @@ export function wireScrubberPill(doc = document) {
         e.stopPropagation();
         const step = resolveStep(
           events,
-          currentEventId,
+          currentPosition,
           action.direction,
           nowMs,
           windowMs,
@@ -590,24 +591,24 @@ export function wireScrubberPill(doc = document) {
         // Commit synchronously so a second keydown that fires before
         // the frame-replay promise resolves sees the new id, not the
         // stale one. Without this, rapid ←/← presses pile up against
-        // the same currentEventId and only advance by one total.
-        currentEventId = step.nextId;
+        // the same currentPosition and only advance by one total.
+        currentPosition = step.nextId;
         setCursorByX(doc, step.xFrac, step.nextId);
         return;
       }
       case "zoom": {
         e.preventDefault();
         e.stopPropagation();
-        const anchorX = currentEventId != null
-          ? eventIdToX(currentEventId, events, nowMs, windowMs, effectiveWindowStartMs())
+        const anchorX = currentPosition != null
+          ? positionToX(currentPosition, events, nowMs, windowMs, effectiveWindowStartMs())
           : 0.5;
         const next = zoomWindow(effectiveWindowStartMs(), windowMs, anchorX, action.factor);
         const clamped = applyClamps(next.windowStartMs, next.windowMs);
         windowStartMs = clamped.windowStartMs;
         windowMs = clamped.windowMs;
         rerenderViewport(doc);
-        if (currentEventId != null) {
-          const xFrac = eventIdToX(currentEventId, events, nowMs, windowMs, effectiveWindowStartMs());
+        if (currentPosition != null) {
+          const xFrac = positionToX(currentPosition, events, nowMs, windowMs, effectiveWindowStartMs());
           setCursor(doc, xFrac);
         }
         return;
@@ -632,7 +633,7 @@ export function wireScrubberPill(doc = document) {
     window.addEventListener("popstate", () => {
       const at = parseAtFromQuery(window.location.search);
       if (at != null) {
-        enterScrubbing(doc, { atEventId: at });
+        enterScrubbing(doc, { atPosition: at });
       } else if (isScrubbing(doc)) {
         exitScrubbing(doc);
       }
@@ -641,12 +642,12 @@ export function wireScrubberPill(doc = document) {
 }
 
 // hydrateFromURL is the cold-load entry point: if the page loaded
-// with ?at=N in the URL, enter scrubbing mode and seek there. Called
+// with ?at=<position> in the URL, enter scrubbing mode and seek there. Called
 // once from the auto-init below; exposed for tests.
 export function hydrateFromURL(doc = document, search = "") {
   const at = parseAtFromQuery(search);
   if (at == null) return;
-  enterScrubbing(doc, { atEventId: at });
+  enterScrubbing(doc, { atPosition: at });
 }
 
 if (typeof document !== "undefined") {

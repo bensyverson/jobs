@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bensyverson/jobs/internal/eventlog"
 	job "github.com/bensyverson/jobs/internal/job"
 	"github.com/bensyverson/jobs/internal/web/handlers"
 )
@@ -156,29 +157,38 @@ func TestEvents_SSE_ReconnectWithLastEventID(t *testing.T) {
 	mustAdd(t, db, "alice", "second", nil, nil)
 	mustAdd(t, db, "alice", "third", nil, nil)
 
-	// Grab the middle event's id so we can resume past it.
-	events, err := job.GetEventsAfterID(db, "", 0)
+	// Grab the middle event's position so we can resume past it.
+	events, err := job.GetEventsForTaskTree(db, "")
 	if err != nil || len(events) < 2 {
 		t.Fatalf("seed: %v / %d events", err, len(events))
 	}
-	midID := events[1].ID
+	mid := events[1].Position().String()
 
 	deps := withBroadcaster(t, newLogDeps(t, db))
 	ts := httptest.NewServer(handlers.Events(deps))
 	defer ts.Close()
 
-	// Simulate a reconnect by passing ?since=<midID>. Production
-	// clients (EventSource) use the Last-Event-ID header, but the
-	// server accepts either.
-	resp, cancel := openSSE(t, ts, "since="+itoa(midID), nil)
+	// Simulate a reconnect by passing ?since=<position>. Production
+	// clients (EventSource) send the Last-Event-ID header, whose value is
+	// the same position each frame's id: field carried.
+	resp, cancel := openSSE(t, ts, "since="+mid, nil)
 	defer func() { resp.Body.Close(); cancel() }()
 	ch := readSSE(t, resp.Body)
 
-	// Only the third event (id > midID) should come through backfill.
+	// Only the third event (after mid) should come through backfill, and
+	// the frame's id: field must itself be a position — that is what makes
+	// a Last-Event-ID usable verbatim as ?since=.
 	f := must1Frame(t, ch, 2*time.Second)
-	gotID := parseInt(f.ID)
-	if gotID <= midID {
-		t.Errorf("frame id %d, want > %d (resume must skip already-seen events)", gotID, midID)
+	got, err := eventlog.ParsePosition(f.ID)
+	if err != nil {
+		t.Fatalf("frame id %q is not a position: %v", f.ID, err)
+	}
+	midPos, err := eventlog.ParsePosition(mid)
+	if err != nil {
+		t.Fatalf("seed position %q: %v", mid, err)
+	}
+	if got.Compare(midPos) <= 0 {
+		t.Errorf("frame id %s, want after %s (resume must skip already-seen events)", f.ID, mid)
 	}
 }
 

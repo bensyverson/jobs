@@ -141,8 +141,8 @@ async function applyFrameToDOM(frame, event) {
   const buf = window.JobsScrubber;
   if (!buf) return;
   markGraphPending();
-  const cursorId = event?.id ?? frame.eventId;
-  const events = await buf.range(0, cursorId);
+  const cursor = event?.position ?? frame.position;
+  const events = await buf.range(null, cursor);
   const nowSec = event?.created_at ?? Math.floor(Date.now() / 1000);
   const bag = buildHomeFrame(events, frame, nowSec);
   swapAllSections(bag);

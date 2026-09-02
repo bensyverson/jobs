@@ -1,7 +1,7 @@
 // Tests for internal/web/assets/js/scrubber-cursor.mjs.
 //
 // Pure math the scrubber UI needs: convert between cursor x-fraction
-// (0..1 across the strip) and event id, bin events into density
+// (0..1 across the strip) and log position, bin events into density
 // buckets for the histogram bars, format the history banner text.
 // All side-effect-free; the DOM-binding layer lives in
 // scrubber-pill.mjs and isn't covered here.
@@ -10,8 +10,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  xToEventId,
-  eventIdToX,
+  xToPosition,
+  positionToX,
   computeDensityBars,
   formatHistoryBannerText,
   formatAge,
@@ -24,7 +24,7 @@ import {
   clampWindowEndToNow,
   clampWindowStartToFloor,
   classifyWheelAxis,
-  windowForEventId,
+  windowForPosition,
 } from "../assets/js/scrubber-cursor.mjs";
 
 // Helper: build an events array with a fixed offset back from `now`.
@@ -33,64 +33,70 @@ import {
 function eventsAt(now, ageSecondsList) {
   return ageSecondsList.map((ageSec, i) => ({
     id: i + 1,
+    position: POS(i + 1),
     created_at: Math.floor((now - ageSec * 1000) / 1000),
   }));
 }
 
+// POS encodes a synthetic cursor for sequence number n.
+function POS(n) {
+  return `1000-aaaaaa-${n}`;
+}
+
 const NOW = 1735000000_000; // arbitrary fixed millis-since-epoch
 
-// --- xToEventId ---
+// --- xToPosition ---
 
-test("xToEventId: empty events returns 0", () => {
-  assert.equal(xToEventId(0.5, [], NOW), 0);
+test("xToPosition: empty events returns null", () => {
+  assert.equal(xToPosition(0.5, [], NOW), null);
 });
 
-test("xToEventId: x=1 returns the most recent event id", () => {
+test("xToPosition: x=1 returns the most recent event's cursor", () => {
   // Three events at 23h, 12h, 1h ago.
   const events = eventsAt(NOW, [23 * 3600, 12 * 3600, 1 * 3600]);
-  assert.equal(xToEventId(1, events, NOW), 3);
+  assert.equal(xToPosition(1, events, NOW), POS(3));
 });
 
-test("xToEventId: x=0 returns the oldest event in the window (or before)", () => {
+test("xToPosition: x=0 returns the oldest event in the window (or before)", () => {
   // Three events at 23h, 12h, 1h ago. x=0 means "24h ago" — first
   // event is the closest match.
   const events = eventsAt(NOW, [23 * 3600, 12 * 3600, 1 * 3600]);
-  assert.equal(xToEventId(0, events, NOW), 1);
+  assert.equal(xToPosition(0, events, NOW), POS(1));
 });
 
-test("xToEventId: midpoint resolves to the event just before that time", () => {
+test("xToPosition: midpoint resolves to the event just before that time", () => {
   // 24h window: x=0.5 means "12h ago". With events at 23h, 12h, 1h,
   // the largest event id with created_at <= (now - 12h) is event 2.
   const events = eventsAt(NOW, [23 * 3600, 12 * 3600, 1 * 3600]);
-  assert.equal(xToEventId(0.5, events, NOW), 2);
+  assert.equal(xToPosition(0.5, events, NOW), POS(2));
 });
 
-test("xToEventId: x past the most-recent event clamps to head", () => {
+test("xToPosition: x past the most-recent event clamps to head", () => {
   const events = eventsAt(NOW, [10 * 3600, 5 * 3600]);
-  assert.equal(xToEventId(1, events, NOW), 2);
+  assert.equal(xToPosition(1, events, NOW), POS(2));
 });
 
-// --- eventIdToX ---
+// --- positionToX ---
 
-test("eventIdToX: event at now returns 1", () => {
+test("positionToX: event at now returns 1", () => {
   const events = eventsAt(NOW, [0]);
-  assert.equal(eventIdToX(1, events, NOW), 1);
+  assert.equal(positionToX(POS(1), events, NOW), 1);
 });
 
-test("eventIdToX: event 24h+ ago returns 0", () => {
+test("positionToX: event 24h+ ago returns 0", () => {
   const events = eventsAt(NOW, [25 * 3600]);
-  assert.equal(eventIdToX(1, events, NOW), 0);
+  assert.equal(positionToX(POS(1), events, NOW), 0);
 });
 
-test("eventIdToX: event mid-window returns mid-x", () => {
+test("positionToX: event mid-window returns mid-x", () => {
   const events = eventsAt(NOW, [12 * 3600]);
   // 12h ago in a 24h window = age 12h / 24h = 0.5; x = 1 - 0.5 = 0.5.
-  assert.equal(eventIdToX(1, events, NOW), 0.5);
+  assert.equal(positionToX(POS(1), events, NOW), 0.5);
 });
 
-test("eventIdToX: unknown event id returns 1 (clamps to head)", () => {
+test("positionToX: an unknown cursor returns 1 (clamps to head)", () => {
   const events = eventsAt(NOW, [1 * 3600]);
-  assert.equal(eventIdToX(999, events, NOW), 1);
+  assert.equal(positionToX(POS(999), events, NOW), 1);
 });
 
 // --- computeDensityBars ---
@@ -129,21 +135,22 @@ test("formatAge: covers seconds, minutes, hours, days", () => {
   assert.equal(formatAge(2 * 86400_000), "2d ago");
 });
 
-test("formatHistoryBannerText: composes id, age, and ISO timestamp", () => {
-  const event = { id: 1234, created_at: Math.floor((NOW - 6 * 3600_000) / 1000) };
+test("formatHistoryBannerText: composes cursor, age, and ISO timestamp", () => {
+  const event = { id: 1234, position: POS(1234), created_at: Math.floor((NOW - 6 * 3600_000) / 1000) };
   const text = formatHistoryBannerText(event, NOW);
-  assert.match(text, /\?at=1234/);
+  assert.match(text, /\?at=1000-aaaaaa-1234/);
   assert.match(text, /6h ago/);
   assert.match(text, /\d{4}-\d{2}-\d{2}/);
 });
 
 // --- URL helpers ---
 
-test("parseAtFromQuery: positive integer returns the event id", () => {
-  assert.equal(parseAtFromQuery("?at=42"), 42);
+test("parseAtFromQuery: a log position comes back verbatim", () => {
+  assert.equal(parseAtFromQuery("?at=" + POS(42)), POS(42));
+  assert.equal(parseAtFromQuery("?at=1756742400000--991"), "1756742400000--991");
 });
 
-test("parseAtFromQuery: missing / empty / non-numeric / non-positive returns null", () => {
+test("parseAtFromQuery: anything that is not a position returns null", () => {
   assert.equal(parseAtFromQuery(""), null);
   assert.equal(parseAtFromQuery("?other=42"), null);
   assert.equal(parseAtFromQuery("?at="), null);
@@ -151,10 +158,13 @@ test("parseAtFromQuery: missing / empty / non-numeric / non-positive returns nul
   assert.equal(parseAtFromQuery("?at=0"), null);
   assert.equal(parseAtFromQuery("?at=-1"), null);
   assert.equal(parseAtFromQuery("?at=1.5"), null);
+  // A bare row id is not a cursor — a rebuild renumbers those, and the
+  // server rejects it too.
+  assert.equal(parseAtFromQuery("?at=42"), null);
 });
 
 test("parseAtFromQuery: composes with other query params", () => {
-  assert.equal(parseAtFromQuery("?actor=alice&at=99&type=done"), 99);
+  assert.equal(parseAtFromQuery("?actor=alice&at=" + POS(99) + "&type=done"), POS(99));
 });
 
 test("composeURLWithAt: sets ?at on a clean URL", () => {
@@ -186,23 +196,23 @@ test("composeURL helpers preserve hash fragments", () => {
 
 // --- windowStartMs override (pan support) ---
 
-test("xToEventId: explicit windowStartMs frames the visible range independently of nowMs", () => {
+test("xToPosition: explicit windowStartMs frames the visible range independently of nowMs", () => {
   // Window starts 48h ago and lasts 1h: only events in that hour are
   // navigable. Events outside the window clamp to its closest edge.
   const events = eventsAt(NOW, [49 * 3600, 47.5 * 3600, 1 * 3600]);
   const windowMs = 60 * 60 * 1000;
   const windowStartMs = NOW - 48 * 60 * 60 * 1000;
   // Mid-window points to the only event inside (at 47.5h ago).
-  assert.equal(xToEventId(0.5, events, NOW, windowMs, windowStartMs), 2);
+  assert.equal(xToPosition(0.5, events, NOW, windowMs, windowStartMs), POS(2));
 });
 
-test("eventIdToX: explicit windowStartMs projects relative to the panned window", () => {
+test("positionToX: explicit windowStartMs projects relative to the panned window", () => {
   const events = eventsAt(NOW, [12 * 3600]);
   // Window starts 13h ago and lasts 2h: the event sits at the +1h
   // mark, i.e. midpoint of the visible window.
   const windowMs = 2 * 60 * 60 * 1000;
   const windowStartMs = NOW - 13 * 60 * 60 * 1000;
-  assert.equal(eventIdToX(1, events, NOW, windowMs, windowStartMs), 0.5);
+  assert.equal(positionToX(POS(1), events, NOW, windowMs, windowStartMs), 0.5);
 });
 
 test("computeDensityBars: explicit windowStartMs only counts events inside the panned window", () => {
@@ -372,26 +382,26 @@ test("clampWindowStartToFloor: null floor (no events yet) is a no-op", () => {
   assert.equal(out.windowMs, 456);
 });
 
-// --- windowForEventId (cold-load with ?at=N) ---
+// --- windowForPosition (cold-load with ?at=<position>) ---
 
-test("windowForEventId: event inside the default trailing window keeps the default", () => {
+test("windowForPosition: event inside the default trailing window keeps the default", () => {
   // Cold-loading ?at=N where N is recent should preserve the standard
   // 24h view — no point widening the strip.
   const events = eventsAt(NOW, [3 * 3600]); // 3h ago
-  const out = windowForEventId(1, events, NOW);
+  const out = windowForPosition(POS(1), events, NOW);
   const ONE_DAY = 24 * 60 * 60 * 1000;
   assert.equal(out.windowMs, ONE_DAY);
   assert.equal(out.windowStartMs, NOW - ONE_DAY);
 });
 
-test("windowForEventId: event older than the default window widens to include it", () => {
+test("windowForPosition: event older than the default window widens to include it", () => {
   // Regression for ?at=1050 cold-load when the event is older than
   // 24h: the default trailing window leaves the cursor pinned at the
   // left edge and applyCursor's xFrac→eventId resolution snaps to the
   // wrong event. Fix is to widen windowMs so the target event lands
   // inside the visible window with room to scrub forward.
   const events = eventsAt(NOW, [48 * 3600]); // 48h ago — outside default 24h
-  const out = windowForEventId(1, events, NOW);
+  const out = windowForPosition(POS(1), events, NOW);
   const eventMs = events[0].created_at * 1000;
   // Event must lie inside [windowStart, windowStart + windowMs].
   assert.ok(out.windowStartMs <= eventMs, "windowStart must be at or before the event");
@@ -402,30 +412,30 @@ test("windowForEventId: event older than the default window widens to include it
   assert.ok(out.windowMs > 24 * 60 * 60 * 1000);
 });
 
-test("windowForEventId: event id not in the events list returns the default window", () => {
+test("windowForPosition: a cursor not in the events list returns the default window", () => {
   // Race: the URL specifies an id we haven't loaded (filter, deletion).
   // Don't synthesize a window from a non-existent timestamp.
   const events = eventsAt(NOW, [3 * 3600]);
-  const out = windowForEventId(999, events, NOW);
+  const out = windowForPosition(POS(999), events, NOW);
   const ONE_DAY = 24 * 60 * 60 * 1000;
   assert.equal(out.windowMs, ONE_DAY);
   assert.equal(out.windowStartMs, NOW - ONE_DAY);
 });
 
-test("windowForEventId: empty events returns the default window", () => {
-  const out = windowForEventId(1, [], NOW);
+test("windowForPosition: empty events returns the default window", () => {
+  const out = windowForPosition(POS(1), [], NOW);
   const ONE_DAY = 24 * 60 * 60 * 1000;
   assert.equal(out.windowMs, ONE_DAY);
   assert.equal(out.windowStartMs, NOW - ONE_DAY);
 });
 
-test("windowForEventId: combined with eventIdToX, target event lands inside the visible window", () => {
+test("windowForPosition: combined with positionToX, target event lands inside the visible window", () => {
   // The end-to-end contract that the cold-load fix relies on: after
-  // we've widened the window for an old event, eventIdToX should map
-  // the target id to a strictly-interior xFrac (not clamped to 0 or 1).
+  // we've widened the window for an old event, positionToX should map
+  // the target cursor to a strictly-interior xFrac (not clamped to 0 or 1).
   const events = eventsAt(NOW, [72 * 3600]); // 72h ago
-  const w = windowForEventId(1, events, NOW);
-  const x = eventIdToX(1, events, NOW, w.windowMs, w.windowStartMs);
+  const w = windowForPosition(POS(1), events, NOW);
+  const x = positionToX(POS(1), events, NOW, w.windowMs, w.windowStartMs);
   assert.ok(x > 0 && x < 1, `expected interior xFrac, got ${x}`);
 });
 

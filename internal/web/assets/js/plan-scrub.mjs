@@ -8,7 +8,7 @@
   When the scrubber pill dispatches 'jobs:scrubber-frame' on the
   document, this module rebuilds <main .c-section[data-plan-view]>
   (and the filter bar above it) from the in-memory Frame, mirroring
-  what plan.go would render server-side at the cursor's event id.
+  what plan.go would render server-side at the cursor's log position.
   Live mode is restored by 'jobs:scrubber-live': re-fetch the live
   /plan URL and swap the freshly-rendered section back in. SSE is
   paused while scrubbing (the page carries the page--scrubbing class),

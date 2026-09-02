@@ -14,7 +14,7 @@
      scoped to one actor — the *list* carries the modifier
      (.c-log--single-actor) and CSS hides the cell, so the row itself
      never has to know which page it is on. */ -}}
-{{define "log-row"}}<div class="c-log-row c-log-row--{{.EventType}}" role="listitem" data-event-id="{{.EventID}}">
+{{define "log-row"}}<div class="c-log-row c-log-row--{{.EventType}}" role="listitem" data-event-id="{{.EventID}}" data-event-position="{{.Position}}">
     <time class="c-log-row__time" datetime="{{.ISOTime}}">{{.RelTime}}</time>
     {{- if .IsSystem -}}
       <span class="c-log-row__actor c-log-row__actor--system">

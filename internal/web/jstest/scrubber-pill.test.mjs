@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import {
   pillLabelFor,
   toggleVisibility,
-  stepEventId,
+  stepPosition,
   classifyKeydown,
   resolveStep,
 } from "../assets/js/scrubber-pill.mjs";
@@ -85,41 +85,48 @@ test("toggleVisibility tolerates missing strip / banner (cold pages without scru
   assert.doesNotThrow(() => toggleVisibility(doc, false));
 });
 
-// --- stepEventId (arrow-key navigation) ---
+// --- stepPosition (arrow-key navigation) ---
+
+// POS encodes a synthetic cursor for sequence number n.
+function POS(n) {
+  return `1000-aaaaaa-${n}`;
+}
 
 const evs = [
-  { id: 10 },
-  { id: 11 },
-  { id: 12 },
-  { id: 13 },
+  { position: POS(10) },
+  { position: POS(11) },
+  { position: POS(12) },
+  { position: POS(13) },
 ];
 
-test("stepEventId: +1 returns the next event id", () => {
-  assert.equal(stepEventId(evs, 11, 1), 12);
+test("stepPosition: +1 returns the next event's cursor", () => {
+  assert.equal(stepPosition(evs, POS(11), 1), POS(12));
 });
 
-test("stepEventId: -1 returns the previous event id", () => {
-  assert.equal(stepEventId(evs, 11, -1), 10);
+test("stepPosition: -1 returns the previous event's cursor", () => {
+  assert.equal(stepPosition(evs, POS(11), -1), POS(10));
 });
 
-test("stepEventId: clamps at the right edge (no wrap-around)", () => {
-  assert.equal(stepEventId(evs, 13, 1), 13);
+test("stepPosition: clamps at the right edge (no wrap-around)", () => {
+  assert.equal(stepPosition(evs, POS(13), 1), POS(13));
 });
 
-test("stepEventId: clamps at the left edge", () => {
-  assert.equal(stepEventId(evs, 10, -1), 10);
+test("stepPosition: clamps at the left edge", () => {
+  assert.equal(stepPosition(evs, POS(10), -1), POS(10));
 });
 
-test("stepEventId: empty events returns null", () => {
-  assert.equal(stepEventId([], 10, 1), null);
+test("stepPosition: empty events returns null", () => {
+  assert.equal(stepPosition([], POS(10), 1), null);
 });
 
-test("stepEventId: unknown currentId defaults to the edge in the requested direction", () => {
-  // Race during initial load: arrow key fires before applyCursor has
-  // set currentEventId. Behave usefully — step from the nearest edge.
-  assert.equal(stepEventId(evs, null, -1), 10);
-  assert.equal(stepEventId(evs, null, 1), 13);
-  assert.equal(stepEventId(evs, 99, 1), 13);
+test("stepPosition: an unknown cursor defaults to the edge in the requested direction", () => {
+  // Race during initial load: the arrow key fires before applyCursor
+  // has set currentPosition. Behave usefully — step from the nearest
+  // edge. A row id is one such unknown: it is not a cursor at all.
+  assert.equal(stepPosition(evs, null, -1), POS(10));
+  assert.equal(stepPosition(evs, null, 1), POS(13));
+  assert.equal(stepPosition(evs, POS(99), 1), POS(13));
+  assert.equal(stepPosition(evs, 11, 1), POS(13));
 });
 
 // --- classifyKeydown (key contract for the scrubbing UI) ---
@@ -186,7 +193,7 @@ const stepEvents = (() => {
   // Five events spaced 1h apart, ending at NOW.
   const NOW_S = 1_700_000_000;
   return [0, 1, 2, 3, 4].map((i) => ({
-    id: 100 + i,
+    position: POS(100 + i),
     created_at: NOW_S - (4 - i) * 3600,
   }));
 })();
@@ -194,26 +201,26 @@ const STEP_NOW_MS = 1_700_000_000_000;
 const STEP_WIN = 24 * 3600 * 1000;
 const STEP_START = STEP_NOW_MS - STEP_WIN;
 
-test("resolveStep: returns next eventId and its xFrac", () => {
-  const r = resolveStep(stepEvents, 102, -1, STEP_NOW_MS, STEP_WIN, STEP_START);
-  assert.equal(r.nextId, 101);
+test("resolveStep: returns the next cursor and its xFrac", () => {
+  const r = resolveStep(stepEvents, POS(102), -1, STEP_NOW_MS, STEP_WIN, STEP_START);
+  assert.equal(r.nextId, POS(101));
   // xFrac for 101 (3h ago) in a 24h window: 21h offset / 24h = 0.875.
   assert.ok(Math.abs(r.xFrac - 0.875) < 1e-6);
 });
 
 test("resolveStep: returns null when at the edge (clamped, no movement)", () => {
-  // At the leftmost event with direction -1: stepEventId clamps; the
+  // At the leftmost event with direction -1: stepPosition clamps; the
   // resolver tells the caller "no move" so the keydown handler can
   // bail before queuing a redundant frame replay.
-  assert.equal(resolveStep(stepEvents, 100, -1, STEP_NOW_MS, STEP_WIN, STEP_START), null);
+  assert.equal(resolveStep(stepEvents, POS(100), -1, STEP_NOW_MS, STEP_WIN, STEP_START), null);
 });
 
-test("resolveStep: chained calls from the same starting id advance by N", () => {
+test("resolveStep: chained calls from the same starting cursor advance by N", () => {
   // Regression for the ArrowLeft race: rapid keypresses each consult
-  // the latest currentEventId. Two consecutive resolves from id=104
+  // the latest currentPosition. Two consecutive resolves from 104
   // backward must land on 103 then 102 — not 103 twice.
-  const first = resolveStep(stepEvents, 104, -1, STEP_NOW_MS, STEP_WIN, STEP_START);
-  assert.equal(first.nextId, 103);
+  const first = resolveStep(stepEvents, POS(104), -1, STEP_NOW_MS, STEP_WIN, STEP_START);
+  assert.equal(first.nextId, POS(103));
   const second = resolveStep(stepEvents, first.nextId, -1, STEP_NOW_MS, STEP_WIN, STEP_START);
-  assert.equal(second.nextId, 102);
+  assert.equal(second.nextId, POS(102));
 });

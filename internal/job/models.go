@@ -1,6 +1,10 @@
 package job
 
-import "database/sql"
+import (
+	"database/sql"
+
+	"github.com/bensyverson/jobs/internal/eventlog"
+)
 
 type Task struct {
 	ID             int64
@@ -29,6 +33,11 @@ type Event struct {
 	CreatedAt int64
 }
 
+// EventEntry is one row of the cache's events table as the readers see it.
+//
+// ID is the cache's row id: a DOM key and nothing more. It is minted by
+// SQLite and a rebuild renumbers it, so no cursor is ever derived from it —
+// see [EventEntry.Position].
 type EventEntry struct {
 	ID        int64
 	TaskID    int64
@@ -37,6 +46,21 @@ type EventEntry struct {
 	Actor     string
 	Detail    string
 	CreatedAt int64
+	TS        int64
+	Rep       string
+	Seq       uint64
+}
+
+// Position is the event's cursor: the log position (ts, rep, seq) that every
+// replica agrees on. A legacy row carries no replica and no seq, so its
+// cursor puts the row id in the seq slot — meaningful only inside this cache,
+// which is the most a row with no log identity can offer. See
+// eventlog.Position.Legacy.
+func (e EventEntry) Position() eventlog.Position {
+	if e.Rep == "" {
+		return eventlog.Position{TS: e.TS, Seq: uint64(e.ID)}
+	}
+	return eventlog.Position{TS: e.TS, Rep: e.Rep, Seq: e.Seq}
 }
 
 type TaskNode struct {

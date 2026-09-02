@@ -40,7 +40,7 @@ On the **Log** it bounds the event list — "load older" pages back to the cutof
 Two details worth knowing:
 
 - **A new actor still appears live.** An event from someone with no column or no chip adds one, whatever the range — the event just arrived, so it is inside every window.
-- **The scrubber moves the window with it.** Parked in history (`?at=`), the range is measured back from the moment you are parked at, not from now — so a 7-day view scrubbed to last month shows the week before *then*.
+- **The scrubber moves the window with it.** Parked in history (`?at=<position>`), the range is measured back from the moment you are parked at, not from now — so a 7-day view scrubbed to last month shows the week before *then*. The `?at=` value is a **log position** (`<ts>-<replica>-<seq>`), the cursor the whole event log agrees on, so a bookmarked or shared history URL still lands on the same event after a `git pull` rebuilds the local cache.
 
 ### Capped chip strips
 

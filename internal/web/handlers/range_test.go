@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bensyverson/jobs/internal/eventlog"
 	job "github.com/bensyverson/jobs/internal/job"
 )
 
@@ -170,29 +171,30 @@ func TestRangeAnchor_UsesTheCursorEventTime(t *testing.T) {
 	if _, err := job.RunAdd(db, "", "anchored", "", "", nil, "alice"); err != nil {
 		t.Fatalf("RunAdd: %v", err)
 	}
-	var eventID int64
-	if err := db.QueryRow(`SELECT id FROM events ORDER BY id ASC LIMIT 1`).Scan(&eventID); err != nil {
-		t.Fatalf("select event: %v", err)
+	events, err := job.GetEventsForTaskTree(db, "")
+	if err != nil || len(events) == 0 {
+		t.Fatalf("seed events: %v / %d", err, len(events))
 	}
+	at := events[0].Position()
 	want := rangeAnchorFixture.Add(-3 * 24 * time.Hour).Unix()
-	if _, err := db.Exec(`UPDATE events SET created_at = ? WHERE id = ?`, want, eventID); err != nil {
+	if _, err := db.Exec(`UPDATE events SET created_at = ? WHERE id = ?`, want, events[0].ID); err != nil {
 		t.Fatalf("backdate: %v", err)
 	}
 
 	now := rangeAnchorFixture
-	got, err := rangeAnchor(context.Background(), db, eventID, now)
+	got, err := rangeAnchor(context.Background(), db, at, now)
 	if err != nil {
 		t.Fatalf("rangeAnchor: %v", err)
 	}
 	if got.Unix() != want {
-		t.Errorf("rangeAnchor(at=%d) = %d, want %d", eventID, got.Unix(), want)
+		t.Errorf("rangeAnchor(at=%s) = %d, want %d", at, got.Unix(), want)
 	}
 
-	live, err := rangeAnchor(context.Background(), db, 0, now)
+	live, err := rangeAnchor(context.Background(), db, eventlog.Position{}, now)
 	if err != nil {
 		t.Fatalf("rangeAnchor(live): %v", err)
 	}
 	if !live.Equal(now) {
-		t.Errorf("rangeAnchor(at=0) = %v, want now (%v)", live, now)
+		t.Errorf("rangeAnchor(live) = %v, want now (%v)", live, now)
 	}
 }

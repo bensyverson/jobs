@@ -83,12 +83,12 @@ func TestBroadcaster_SubscribeReceivesNewEvents(t *testing.T) {
 	if e.Actor != "alice" {
 		t.Errorf("actor = %q, want alice", e.Actor)
 	}
-	if e.ID <= sub.LastID {
-		t.Errorf("delivered event id %d <= cutoff %d; live stream should only contain events with id > LastID", e.ID, sub.LastID)
+	if e.Position().Compare(sub.Cutoff) <= 0 {
+		t.Errorf("delivered event at %s <= cutoff %s; the live stream must only carry events after the cutoff", e.Position(), sub.Cutoff)
 	}
 }
 
-func TestBroadcaster_SeedsLastIDAtStartup(t *testing.T) {
+func TestBroadcaster_SeedsItsCursorAtStartup(t *testing.T) {
 	db := setupBroadcasterDB(t)
 	// Seed a pile of events BEFORE the broadcaster starts.
 	for range 20 {

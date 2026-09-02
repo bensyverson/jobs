@@ -9,9 +9,12 @@
   What this module owns:
 
     - EventSource lifecycle (open on connect, close on disconnect).
-    - last-event-id persistence across reloads via localStorage so the
+    - last-position persistence across reloads via localStorage so the
       dashboard resumes from where it stopped rather than missing the
-      window between page-load-start and SSE-open.
+      window between page-load-start and SSE-open. The cursor is the
+      log position each frame carries in its id: field, which is what
+      ?since= takes — never the cache row id, which a rebuild on the
+      server renumbers.
     - Heartbeat rendering into [data-heartbeat] in the footer: pulsing
       dot + "last event Ns ago" / "reconnecting…" / "offline".
 
@@ -35,7 +38,19 @@
 (function () {
   "use strict";
 
-  const STORAGE_KEY = "jobs.live.lastEventId";
+  const STORAGE_KEY = "jobs.live.lastPosition";
+
+  // Mirror of position.mjs#isPosition. Duplicated because this script
+  // loads as a classic <script> rather than a module; the .mjs version
+  // is the unit-tested authority.
+  function isPosition(s) {
+    if (typeof s !== "string") return false;
+    const parts = s.split("-");
+    if (parts.length !== 3) return false;
+    if (!/^\d+$/.test(parts[0]) || !/^\d+$/.test(parts[2])) return false;
+    if (parts[1] !== "" && !/^[0-9A-Za-z]+$/.test(parts[1])) return false;
+    return Number(parts[0]) > 0 && Number(parts[2]) > 0;
+  }
   const HEARTBEAT_REFRESH_MS = 1000;
   const BACKOFF_BASE_MS = 1000;
   const BACKOFF_CAP_MS = 30000;
@@ -83,9 +98,10 @@
     "heartbeat",
   ];
 
-  function saveLastID(id) {
+  function saveLastPosition(position) {
+    if (!isPosition(position)) return;
     try {
-      localStorage.setItem(STORAGE_KEY, String(id));
+      localStorage.setItem(STORAGE_KEY, position);
     } catch (_) {
       // Private browsing / storage quotas — safe to ignore; reconnect
       // still works within a single page life via EventSource's own
@@ -93,12 +109,10 @@
     }
   }
 
-  function loadLastID() {
+  function loadLastPosition() {
     try {
       const v = localStorage.getItem(STORAGE_KEY);
-      if (!v) return null;
-      const n = parseInt(v, 10);
-      return Number.isFinite(n) && n > 0 ? n : null;
+      return isPosition(v) ? v : null;
     } catch (_) {
       return null;
     }
@@ -160,14 +174,14 @@
       if (this.onOffline) window.removeEventListener("offline", this.onOffline);
     }
 
-    // connect builds a fresh URL (including the latest persisted
-    // last-event-id) and opens the stream. Used both at mount time and
-    // on every reconnect attempt so we always resume from the right id.
+    // connect builds a fresh URL (including the latest persisted log
+    // position) and opens the stream. Used both at mount time and on
+    // every reconnect attempt so we always resume from the right cursor.
     connect() {
       const url = new URL(this.baseSrc, window.location.origin);
-      const resume = loadLastID();
+      const resume = loadLastPosition();
       if (resume) {
-        url.searchParams.set("since", String(resume));
+        url.searchParams.set("since", resume);
       }
       this.openStream(url.toString());
     }
@@ -223,8 +237,12 @@
       } catch (_) {
         return;
       }
-      if (data && typeof data.id === "number") {
-        saveLastID(data.id);
+      // Prefer the frame's own id: field — a browser reconnect sends it
+      // back as Last-Event-ID, so the two cursors must agree.
+      if (ev.lastEventId) {
+        saveLastPosition(ev.lastEventId);
+      } else if (data && typeof data.position === "string") {
+        saveLastPosition(data.position);
       }
       this.lastEventAt = Date.now();
       this.dispatchEvent(new CustomEvent("event", { detail: data }));
