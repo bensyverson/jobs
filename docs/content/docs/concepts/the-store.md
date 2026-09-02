@@ -140,7 +140,7 @@ Every old event row becomes a log line marked `legacy`. Those are recorded and r
 
 On success the original cache is kept as **`.jobs.db.pre-adopt`**, covered by the `.jobs.db*` ignore pattern. Delete it once you are satisfied. `JOBS_NO_ADOPT=1` reads a legacy database as-is for one command without converting it.
 
-## When the binary is older than the cache
+## When the binary is older than the store
 
 The cache records which numbered migrations have been applied. A newer `job` may add one; an older `job` does not know it exists. Opening a cache whose recorded schema is *ahead* of the binary is refused, before anything is read or written:
 
@@ -150,6 +150,19 @@ than the database. Rebuild it (make install) or upgrade job.
 ```
 
 It is a refusal rather than a warning because an older binary that carried on would append events and rewrite the cache under a schema it cannot read — and the log is the record. The fix is to catch the binary up: `make install` in a checkout, or upgrade whichever `job` is on your `PATH`. Nothing is wrong with the database.
+
+The same rule covers the log, which the schema check cannot: a fresh clone builds its cache at whatever schema the binary ships, so an old `job` can meet a newer `.jobs/log` with nothing recorded to notice. Each log file therefore declares a **store format** in the `replica` event that opens it — the version of the event vocabulary and of what applying each type means. Today's format is `1`, and a file written before the field existed reads as `1`.
+
+A file declaring a format this binary does not know stops the rebuild:
+
+```text
+.jobs/log/785RLT.jsonl is at store format 2 but this job only knows format 1:
+the binary is older than the log. Rebuild it (make install) or upgrade job.
+```
+
+It refuses for a sharper reason than the cache check. An event type a binary does not know applies as a no-op — that forward tolerance is deliberate, and it is what makes the silence dangerous: an old binary would render the record incompletely and then append events computed from that incomplete state. `job replicas` shows each replica's format beside its event count.
+
+**The rule for bumping it:** raise the format whenever a new event type lands or the meaning of applying an existing one changes. The constant sits beside the event type list in `internal/job/event_payloads.go`, and a test fails until the diff that adds a type also bumps it.
 
 ## The one hygiene rule
 

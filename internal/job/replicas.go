@@ -35,7 +35,7 @@ import (
 // Nothing here fails: a machine with no resolvable hostname or user still gets
 // a log file, and an empty field is simply not rendered.
 func newReplicaPayload(cachePath, label string) ReplicaPayload {
-	p := ReplicaPayload{Label: label}
+	p := ReplicaPayload{Label: label, Format: StoreFormat}
 	p.Host, _ = os.Hostname()
 	// .jobs.db names the cache; the checkout is the directory holding it.
 	if abs, err := filepath.Abs(filepath.Dir(cachePath)); err == nil {
@@ -194,6 +194,9 @@ type ReplicaInfo struct {
 	Path      string `json:"path,omitempty"`
 	Events    int    `json:"events"`
 	LastEvent int64  `json:"last_event"`
+	// Format is the store format this replica's file declares — see
+	// StoreFormat. A file that declares none is format 1.
+	Format StoreFormatVersion `json:"format"`
 	// IsLocal marks the replica this checkout writes to.
 	IsLocal bool `json:"is_local"`
 }
@@ -227,6 +230,7 @@ func RunReplicas(db *sql.DB) ([]ReplicaInfo, error) {
 		}
 		p := payloads[info.Rep]
 		info.Label, info.Host, info.User, info.Path = p.Label, p.Host, p.User, p.Path
+		info.Format = max(p.Format, 1)
 		info.IsLocal = info.Rep == names.Local
 		seen[info.Rep] = true
 		out = append(out, info)
@@ -237,7 +241,7 @@ func RunReplicas(db *sql.DB) ([]ReplicaInfo, error) {
 	// A checkout that has minted a replica id but not yet written is still a
 	// replica, and saying so is friendlier than an empty list.
 	if names.Local != "" && !seen[names.Local] {
-		out = append(out, ReplicaInfo{Rep: names.Local, IsLocal: true})
+		out = append(out, ReplicaInfo{Rep: names.Local, IsLocal: true, Format: StoreFormat})
 	}
 
 	sort.SliceStable(out, func(i, j int) bool {
@@ -364,10 +368,11 @@ func RenderReplicas(w io.Writer, replicas []ReplicaInfo) {
 		if r.Events == 1 {
 			events = "event"
 		}
+		format := max(r.Format, 1)
 		if r.LastEvent > 0 {
-			fmt.Fprintf(w, "  %d %s · last %s ago\n", r.Events, events, FormatDuration(max(now-r.LastEvent, 0)))
+			fmt.Fprintf(w, "  %d %s · format %d · last %s ago\n", r.Events, events, format, FormatDuration(max(now-r.LastEvent, 0)))
 		} else {
-			fmt.Fprintf(w, "  %d %s\n", r.Events, events)
+			fmt.Fprintf(w, "  %d %s · format %d\n", r.Events, events, format)
 		}
 	}
 }

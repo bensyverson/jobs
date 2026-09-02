@@ -156,6 +156,12 @@ func rebuildStore(db *sql.DB, path string) error {
 		if err != nil {
 			return err
 		}
+		// Before anything is applied: a file from the future stops the whole
+		// rebuild, because applying the rest would leave a cache that looks
+		// complete and is not (store_format.go).
+		if err := checkStoreFormat(f.Path, evs); err != nil {
+			return err
+		}
 		events = append(events, evs...)
 	}
 	eventlog.Sort(events)

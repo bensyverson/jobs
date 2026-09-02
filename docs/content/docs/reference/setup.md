@@ -66,14 +66,14 @@ job replicas --format=json
 
 arMAXc "ben-mbp:~/git/Jobs"  ← this checkout
   ben-mbp · ben · /Users/ben/git/Jobs
-  2840 events · last 4m ago
+  2840 events · format 1 · last 4m ago
 
 Zq4LmP "sam-mbp:~/src/jobs"
   sam-mbp · sam · /Users/sam/src/jobs
-  61 events · last 2d ago
+  61 events · format 1 · last 2d ago
 ```
 
-A replica id is six base62 characters — enough to keep two checkouts' log files apart, and no help at all in remembering which machine is which. So the first line every replica appends is a `replica` event carrying a label plus the facts behind it: hostname, checkout path and OS user. This listing is read straight back out of those events, so it needs no extra file and no schema of its own.
+A replica id is six base62 characters — enough to keep two checkouts' log files apart, and no help at all in remembering which machine is which. So the first line every replica appends is a `replica` event carrying a label plus the facts behind it: hostname, checkout path and OS user. This listing is read straight back out of those events, so it needs no extra file and no schema of its own. It also carries the [store format](../../concepts/the-store/#when-the-binary-is-older-than-the-store) the file was written at, which is what an older binary refuses to read past.
 
 The label shows up wherever a replica does: beside the id on `job status`'s store line, and on `job log` rows and dashboard rows for **foreign** events only — events written on another machine. Your own events never carry it, so a single-machine store reads exactly as it always did.
 

@@ -39,6 +39,60 @@ const (
 	EventReplica        EventType = "replica"
 )
 
+// StoreFormatVersion is the version of the log's *semantics* — the vocabulary
+// above plus what applying each type means. It is not the envelope version
+// (eventlog.Version), which describes the shape of a line.
+type StoreFormatVersion int
+
+// StoreFormat is the format this binary writes and the newest it can read.
+// Every log file declares its own in the `replica` event that opens it, and a
+// file declaring more than this is refused rather than applied (store_format.go).
+//
+// **Bump it whenever a new event type lands above, or the meaning of applying
+// an existing one changes.** A binary that does not know a type applies it as
+// a no-op — by design, and exactly the silent case this guards: without a
+// bump, an old binary renders the record incompletely and then appends events
+// computed from that incomplete state. Adding a type therefore means two
+// edits in one diff: a new entry in storeFormatAdded, and this constant.
+const StoreFormat StoreFormatVersion = 1
+
+// storeFormatAdded is the event vocabulary, by the format that introduced it.
+// A format that changed only apply's semantics has an entry with no types.
+//
+// TestStoreFormatCoversEveryEventType reads the constants above out of this
+// file's source and fails unless they are exactly the union here, with the
+// highest key equal to StoreFormat — so the diff that adds a type is the diff
+// that bumps the format.
+var storeFormatAdded = map[StoreFormatVersion][]EventType{
+	1: {
+		EventCreated,
+		EventLabeled,
+		EventUnlabeled,
+		EventReleased,
+		EventCanceled,
+		EventBlocked,
+		EventUnblocked,
+		EventPurged,
+		EventClaimExpired,
+		EventNoted,
+		EventClaimed,
+		EventCriteriaAdded,
+		EventCriterionState,
+		EventHeartbeat,
+		EventFoundInSet,
+		EventFoundInCleared,
+		EventKindChanged,
+		EventDone,
+		EventReopened,
+		EventEdited,
+		EventMoved,
+		EventReparented,
+		EventRekeyed,
+		EventSnapshot,
+		EventReplica,
+	},
+}
+
 // ReleaseReason names why a claim ended when the holder did not ask. It is a
 // closed set, so it is a type rather than a free string in the payload.
 type ReleaseReason string
@@ -301,11 +355,15 @@ type ReparentedPayload struct {
 // disagree with anything else — so it has no entry in applyTable. Host, Path
 // and User are recorded separately from Label so a rename never loses the
 // facts the default label was built from.
+// Format is the store format the file was written at — see StoreFormat. It is
+// absent from every file written before the field existed, and absent reads as
+// format 1.
 type ReplicaPayload struct {
-	Label string `json:"label"`
-	Host  string `json:"host,omitempty"`
-	Path  string `json:"path,omitempty"`
-	User  string `json:"user,omitempty"`
+	Label  string             `json:"label"`
+	Host   string             `json:"host,omitempty"`
+	Path   string             `json:"path,omitempty"`
+	User   string             `json:"user,omitempty"`
+	Format StoreFormatVersion `json:"format,omitempty"`
 }
 
 // SnapshotPayload is the whole state of a cache in one event: every task, every
