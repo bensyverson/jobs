@@ -10,8 +10,9 @@ type HeartbeatResult struct {
 	ExpiresAt int64
 }
 
-// RunHeartbeat extends the caller's live claims on each id by
-// DefaultClaimTTLSeconds. Validates all ids first; commits atomically.
+// RunHeartbeat extends the caller's live claims on each id to at least
+// DefaultClaimTTLSeconds from now, never shortening a claim that already
+// runs longer. Validates all ids first; commits atomically.
 // Errors strictly if the caller does not currently hold the claim
 // (including expired-was-mine).
 func RunHeartbeat(db *sql.DB, ids []string, actor string) ([]*HeartbeatResult, error) {
@@ -109,11 +110,16 @@ func heartbeatInTx(tx dbtx, b *eventBatch, ids []string, actor string, out *[]*H
 		}
 	}
 
-	// One deadline for the whole batch, resolved here and carried absolute
-	// in every payload — apply never turns a TTL into a time.
-	newExpiresAt := CurrentNowFunc().Unix() + DefaultClaimTTLSeconds
-
+	// Each deadline is resolved here and carried absolute in the payload —
+	// apply never turns a TTL into a time. It is per task rather than one
+	// for the batch because extendedClaimExpiry reads the claim's current
+	// deadline, and a batch can mix a two-hour claim with a short one.
 	for _, tg := range targets {
+		var current int64
+		if tg.task.ClaimExpiresAt != nil {
+			current = *tg.task.ClaimExpiresAt
+		}
+		newExpiresAt := extendedClaimExpiry(current)
 		if err := b.emit(tx, EventHeartbeat, tg.shortID, actor, HeartbeatPayload{
 			NewExpiresAt: newExpiresAt,
 		}); err != nil {

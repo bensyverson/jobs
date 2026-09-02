@@ -279,7 +279,7 @@ Deliberately absent: severity, triage states, reporters. Labels cover severity a
 | `job claim <id> [duration]` | Claim a task. Duration defaults to `30m`. Units: `s`, `m`, `h`, `d`. Ack echoes the title for confirmation: `Claimed: <id> "<title>" (expires in <dur>)`. The full `show <id>` briefing follows the ack, so `claim` is also the briefing — no follow-up `show` needed. The first line stays the load-bearing scriptable signal (scripts grepping for `Claimed:` keep working); same flow for `claim --next` and `done --claim-next`. `-m "<text>"` records a starting note in the same transaction as the claim; `-F <path>` reads it from a file (`-F -` from stdin). |
 | `job release <id>` | Release a claim. `-m "<text>"` records a parting note; `-F <path>` reads it from a file (`-F -` from stdin). |
 | `job claim --next [parent] [duration]` | Find and claim the next available leaf in one step. Pass `--include-parents` to claim any available task, or `--issues` to claim from the issue-trees instead (see [Tree kinds](#tree-kinds)). `-m` / `-F` record a starting note on whichever leaf is picked, exactly as on `claim <id>`. |
-| `job heartbeat <id> [<id>...]` | Extend your live claim(s) by 30 minutes. Rarely needed — any write to a task you hold (`note`, `edit`, `label add`, `label remove`) auto-extends the claim. Reach for `heartbeat` only for the "I'm thinking, not writing" case. |
+| `job heartbeat <id> [<id>...]` | Extend your live claim(s) to at least 30 minutes from now; never shortens a longer claim. Rarely needed — any write to a task you hold (`note`, `edit`, `label add`, `label remove`) auto-extends the claim. Reach for `heartbeat` only for the "I'm thinking, not writing" case. |
 
 #### Focus
 
@@ -297,7 +297,7 @@ Your **focus** is the root tree that scopes every no-argument default: bare `nex
 - **Exhaustion fails loudly.** A focused root with no available leaf makes the matching no-arg `next` / `claim --next` return an error naming the root and the escapes — claim in another tree, or `job focus --release` — instead of silently crossing into a different plan.
 - **Explicit arguments always win.** `next <id>`, `claim --next <id>`, `orient <id>` and `status <id>` behave exactly as if focus didn't exist, as does `next all`.
 
-Claims are attributed to the `--as` name. Claims expire automatically. `--force` overrides an existing claim. Writes to a claimed task by its holder auto-extend the TTL — keep noting, editing, or labelling and the claim stays fresh without explicit heartbeats.
+Claims are attributed to the `--as` name. Claims expire automatically. `--force` overrides an existing claim. Writes to a claimed task by its holder extend the TTL to at least 30 minutes from now (never shortening a longer claim) — keep noting, editing, or labelling and the claim stays fresh without explicit heartbeats.
 
 #### Leaf-frontier semantics
 

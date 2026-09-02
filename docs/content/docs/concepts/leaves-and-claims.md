@@ -39,14 +39,16 @@ Claiming a parent that has open children **is refused**. The lock has no referen
 
 ## TTL and auto-extend
 
-A claim's TTL is a liveness signal, not a deadline. Any write to a claimed task by its holder auto-extends the TTL by 30 minutes — `note`, `edit`, `label add/remove`, and `criterion` operations all count. So while you're working, your claim stays fresh without explicit heartbeats. An auto-extend records a `heartbeat` event of its own, so `job log` shows the claim being held open alongside the write that held it.
+A claim's TTL is a liveness signal, not a deadline. Any write to a claimed task by its holder pushes the TTL out to 30 minutes from now — `note`, `edit`, `label add/remove`, and `criterion` operations all count. Extending never shortens a claim: if you claimed for two hours and write ten minutes in, the deadline stays where it was. So while you're working, your claim stays fresh without explicit heartbeats. An auto-extend records a `heartbeat` event of its own, so `job log` shows the claim being held open alongside the write that held it.
 
 `heartbeat` exists for the "thinking, not writing" case: a long pause where you genuinely have nothing to commit:
 
 ```sh
-job heartbeat <id>            # +30m
+job heartbeat <id>            # deadline moves to at least 30m from now
 job heartbeat <id> <id> <id>  # variadic
 ```
+
+Heartbeat follows the same rule as an auto-extend: it moves the deadline to at least 30 minutes from now, and never earlier than the deadline the claim already has. A claim taken for longer than the default keeps its window.
 
 When a claim expires, the lock evaporates — the leaf becomes claimable again. Expired claims show up as `Stale:` lines in `job status`, naming the leaf and how long the claim has been past its TTL. Treat stale claims as a question for the operator: was the agent killed? Was it stuck? Should someone reclaim?
 

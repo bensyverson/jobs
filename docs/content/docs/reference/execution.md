@@ -90,7 +90,7 @@ job note abc12 -m "ack" --result '{"errors":0}'      # attach structured JSON
 
 The `--result` payload rides on the `noted` event and is preserved in JSON output of `log` and `tail` — that's how an agent passes a structured handoff to whatever's watching.
 
-If the caller currently holds a claim on the task, the note auto-extends the claim's TTL. Heartbeat is for genuine pauses; if you're writing notes, you don't need to heartbeat.
+If the caller currently holds a claim on the task, the note extends the claim's TTL to at least 30 minutes from now — never shortening a longer claim. Heartbeat is for genuine pauses; if you're writing notes, you don't need to heartbeat.
 
 ## `done`
 
@@ -153,11 +153,11 @@ job cancel abc12 --purge --cascade --yes            # erase a whole subtree
 
 ## `heartbeat`
 
-Refreshes one or more live claims by 30 minutes and emits a `heartbeat` event. The contract is strict: every named task must currently be claimed by the caller, or the entire call rolls back.
+Refreshes one or more live claims and emits a `heartbeat` event. Each claim's deadline moves to at least 30 minutes from now, and never earlier than the deadline it already has — heartbeating a claim taken for two hours does not shorten it to 30 minutes. The contract is strict: every named task must currently be claimed by the caller, or the entire call rolls back.
 
 ```sh
 job heartbeat abc12
 job heartbeat abc12 abc34 abc56                     # variadic, atomic
 ```
 
-You rarely need this. Any write to a claimed task by its holder — `note`, `edit`, `label add`, `label remove` — already auto-extends the TTL. Heartbeat is the "thinking, not writing" tool: long pauses where you're not yet ready to commit anything but want the lock held.
+You rarely need this. Any write to a claimed task by its holder — `note`, `edit`, `label add`, `label remove` — already extends the TTL under the same rule. Heartbeat is the "thinking, not writing" tool: long pauses where you're not yet ready to commit anything but want the lock held.

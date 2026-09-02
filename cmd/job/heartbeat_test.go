@@ -212,7 +212,7 @@ func TestHeartbeat_OnCanceled_Errors(t *testing.T) {
 	}
 }
 
-func TestHeartbeat_TtlIsAlways30m(t *testing.T) {
+func TestHeartbeat_NeverShortensALongerClaim(t *testing.T) {
 	origNow := job.CurrentNowFunc
 	defer func() { job.CurrentNowFunc = origNow }()
 
@@ -226,20 +226,21 @@ func TestHeartbeat_TtlIsAlways30m(t *testing.T) {
 		t.Fatalf("claim: %v", err)
 	}
 
-	// Heartbeat 1h later.
+	// Heartbeat 1h later: 7h are still left, far more than the default
+	// window, so the deadline must not move.
 	job.CurrentNowFunc = func() time.Time { return base.Add(1 * time.Hour) }
 	if _, err := job.RunHeartbeat(db, []string{id}, "alice"); err != nil {
 		t.Fatalf("heartbeat: %v", err)
 	}
 
 	task := job.MustGet(t, db, id)
-	want := base.Add(1*time.Hour).Unix() + 1800
+	want := base.Add(8 * time.Hour).Unix()
 	if task.ClaimExpiresAt == nil || *task.ClaimExpiresAt != want {
 		got := int64(0)
 		if task.ClaimExpiresAt != nil {
 			got = *task.ClaimExpiresAt
 		}
-		t.Errorf("claim_expires_at: got %d, want %d (always +30m)", got, want)
+		t.Errorf("claim_expires_at: got %d, want %d (the original 8h deadline)", got, want)
 	}
 }
 
@@ -247,7 +248,7 @@ func TestHeartbeat_Md_Single_Shape(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
 	id := job.MustAdd(t, db, "", "job.Task")
-	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "10m", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	db.Close()
@@ -268,7 +269,7 @@ func TestHeartbeat_Md_Multi_Shape(t *testing.T) {
 	a := job.MustAdd(t, db, "", "A")
 	b := job.MustAdd(t, db, "", "B")
 	for _, id := range []string{a, b} {
-		if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
+		if err := job.RunClaim(db, id, "10m", "", "alice", false); err != nil {
 			t.Fatalf("claim %s: %v", id, err)
 		}
 	}
@@ -293,7 +294,7 @@ func TestHeartbeat_Json_Shape(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
 	id := job.MustAdd(t, db, "", "job.Task")
-	if err := job.RunClaim(db, id, "1h", "", "alice", false); err != nil {
+	if err := job.RunClaim(db, id, "10m", "", "alice", false); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	db.Close()
