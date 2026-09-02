@@ -3,7 +3,7 @@ title: Initialize a database
 weight: 2
 ---
 
-Jobs stores everything — tasks, events, claims, the lot — in a single SQLite file called `.jobs.db`. One file per project. No server, no daemon, no shared state.
+Jobs keeps everything — tasks, events, claims, the lot — in an append-only event log at `.jobs/log/`, and queries it through a SQLite cache called `.jobs.db` beside it. One store per project. No server, no daemon, no cloud. The log is text and belongs in git; the cache does not. [The store](../../concepts/the-store/) covers the split; this page is about getting one started.
 
 ## `job init --as <name>`
 
@@ -14,7 +14,7 @@ job init --as alice
 ```
 
 ```text
-Initialized /path/to/project/.jobs.db
+Initialized .jobs.db
 Default identity: alice
 ```
 
@@ -26,7 +26,7 @@ After init, `job` walks up from your CWD looking for an ancestor `.jobs.db` (the
 
 After init, change the default identity with `job identity set <name> --as <name>`. The `--as` is required because the change itself is a write that needs attribution (bootstrap discipline).
 
-`init` also writes `.jobs/local.json` beside the database. That file holds the state that belongs to *this machine* rather than to the project: the default identity, the strict flag and your [focus](../../reference/execution/#focus). Keep it out of version control — `job gitignore` ignores the database, and `.jobs/local.json` belongs in the same list. `--force` rewrites it along with the database, so a re-init never inherits the old checkout's strict flag or focus.
+`init` also writes `.jobs/local.json` beside the database. That file holds the state that belongs to *this machine* rather than to the project: this checkout's replica id, its clock, the default identity, the strict flag and your [focus](../../reference/execution/#focus). Keep it out of version control — `job gitignore` ignores the database, and `.jobs/local.json` belongs in the same list. `--force` rewrites it along with the database, so a re-init never inherits the old checkout's strict flag or focus.
 
 ## `--strict`
 
@@ -37,7 +37,7 @@ job init --strict
 ```
 
 ```text
-Initialized /path/to/project/.jobs.db
+Initialized .jobs.db
 Strict mode: writes require --as <name> (no default identity).
 ```
 
@@ -50,7 +50,7 @@ Error: identity required. Pass --as <name> before the verb.
 
 ```sh
 $ job --as alice add "Ship v1"
-ChvF2
+iaNczc
 ```
 
 Reach for `--strict` when multiple agents share one repository and unattributed writes would muddle the log. Toggle it after init with `job identity strict on|off --as <name>`.

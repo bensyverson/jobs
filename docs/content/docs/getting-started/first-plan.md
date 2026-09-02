@@ -3,7 +3,7 @@ title: Your first plan
 weight: 3
 ---
 
-This page walks one task tree from author through completion: write a plan, import it, claim work, close work, watch the parent auto-close. Every command below is real and the output blocks are captured from a clean run — except for task IDs, which Jobs assigns randomly. **Your IDs will differ; the shapes won't.**
+This page walks one task tree from author through completion: write a plan, import it, claim work, close work, watch the parent auto-close. Every command below is real and the output blocks are captured from a clean run — except for task IDs and the replica id, which Jobs assigns randomly. **Your IDs will differ; the shapes won't.**
 
 > Prerequisite: `job init --as alice` has been run in the current directory (see [Initialize](../initialize/)). The walkthrough uses the default identity `alice` — substitute your own.
 
@@ -65,9 +65,9 @@ job import plan.md
 ```
 
 ```text
-9QMaj  Add /healthz endpoint
-MZHd1  Write the handler
-kTuMb  Wire it into the router
+5i5vFN  Add /healthz endpoint
+AIs0dP  Write the handler
+oBFdSx  Wire it into the router
 ```
 
 The six-character ids are stable and case-sensitive. Use them anywhere a verb takes `<id>`.
@@ -81,14 +81,17 @@ job status
 ```
 
 ```text
-3 open, 0 done (last activity: 7s ago)
+3 open, 0 done (last activity: 0s ago)
 Identity: alice (default) · strict mode off
+Store: replica S8OIBo · 1 log file, 7 events · cache in sync
 
-  Add /healthz endpoint (9QMaj): 0 of 2 done · next MZHd1
-Next: MZHd1 "Write the handler"
+  Add /healthz endpoint (5i5vFN): 0 of 2 done · next AIs0dP
+Next: AIs0dP "Write the handler"
 ```
 
 The per-root rollup line and the `Next:` hint name the work to do. The router task isn't surfaced because it's blocked.
+
+The `Store:` line is the record behind all of it: the log files under `.jobs/log/` that hold every event, this checkout's replica id, and whether `.jobs.db` is a current cache of them. See [The store](../../concepts/the-store/).
 
 ## 5. Claim
 
@@ -99,46 +102,46 @@ job claim --next
 ```
 
 ```text
-Claimed: MZHd1 "Write the handler" (expires in 30m) as=alice
+Claimed: AIs0dP "Write the handler" (expires in 30m) as=alice
 
-ID:           MZHd1
+ID:           AIs0dP
 Title:        Write the handler
 Status:       claimed
 Claim:        claimed by alice, expires in 30m
-Parent:       9QMaj (Add /healthz endpoint)
-Blocks:       kTuMb
+Parent:       5i5vFN (Add /healthz endpoint)
+Blocks:       oBFdSx
 Created:      2026-05-07 18:09
 
 Description:
   200 OK with a JSON body of `{"status":"ok"}`. No auth, no DB touch — the probe must stay cheap.
 Criteria: 2 pending — mark each before close, or use --force-close-with-pending
-  nsO [ ] returns 200 status code
-  yFW [ ] response body is valid JSON
+  76o [ ] returns 200 status code
+  sX1 [ ] response body is valid JSON
 ```
 
-The first line is the scriptable signal (any `Claimed:` line means success). Below it is the full briefing — same as `job show MZHd1` would print. No follow-up `show` needed.
+The first line is the scriptable signal (any `Claimed:` line means success). Below it is the full briefing — same as `job show AIs0dP` would print. No follow-up `show` needed.
 
-The `nsO` and `yFW` are short ids for the two criteria — addressable by `--criterion <ref>=<state>` when you close.
+The `76o` and `sX1` are short ids for the two criteria — addressable by `--criterion <ref>=<state>` when you close.
 
 ## 6. Close (with criteria) and grab next
 
 Now do the work. When you're done, close the task — and let `--all-passed` mark every criterion as passed in one move, plus `--claim-next` to atomically grab the next leaf:
 
 ```sh
-job done MZHd1 --all-passed --claim-next -m 'Returns 200 OK with the expected JSON body.'
+job done AIs0dP --all-passed --claim-next -m 'Returns 200 OK with the expected JSON body.'
 ```
 
 ```text
-Done: MZHd1 "Write the handler" as=alice
+Done: AIs0dP "Write the handler" as=alice
   note: 43 chars · "Returns 200 OK with the expected JSON body."
-  Parent 9QMaj: 1 of 2 complete
-Claimed: kTuMb "Wire it into the router" (expires in 30m) as=alice
+  Parent 5i5vFN: 1 of 2 complete
+Claimed: oBFdSx "Wire it into the router" (expires in 30m) as=alice
 
-ID:           kTuMb
+ID:           oBFdSx
 Title:        Wire it into the router
 Status:       claimed
 Claim:        claimed by alice, expires in 30m
-Parent:       9QMaj (Add /healthz endpoint)
+Parent:       5i5vFN (Add /healthz endpoint)
 Labels:       glue
 Created:      2026-05-07 18:09
   Marked 2 criteria passed before closing.
@@ -146,23 +149,23 @@ Created:      2026-05-07 18:09
 
 The handler closes, its block on the router is auto-removed (closing a blocker auto-unblocks dependents), and the router is claimed in the same call. The parent is now `1 of 2 complete`.
 
-Marking criteria one by one is also fine — `--criterion nsO=passed --criterion yFW=passed` does the same job. `--all-passed` is the shorthand for the common case. If you genuinely need to ship without a criterion satisfied, `--force-close-with-pending` records the unmarked labels as a waiver on the done event so a reviewer can see what was deferred.
+Marking criteria one by one is also fine — `--criterion 76o=passed --criterion sX1=passed` does the same job. `--all-passed` is the shorthand for the common case. If you genuinely need to ship without a criterion satisfied, `--force-close-with-pending` records the unmarked labels as a waiver on the done event so a reviewer can see what was deferred.
 
 ## 7. Close the last leaf — parent auto-closes
 
 Finish the router. No criteria, just the note:
 
 ```sh
-job done kTuMb -m 'Mounted on the default router; smoke-tested via curl.'
+job done oBFdSx -m 'Mounted on the default router; smoke-tested via curl.'
 ```
 
 ```text
-Done: kTuMb "Wire it into the router" as=alice
+Done: oBFdSx "Wire it into the router" as=alice
   note: 53 chars · "Mounted on the default router; smoke-tested via curl."
-  Auto-closed: 9QMaj "Add /healthz endpoint"
+  Auto-closed: 5i5vFN "Add /healthz endpoint"
 ```
 
-Closing the last open child cascades up: the parent `9QMaj` auto-closes, attributed to the agent who closed the final child. You never explicitly close parents — they're scaffolding for their leaves.
+Closing the last open child cascades up: the parent `5i5vFN` auto-closes, attributed to the agent who closed the final child. You never explicitly close parents — they're scaffolding for their leaves.
 
 ## 8. Confirm
 
@@ -173,9 +176,12 @@ job status
 ```text
 0 open, 3 done (last activity: 0s ago)
 Identity: alice (default) · strict mode off
+Store: replica S8OIBo · 1 log file, 15 events · cache in sync
 ```
 
-The plan is done. Every state change above is preserved as an event — replay it with `job log 9QMaj` to see the full transcript.
+The plan is done. Every state change above is preserved as an event — replay it with `job log 5i5vFN` to see the full transcript, or read `.jobs/log/S8OIBo.jsonl`, which is the same history as text.
+
+Commit `.jobs/log/` and the plan travels with the repo. [Across machines](../across-machines/) takes it from here.
 
 ## What you just used
 

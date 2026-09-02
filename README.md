@@ -57,6 +57,11 @@ or after init:
 $ job identity set claude --as <your-username>
 ```
 
+### What to commit
+
+Commit `.jobs/log/` — plain text, one file per checkout, and the record of every task and event. Run `job gitignore` once to exclude the rest (`.jobs.db*`, the disposable cache, and `.jobs/local.json`, this machine's own identity and focus).
+
+That makes `git pull` the sync: clone the repo on another machine, run `job status`, and your tasks are there. Two machines can work at once — each appends to its own file, so the log never conflicts. See [The store](docs/content/docs/concepts/the-store.md).
 
 ### Dashboard
 

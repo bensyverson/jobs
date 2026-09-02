@@ -3,7 +3,7 @@ title: Setup
 weight: 1
 ---
 
-The verbs that bring a database into existence, govern who is allowed to write to it, and put one back together after it has been copied: `init`, `gitignore`, `identity`, `schema`, and `merge`. Only the last of them touches tasks, and only to reconcile two copies of the same ones.
+The verbs that bring a store into existence, govern who is allowed to write to it, and put one back together: `init`, `gitignore`, `identity`, `schema`, `merge`, `rebuild` and `rekey`. Only the last three touch tasks, and only to rebuild them from the log or reconcile two copies of the same ones. [The store](../../concepts/the-store/) is the model these last three assume.
 
 ## `init`
 
@@ -83,7 +83,11 @@ What happens then is decided per table, on **short ids**, which are the only ide
 
 The report names every task that existed on one side only and which side that was, every task both sides touched with the winner for each part of it, and every claim it dropped and why. `--dry-run` (`-n`) prints exactly that and writes nothing.
 
-Two promises worth relying on. **The other file is never written** — it is copied somewhere disposable before it is opened, so even the migration that opening a database runs lands on the copy. And **merging the same pair twice changes nothing**: the second run reports no changes and leaves the database's content as it was.
+**The other file is never written** — it is copied somewhere disposable before it is opened, so even the migration that opening a database runs lands on the copy.
+
+`merge` predates the store and works on two `.jobs.db` caches, which is what makes it the recovery path when the log is gone. Two consequences worth knowing. It writes the merged result into the local cache rather than through the log, so the next `job` command [adopts](#adoption) it — appending the arriving events and a snapshot to this replica's log file, and keeping `.jobs.db.pre-adopt`. And because that changes the local event history, **re-running the same merge afterwards refuses** with `these databases are unrelated`: the merge is applied once and is not repeatable. Check the report with `--dry-run` first; if a merge went wrong, `.jobs.db.pre-adopt` is the state before it.
+
+Two clones of one repo do not need `merge` at all. They share the log, so `git pull` and a rebuild are the whole story — see [The store](../../concepts/the-store/).
 
 `merge` needs no `--as` and records no event of its own. It transcribes history rather than making it, so there is no actor to attribute — the events it copies keep the actors they already had.
 
@@ -95,6 +99,10 @@ Throws the cache away and replays the log into a fresh one.
 
 ```sh
 job rebuild
+```
+
+```text
+Rebuilt the cache from 2 log file(s), 10 event(s). Replica 6oDqmc.
 ```
 
 `.jobs/log/*.jsonl` is the record; `.jobs.db` is a cache of it that can be deleted at any time. The cache records a **watermark** for each log file — the byte offset it has applied — and every `job` command checks it: sizes equal everywhere and no unknown file means there is nothing to do, which costs one `stat` per file. Anything else rebuilds automatically. So there is no `job sync`: sync is `git pull`, and the next command notices.
@@ -113,7 +121,11 @@ Every repair is printed, and the losing claimant is named.
 
 ### Adoption
 
-A `.jobs.db` written before the store existed has no log to rebuild from: its event rows carry payloads that were never replayable, and the state they produced lives only in the cache. There is no verb for converting one — it happens on the first `job` command that opens it, the same way a schema migration does, and prints one line saying what it did.
+A `.jobs.db` written before the store existed has no log to rebuild from: its event rows carry payloads that were never replayable, and the state they produced lives only in the cache. There is no verb for converting one — it happens on the first `job` command that opens it, the same way a schema migration does, and prints one line saying what it did:
+
+```text
+note: adopted this database into the store: 2 events carried across as history, a snapshot of 3 tasks written, replica LBq6oh. The previous cache is at /path/to/project/.jobs.db.pre-adopt.
+```
 
 Every old event row becomes a log line marked `legacy`, which is recorded and applied: `job log`, `job show`, `job tail` and the dashboard's scrubber see the same history they always did, and nothing about it touches the state tables. One `snapshot` line carries the state itself — every task, block, label, criterion, provenance row and user. The cache is then rebuilt from the result and compared, table by table, against the original. **Any difference aborts**: no log line is appended, no file is renamed, and the difference is written to `.jobs.db.adopt-failed` so you can see it. On success the original cache is kept as `.jobs.db.pre-adopt`, which the `.jobs.db*` ignore pattern covers, and you can delete it once you are satisfied.
 

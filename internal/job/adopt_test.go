@@ -199,11 +199,12 @@ func TestAdopt_ThisRepositorysDatabase(t *testing.T) {
 
 	src := filepath.Join(root, "src")
 	copyRepoDatabase(t, live, src)
+	path := filepath.Join(src, ".jobs.db")
+	skipUnlessLegacy(t, path)
 	other := filepath.Join(root, "other")
 	copyTree(t, src, other)
 
-	path := filepath.Join(src, filepath.Base(live))
-	before := dumpPristine(t, filepath.Join(other, filepath.Base(live)))
+	before := dumpPristine(t, filepath.Join(other, ".jobs.db"))
 
 	db, err := OpenDB(path)
 	if err != nil {
@@ -236,7 +237,8 @@ func TestAdopt_JobLogIsUnchanged(t *testing.T) {
 
 	src := filepath.Join(root, "src")
 	copyRepoDatabase(t, live, src)
-	path := filepath.Join(src, filepath.Base(live))
+	path := filepath.Join(src, ".jobs.db")
+	skipUnlessLegacy(t, path)
 
 	before := runJob(t, bin, []string{"JOBS_NO_ADOPT=1"}, "log", "--db", path)
 	after := runJob(t, bin, nil, "log", "--db", path)
@@ -459,21 +461,42 @@ func TestApply_LegacyEnvelopeWritesNoState(t *testing.T) {
 // repoDatabasePath finds this repository's own .jobs.db by walking up from the
 // test's working directory. It is gitignored, so a worktree does not have one
 // and the tests that want it skip.
+// repoDatabasePath finds this repository's database. Once the live cache has
+// been adopted it holds no legacy rows, so the backup adoption kept beside it
+// (.jobs.db.pre-adopt) is preferred: that file is the legacy fixture the
+// design was written for, and it stays one for as long as it exists.
 func repoDatabasePath() string {
 	dir, err := os.Getwd()
 	if err != nil {
 		return ""
 	}
 	for {
-		candidate := filepath.Join(dir, ".jobs.db")
-		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
-			return candidate
+		for _, name := range []string{".jobs.db" + adoptBackupSuffix, ".jobs.db"} {
+			candidate := filepath.Join(dir, name)
+			if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
+				return candidate
+			}
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			return ""
 		}
 		dir = parent
+	}
+}
+
+// skipUnlessLegacy skips the test when the copied cache holds no unpositioned
+// rows: there is nothing for adoption to do, so the test would prove nothing.
+func skipUnlessLegacy(t *testing.T, path string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var n int
+	if err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM events WHERE rep = '')").Scan(&n); err != nil || n == 0 {
+		t.Skipf("%s holds no legacy rows; nothing to adopt", path)
 	}
 }
 
@@ -490,7 +513,7 @@ func copyRepoDatabase(t *testing.T, live, dst string) {
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	target := filepath.Join(dst, filepath.Base(live))
+	target := filepath.Join(dst, ".jobs.db")
 	src, err := sql.Open("sqlite", live)
 	if err != nil {
 		t.Fatal(err)
@@ -505,6 +528,47 @@ func copyRepoDatabase(t *testing.T, live, dst string) {
 	store := eventlog.StoreDir(live)
 	if info, err := os.Stat(store); err == nil && info.IsDir() {
 		copyTree(t, store, filepath.Join(dst, eventlog.StoreDirName))
+	}
+	// The store beside a pre-adopt backup already carries that backup's
+	// adoption. Cutting every log file at its first legacy line restores the
+	// store exactly as it was the moment before adoption ran, which is the
+	// fixture this test is for.
+	if filepath.Base(live) != ".jobs.db" {
+		truncateLogsBeforeAdoption(t, filepath.Join(dst, eventlog.StoreDirName))
+		os.Remove(filepath.Join(dst, eventlog.StoreDirName, "local.json"))
+	}
+}
+
+// truncateLogsBeforeAdoption rewrites each replica file under storeDir to the
+// lines that precede its first legacy envelope.
+func truncateLogsBeforeAdoption(t *testing.T, storeDir string) {
+	t.Helper()
+	files, err := eventlog.Files(storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		raw, err := os.ReadFile(f.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var kept []byte
+		for line := range bytes.SplitSeq(bytes.TrimSuffix(raw, []byte("\n")), []byte("\n")) {
+			if bytes.Contains(line, []byte(`"legacy":true`)) {
+				break
+			}
+			kept = append(kept, line...)
+			kept = append(kept, '\n')
+		}
+		if len(kept) == 0 {
+			if err := os.Remove(f.Path); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if err := os.WriteFile(f.Path, kept, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

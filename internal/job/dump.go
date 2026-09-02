@@ -66,16 +66,20 @@ var dumpQueries = []struct{ name, query string }{
 	{"users", `SELECT name, created_at FROM users ORDER BY name`},
 }
 
+// The event dumps order canonically by content rather than by row id: row ids
+// are renumbered by every rebuild, and a legacy row and a positioned row
+// written in the same second can swap places across one without any state
+// having changed.
 const dumpEventsQuery = `
 	SELECT COALESCE(t.short_id, ''), e.event_type, e.actor, COALESCE(e.detail, ''), e.created_at
 	FROM events e LEFT JOIN tasks t ON t.id = e.task_id
-	ORDER BY e.id`
+	ORDER BY e.created_at, COALESCE(t.short_id, ''), e.event_type, e.actor, e.detail`
 
 const dumpHistoryQuery = `
 	SELECT COALESCE(t.short_id, ''), e.event_type, e.actor, COALESCE(e.detail, ''), e.created_at
 	FROM events e LEFT JOIN tasks t ON t.id = e.task_id
 	WHERE e.event_type != 'snapshot'
-	ORDER BY e.id`
+	ORDER BY e.created_at, COALESCE(t.short_id, ''), e.event_type, e.actor, e.detail`
 
 // dumpRows renders each row as its columns joined by a pipe, with NULL and the
 // empty string rendered alike — a distinction no reader of this cache makes.
