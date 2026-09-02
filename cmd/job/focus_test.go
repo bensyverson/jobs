@@ -184,7 +184,7 @@ func TestFocus_ReleaseIssuesLeavesTheTaskFocus(t *testing.T) {
 	}
 }
 
-// Bare --release clears both kinds and records one event per released root.
+// Bare --release clears both kinds, and records no event: focus is local.
 func TestFocus_ReleaseClearsBothKinds(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
@@ -212,12 +212,12 @@ func TestFocus_ReleaseClearsBothKinds(t *testing.T) {
 	db = openTestDB(t, dbFile)
 	var n int
 	if err := db.QueryRow(
-		"SELECT COUNT(*) FROM events WHERE event_type = 'focus_released' AND actor = 'alice'",
+		"SELECT COUNT(*) FROM events WHERE event_type IN ('focus_set','focus_released') AND actor = 'alice'",
 	).Scan(&n); err != nil {
-		t.Fatalf("count focus_released: %v", err)
+		t.Fatalf("count focus events: %v", err)
 	}
-	if n != 2 {
-		t.Errorf("focus_released events: got %d, want 2 (one per kind)", n)
+	if n != 0 {
+		t.Errorf("focus events: got %d, want 0 (focus lives in local.json)", n)
 	}
 }
 

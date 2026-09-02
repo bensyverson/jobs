@@ -3,6 +3,7 @@ package job
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -403,14 +404,20 @@ func RunClaim(db *sql.DB, shortID, duration, note, actor string, force bool) err
 		return err
 	}
 
-	// Claiming is the focus setter (last-claim-wins): a claim outside the
-	// actor's focused root flips their focus to the new root, atomically
-	// with the claim itself.
-	if err := flipFocusOnClaim(tx, task, actor); err != nil {
+	if err := tx.Commit(); err != nil {
 		return err
 	}
 
-	return tx.Commit()
+	// Claiming is the focus setter (last-claim-wins): a claim outside the
+	// actor's focused root flips their focus to the new root. Focus is
+	// machine-local state in a file, so this happens after the commit — and
+	// a failure to write it is a warning, never a failed claim: the claim is
+	// the shared fact, the focus is a convenience.
+	if err := flipFocusOnClaim(db, task, actor); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: claimed %s but could not update focus: %v\n", shortID, err)
+	}
+
+	return nil
 }
 
 // RunRelease releases the caller's claim on a task. If note is non-empty, a

@@ -32,6 +32,8 @@ job gitignore
 
 Idempotent and additive — it appends only the patterns that aren't already present, so it's safe to re-run. No `--as` (it isn't a database write) and no requirement that `.jobs.db` exist yet, so it works before or after `init`.
 
+Add `.jobs/local.json` alongside them by hand: it holds this machine's identity, strict flag and focus, and no other checkout should ever see it.
+
 ## `identity`
 
 Two subcommands, both writes, both require `--as`.
@@ -83,4 +85,4 @@ Two promises worth relying on. **The other file is never written** — it is cop
 
 `merge` needs no `--as` and records no event of its own. It transcribes history rather than making it, so there is no actor to attribute — the events it copies keep the actors they already had.
 
-Two things `merge` deliberately leaves alone. **Machine-local settings don't travel**: the default identity and strict mode belong to the checkout that set them, so `merge` never overwrites them from the other file. And **unions do not remember deletions**: a label removed or a blocker cleared on one side comes back if the other side still holds it, because a union has no way to tell "never had it" from "had it and dropped it". Re-run `job label remove` or `job block remove` after a merge if that matters.
+Two things `merge` deliberately leaves alone. **Machine-local settings don't travel**: the default identity, strict mode and focus live in each checkout's own `.jobs/local.json`, not in the database, so `merge` never touches them. And **unions do not remember deletions**: a label removed or a blocker cleared on one side comes back if the other side still holds it, because a union has no way to tell "never had it" from "had it and dropped it". Re-run `job label remove` or `job block remove` after a merge if that matters.

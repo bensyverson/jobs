@@ -253,7 +253,7 @@ IDENTITY
 
   Every write is attributed. Resolution order, first match wins:
     1. --as <name> on the call
-    2. A DB-level default identity (recorded from --as at init)
+    2. The machine-local default identity (recorded from --as at init)
     3. Otherwise: error
 
     job identity set <name>         change the default (itself requires --as)
@@ -338,7 +338,7 @@ func openDBFromCmd() (*sql.DB, error) {
 
 // requireAs resolves the writer identity for this call. Precedence:
 //  1. --as flag
-//  2. DB-level default identity (config.default_identity), unless strict mode
+//  2. the machine-local default identity (.jobs/local.json), unless strict mode
 //  3. error: "identity required. Pass --as <name> ..."
 //
 // Lives in the CLI layer because it depends on the cobra-bound --as flag

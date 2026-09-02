@@ -53,10 +53,7 @@ Criteria:
 - `criteria_added` — criterion list authored on a task.
 - `criterion_state` — single criterion transitioned (`pending` → `passed` / `skipped` / `failed`).
 
-Focus:
-
-- `focus_set` — the actor's [focus](../../reference/execution/#focus) moved to a root, almost always as a side effect of claiming outside it (`detail.via = "claim"` names the claimed task). `detail.kind` records the root's tree kind at the time, which is the slot the focus occupies — roots convert, so the event stores what was true. Same-root claims emit nothing.
-- `focus_released` — one of the actor's focus slots cleared: manually (`job focus --release`) or automatically when that focused root closed (`detail.via = "root_closed"`, one event per focused actor). `detail.kind` names the slot released.
+Focus is **not** an event. It is machine-local workflow state kept in `.jobs/local.json` beside the database, so moving your focus records nothing and no other checkout sees it. Databases written before that change still hold `focus_set` and `focus_released` rows; they are history, and `job log` and the dashboard render them as plain rows.
 
 Liveness:
 

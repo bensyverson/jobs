@@ -26,6 +26,8 @@ After init, `job` walks up from your CWD looking for an ancestor `.jobs.db` (the
 
 After init, change the default identity with `job identity set <name> --as <name>`. The `--as` is required because the change itself is a write that needs attribution (bootstrap discipline).
 
+`init` also writes `.jobs/local.json` beside the database. That file holds the state that belongs to *this machine* rather than to the project: the default identity, the strict flag and your [focus](../../reference/execution/#focus). Keep it out of version control — `job gitignore` ignores the database, and `.jobs/local.json` belongs in the same list. `--force` rewrites it along with the database, so a re-init never inherits the old checkout's strict flag or focus.
+
 ## `--strict`
 
 Strict mode opts out of a default identity entirely. Every write must carry an explicit `--as <name>`. Pass `--strict` instead of `--as`:

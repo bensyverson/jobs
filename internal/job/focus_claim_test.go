@@ -37,8 +37,8 @@ func TestClaim_DifferentRoot_FlipsFocus(t *testing.T) {
 	}
 }
 
-// wOb — Claiming within the focused root emits no focus event.
-func TestClaim_SameRoot_EmitsNoFocusEvent(t *testing.T) {
+// wOb — Claiming within the focused root leaves the focus where it is.
+func TestClaim_SameRoot_LeavesTheFocusAlone(t *testing.T) {
 	db := SetupTestDB(t)
 	root := MustAdd(t, db, "", "Root")
 	leaf1 := MustAdd(t, db, root, "Leaf 1")
@@ -47,14 +47,11 @@ func TestClaim_SameRoot_EmitsNoFocusEvent(t *testing.T) {
 	MustClaim(t, db, leaf1, "1h")
 	MustClaim(t, db, leaf2, "1h")
 
-	var n int
-	if err := db.QueryRow(
-		"SELECT COUNT(*) FROM events WHERE event_type = 'focus_set' AND actor = ?", TestActor,
-	).Scan(&n); err != nil {
-		t.Fatalf("count focus_set: %v", err)
+	if slot := localFocusSlot(t, db, TestActor, KindTask); slot != root {
+		t.Errorf("task slot after two same-root claims: got %q, want %q", slot, root)
 	}
-	if n != 1 {
-		t.Errorf("focus_set events after two same-root claims: got %d, want 1", n)
+	if n := focusEventCount(t, db, TestActor); n != 0 {
+		t.Errorf("focus events recorded: got %d, want 0", n)
 	}
 }
 
@@ -131,14 +128,8 @@ func TestDoneNoteRelease_NeverTouchFocus(t *testing.T) {
 		t.Fatalf("done: %v", err)
 	}
 
-	var n int
-	if err := db.QueryRow(
-		"SELECT COUNT(*) FROM events WHERE event_type IN ('focus_set','focus_released') AND actor = ?", TestActor,
-	).Scan(&n); err != nil {
-		t.Fatalf("count focus events: %v", err)
-	}
-	if n != 1 {
-		t.Errorf("focus events after note/release/done: got %d, want only the claim's focus_set", n)
+	if n := focusEventCount(t, db, TestActor); n != 0 {
+		t.Errorf("focus events after note/release/done: got %d, want 0", n)
 	}
 	got, err := GetFocus(db, TestActor)
 	if err != nil {

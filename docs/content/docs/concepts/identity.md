@@ -10,7 +10,7 @@ Every write is attributed to a named identity. Reads (`ls`, `show`, `next`, `log
 When a write happens, the writer's name is resolved in this order — first match wins:
 
 1. `--as <name>` flag on the call.
-2. The DB-level default identity, recorded at `init` time.
+2. The machine-local default identity, recorded at `init` time.
 3. Error: `identity required. Pass --as <name> before the verb.`
 
 There is **no** `$USER` fallback, at init or at write time. `init` requires `--as <name>` (or `--strict`) and records exactly what you pass; nothing is read from the environment.
@@ -50,6 +50,10 @@ job --as alice add "x"                    # ok
 ```
 
 Toggle after init with `job identity strict on|off --as <name>`. Turning strict *off* leaves the default unset until you call `job identity set` explicitly — there's no implicit revival.
+
+## Where it is kept
+
+The default identity and the strict flag are **machine-local**: they say who is at this keyboard, not what happened to the tasks. They live in `.jobs/local.json` beside the database — never inside `.jobs.db`, which is a cache that can be deleted and rebuilt, and never in anything shared with another checkout. Deleting `.jobs.db` therefore does not change who you are; `job init --force` does, because it re-records the identity you pass it.
 
 ## Multiple agents
 

@@ -334,3 +334,36 @@ func TestWrite_NoDefault_PermissiveMode_StillErrors(t *testing.T) {
 	}
 	_ = os.Getenv // silence unused if refactor drops env above
 }
+
+// pItH3 — the identity now lives beside the database, not inside it, so
+// `init --force` has to clear what it leaves behind: a strict flag or a focus
+// from the overwritten database would otherwise outlive it and quietly
+// override the identity this init just recorded.
+func TestInit_Force_ResetsLocalStateFromTheOverwrittenDatabase(t *testing.T) {
+	dbFile, _ := initCLI(t, "--as", "alice", "--strict")
+
+	db := openTestDB(t, dbFile)
+	root := job.MustAdd(t, db, "", "Root")
+	if _, err := job.SetFocus(db, root, "alice"); err != nil {
+		t.Fatalf("SetFocus: %v", err)
+	}
+	db.Close()
+
+	resetFlags()
+	t.Cleanup(resetFlags)
+	mustRunCLI(t, dbFile, "--as", "bob", "init", "--force")
+
+	state, err := job.LoadLocalState(dbFile)
+	if err != nil {
+		t.Fatalf("LoadLocalState: %v", err)
+	}
+	if state.Identity != "bob" {
+		t.Errorf("default identity after re-init: got %q, want bob", state.Identity)
+	}
+	if state.Strict {
+		t.Error("strict mode survived an init that named a default identity")
+	}
+	if got := state.FocusRoot("alice", job.KindTask); got != "" {
+		t.Errorf("focus survived init --force: got %q, want empty", got)
+	}
+}

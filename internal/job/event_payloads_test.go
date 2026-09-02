@@ -45,10 +45,6 @@ var eventPayloadSamples = []struct {
 	{EventCriterionState, CriterionStatePayload{
 		Label: "tests pass", State: "passed", Prior: "pending", ShortID: "aB3",
 	}},
-	{EventFocusSet, FocusSetPayload{
-		Root: "AbC12", Title: "Root task", Kind: "task", Via: "claim", Claimed: "XyZ99",
-	}},
-	{EventFocusReleased, FocusReleasedPayload{Root: "AbC12", Kind: "task", Via: "root_closed"}},
 	{EventHeartbeat, HeartbeatPayload{NewExpiresAt: 1234}},
 	{EventFoundInSet, FoundInSetPayload{
 		TaskID: "AbC12", SourceID: "XyZ99", PreviousSourceID: "zzTop",
@@ -136,8 +132,8 @@ func TestEveryEventTypeHasAPayloadSample(t *testing.T) {
 	allTypes := []EventType{
 		EventCreated, EventLabeled, EventUnlabeled, EventReleased, EventCanceled,
 		EventBlocked, EventUnblocked, EventPurged, EventClaimExpired, EventNoted,
-		EventClaimed, EventCriteriaAdded, EventCriterionState, EventFocusSet,
-		EventFocusReleased, EventHeartbeat, EventFoundInSet, EventFoundInCleared,
+		EventClaimed, EventCriteriaAdded, EventCriterionState,
+		EventHeartbeat, EventFoundInSet, EventFoundInCleared,
 		EventKindChanged, EventDone, EventReopened, EventEdited, EventMoved,
 		EventReparented,
 	}

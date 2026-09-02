@@ -2167,11 +2167,10 @@ func TestRunLog_VariousEventTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunLog: %v", err)
 	}
-	// A claim also emits focus_set when it lands outside the actor's
-	// focused root (here: the first claim ever), so the lifecycle log is
-	// created, claimed, focus_set, released.
-	if len(events) != 4 {
-		t.Fatalf("expected 4 events (created, claimed, focus_set, released), got %d", len(events))
+	// Focus is machine-local and records no event, so the lifecycle log is
+	// exactly created, claimed, released.
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events (created, claimed, released), got %d", len(events))
 	}
 	if events[0].EventType != "created" {
 		t.Errorf("event 0: got %q, want created", events[0].EventType)
@@ -2179,11 +2178,8 @@ func TestRunLog_VariousEventTypes(t *testing.T) {
 	if events[1].EventType != "claimed" {
 		t.Errorf("event 1: got %q, want claimed", events[1].EventType)
 	}
-	if events[2].EventType != "focus_set" {
-		t.Errorf("event 2: got %q, want focus_set", events[2].EventType)
-	}
-	if events[3].EventType != "released" {
-		t.Errorf("event 3: got %q, want released", events[3].EventType)
+	if events[2].EventType != "released" {
+		t.Errorf("event 2: got %q, want released", events[2].EventType)
 	}
 }
 
@@ -2284,18 +2280,15 @@ func TestRunLog_FormattedJSON(t *testing.T) {
 	if err := json.Unmarshal(jsonBytes, &result); err != nil {
 		t.Fatalf("json.Unmarshal: %v", err)
 	}
-	// created, claimed, plus the claim's focus_set (first claim flips focus).
-	if len(result) != 3 {
-		t.Fatalf("expected 3 events, got %d", len(result))
+	// created and claimed: the claim's focus flip records no event.
+	if len(result) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(result))
 	}
 	if result[0]["event_type"] != "created" {
 		t.Errorf("event 0 type: got %v, want created", result[0]["event_type"])
 	}
 	if result[1]["event_type"] != "claimed" {
 		t.Errorf("event 1 type: got %v, want claimed", result[1]["event_type"])
-	}
-	if result[2]["event_type"] != "focus_set" {
-		t.Errorf("event 2 type: got %v, want focus_set", result[2]["event_type"])
 	}
 	if result[0]["short_id"] != id {
 		t.Errorf("event 0 short_id: got %v, want %s", result[0]["short_id"], id)
@@ -2322,9 +2315,9 @@ func TestGetEventsAfterID_ReturnsNewEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getEventsAfterID: %v", err)
 	}
-	// The claim emits claimed plus focus_set (first claim flips focus).
-	if len(newEvents) != 2 {
-		t.Fatalf("expected 2 new events, got %d", len(newEvents))
+	// The claim emits claimed and nothing else: the focus flip is local.
+	if len(newEvents) != 1 {
+		t.Fatalf("expected 1 new event, got %d", len(newEvents))
 	}
 	if newEvents[0].EventType != "claimed" {
 		t.Errorf("event type: got %q, want claimed", newEvents[0].EventType)

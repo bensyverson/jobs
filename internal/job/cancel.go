@@ -198,12 +198,6 @@ func executeCancel(
 		if err := recordEvent(tx, targetTask.ID, EventCanceled, actor, targetPayload); err != nil {
 			return nil, nil, err
 		}
-		// Canceling a root ends that tree: release focus visibly.
-		if targetTask.ParentID == nil {
-			if err := releaseFocusOnRootClose(tx, targetTask); err != nil {
-				return nil, nil, err
-			}
-		}
 		if err := recordBlocksUnblockedOnCancel(tx, p.target.task.ID, p.target.shortID, actor); err != nil {
 			return nil, nil, err
 		}

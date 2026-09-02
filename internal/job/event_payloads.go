@@ -25,8 +25,6 @@ const (
 	EventClaimed        EventType = "claimed"
 	EventCriteriaAdded  EventType = "criteria_added"
 	EventCriterionState EventType = "criterion_state"
-	EventFocusSet       EventType = "focus_set"
-	EventFocusReleased  EventType = "focus_released"
 	EventHeartbeat      EventType = "heartbeat"
 	EventFoundInSet     EventType = "found_in_set"
 	EventFoundInCleared EventType = "found_in_cleared"
@@ -182,25 +180,9 @@ type CriterionStatePayload struct {
 	ShortID string `json:"short_id,omitempty"`
 }
 
-// FocusSetPayload is recorded by SetFocus (explicit `job focus`) and by
-// flipFocusOnClaim (the automatic focus setter triggered by a claim). Via
-// and Claimed are set only for the claim-triggered case.
-type FocusSetPayload struct {
-	Root    string `json:"root"`
-	Title   string `json:"title"`
-	Kind    string `json:"kind"`
-	Via     string `json:"via,omitempty"`
-	Claimed string `json:"claimed,omitempty"`
-}
-
-// FocusReleasedPayload is recorded by ReleaseFocusKind (explicit release)
-// and releaseFocusOnRootClose (automatic release when a focused root
-// closes). Via is set only for the automatic case.
-type FocusReleasedPayload struct {
-	Root string `json:"root"`
-	Kind string `json:"kind"`
-	Via  string `json:"via,omitempty"`
-}
+// Focus is machine-local (see local.go), so there is no focus event type and
+// no focus payload: focus_set and focus_released rows in an existing database
+// are history, rendered by the generic fallback row.
 
 // HeartbeatPayload is recorded by RunHeartbeat.
 type HeartbeatPayload struct {

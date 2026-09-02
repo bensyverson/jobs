@@ -1,85 +1,76 @@
 package job
 
-import (
-	"database/sql"
-	"fmt"
-)
-
-const (
-	configKeyDefaultIdentity = "default_identity"
-	configKeyStrict          = "strict"
-)
-
-// GetConfig returns the string value stored for key, or "" if unset.
-func GetConfig(db dbtx, key string) (string, error) {
-	var value string
-	err := db.QueryRow("SELECT value FROM config WHERE key = ?", key).Scan(&value)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("config get %s: %w", key, err)
-	}
-	return value, nil
-}
-
-// SetConfig upserts a config row. Empty value is stored as-is (use
-// DeleteConfig to remove).
-func SetConfig(db dbtx, key, value string) error {
-	_, err := db.Exec(
-		"INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-		key, value,
-	)
-	if err != nil {
-		return fmt.Errorf("config set %s: %w", key, err)
-	}
-	return nil
-}
+// The default writer identity and strict mode are machine-local: they say who
+// is at this keyboard, not what happened to the tasks. They live in
+// .jobs/local.json beside the cache (see local.go), never in the cache — which
+// is disposable — and never in the log, which every other machine reads.
+//
+// The `config` table remains in the schema and is no longer read or written.
 
 // GetDefaultIdentity returns the configured default writer identity, or
 // "" if unset.
 func GetDefaultIdentity(db dbtx) (string, error) {
-	return GetConfig(db, configKeyDefaultIdentity)
+	s, err := loadLocal(db)
+	if err != nil {
+		return "", err
+	}
+	return s.Identity, nil
 }
 
 // SetDefaultIdentity sets the configured default writer identity.
 func SetDefaultIdentity(db dbtx, name string) error {
-	return SetConfig(db, configKeyDefaultIdentity, name)
+	return updateLocal(db, func(s *LocalState) error {
+		s.Identity = name
+		return nil
+	})
 }
 
 // IsStrict reports whether strict mode is enabled. Default is permissive
-// (false) when the key is unset.
+// (false) when nothing has set it.
 func IsStrict(db dbtx) (bool, error) {
-	v, err := GetConfig(db, configKeyStrict)
+	s, err := loadLocal(db)
 	if err != nil {
 		return false, err
 	}
-	return v == "true", nil
+	return s.Strict, nil
 }
 
 // SetStrict toggles strict mode.
 func SetStrict(db dbtx, on bool) error {
-	v := "false"
-	if on {
-		v = "true"
-	}
-	return SetConfig(db, configKeyStrict, v)
+	return updateLocal(db, func(s *LocalState) error {
+		s.Strict = on
+		return nil
+	})
+}
+
+// InitIdentity records the identity choice `job init` made and clears
+// everything the previous database left behind: the strict flag and every
+// actor's focus, whose root short ids belong to tasks that no longer exist.
+// The replica id and the clock are kept — they describe this checkout, not
+// the cache that was overwritten.
+func InitIdentity(db dbtx, name string, strict bool) error {
+	return updateLocal(db, func(s *LocalState) error {
+		s.Identity = name
+		s.Strict = strict
+		s.Focus = nil
+		return nil
+	})
 }
 
 // ResolveIdentity applies the P3 resolution chain for writes:
 //  1. flagValue — the --as flag value (wins if non-empty).
-//  2. default_identity from config, unless strict mode is on.
+//  2. the default identity from local.json, unless strict mode is on.
 //  3. "" — caller must error with "identity required".
 func ResolveIdentity(db dbtx, flagValue string) (string, error) {
 	if flagValue != "" {
 		return flagValue, nil
 	}
-	strict, err := IsStrict(db)
+	s, err := loadLocal(db)
 	if err != nil {
 		return "", err
 	}
-	if strict {
+	if s.Strict {
 		return "", nil
 	}
-	return GetDefaultIdentity(db)
+	return s.Identity, nil
 }

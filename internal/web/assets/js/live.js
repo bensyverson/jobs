@@ -79,8 +79,6 @@
     "found_in_set",
     "found_in_cleared",
     "kind_changed",
-    "focus_set",
-    "focus_released",
     "purged",
     "heartbeat",
   ];

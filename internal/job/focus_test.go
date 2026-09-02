@@ -4,14 +4,13 @@ import (
 	"testing"
 )
 
-// gplfH — Focus domain. Focus is a per-actor pointer at a root task, stored
-// as focus_set / focus_released events (the event store is the source of
-// truth; GetFocus materializes the latest event per actor). A focus whose
-// root is done, canceled, or deleted reads as released without needing a
-// tombstone event.
+// gplfH — Focus domain. Focus is a per-actor pointer at a root task, held in
+// .jobs/local.json beside the cache — machine-local state, never an event. A
+// focus whose root is done, canceled, or deleted reads as released without
+// needing a tombstone.
 
-// 4BA — SetFocus emits focus_set and GetFocus returns that root for the
-// same actor only.
+// 4BA — SetFocus records the root in local.json and GetFocus returns it for
+// the same actor only.
 func TestSetFocus_GetFocus_PerActor(t *testing.T) {
 	db := SetupTestDB(t)
 	rootA := MustAdd(t, db, "", "Root A")
@@ -37,14 +36,11 @@ func TestSetFocus_GetFocus_PerActor(t *testing.T) {
 		t.Errorf("GetFocus(bob): got %s, want nil (focus is per-actor)", other.ShortID)
 	}
 
-	var n int
-	if err := db.QueryRow(
-		"SELECT COUNT(*) FROM events WHERE event_type = 'focus_set' AND actor = 'alice'",
-	).Scan(&n); err != nil {
-		t.Fatalf("count focus_set: %v", err)
+	if slot := localFocusSlot(t, db, "alice", KindTask); slot != rootA {
+		t.Errorf("local.json task slot for alice: got %q, want %q", slot, rootA)
 	}
-	if n != 1 {
-		t.Errorf("focus_set events for alice: got %d, want 1", n)
+	if n := focusEventCount(t, db, "alice"); n != 0 {
+		t.Errorf("focus events recorded: got %d, want 0", n)
 	}
 }
 
@@ -69,7 +65,7 @@ func TestSetFocus_LastSetWins(t *testing.T) {
 	}
 }
 
-// 5hI — ReleaseFocus emits focus_released and GetFocus returns nil afterward.
+// 5hI — ReleaseFocus empties the slot and GetFocus returns nil afterward.
 func TestReleaseFocus(t *testing.T) {
 	db := SetupTestDB(t)
 	root := MustAdd(t, db, "", "Root")
@@ -88,29 +84,19 @@ func TestReleaseFocus(t *testing.T) {
 		t.Errorf("GetFocus after release: got %s, want nil", got.ShortID)
 	}
 
-	var n int
-	if err := db.QueryRow(
-		"SELECT COUNT(*) FROM events WHERE event_type = 'focus_released' AND actor = ?", TestActor,
-	).Scan(&n); err != nil {
-		t.Fatalf("count focus_released: %v", err)
-	}
-	if n != 1 {
-		t.Errorf("focus_released events: got %d, want 1", n)
+	if slot := localFocusSlot(t, db, TestActor, KindTask); slot != "" {
+		t.Errorf("local.json task slot after release: got %q, want empty", slot)
 	}
 }
 
-// Releasing with no focus set is a quiet no-op, not an error or a stray event.
+// Releasing with no focus set is a quiet no-op, not an error or a stray slot.
 func TestReleaseFocus_NoFocus_NoOp(t *testing.T) {
 	db := SetupTestDB(t)
 	if err := ReleaseFocus(db, TestActor); err != nil {
 		t.Fatalf("ReleaseFocus with no focus: %v", err)
 	}
-	var n int
-	if err := db.QueryRow("SELECT COUNT(*) FROM events WHERE event_type = 'focus_released'").Scan(&n); err != nil {
-		t.Fatalf("count: %v", err)
-	}
-	if n != 0 {
-		t.Errorf("focus_released events after no-op release: got %d, want 0", n)
+	if slot := localFocusSlot(t, db, TestActor, KindTask); slot != "" {
+		t.Errorf("local.json task slot after a no-op release: got %q, want empty", slot)
 	}
 }
 

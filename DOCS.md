@@ -76,7 +76,7 @@ Every write is attributed to a named identity. Reads (`ls`, `show`, `next`, `log
 Resolution chain, first match wins:
 
 1. `--as <name>` flag on the call
-2. DB-level default identity (set at `init` time, unless strict mode is on)
+2. The machine-local default identity (set at `init` time, unless strict mode is on). It lives in `.jobs/local.json` beside the database, not inside it.
 3. error: `identity required. Pass --as <name> ...`
 
 ```sh
@@ -112,7 +112,7 @@ Multiple agents can work in the same directory simultaneously. Each passes its o
 |---------|-------------|
 | `job init --as <name> [--force]` | Create a `.jobs.db` in the current directory and record `<name>` as the default writer identity. `--force` overwrites an existing one. `init` always creates the database in the current directory even if an ancestor already has one — there is no silent no-op. Requires `--as` or `--strict`; there is no `$USER` fallback. When the directory is a git repo and `.gitignore` is missing an entry Jobs needs, prints a copy-pasteable hint pointing at `job gitignore`. See [Identity](#identity). |
 | `job init --strict [--force]` | Create a `.jobs.db` with no default identity; every write must carry `--as <name>`. |
-| `job gitignore` | Append the missing entries (`.jobs.db`, `.jobs.db-shm`, `.jobs.db-wal`) to `.gitignore` in the database's directory, creating the file if absent. Idempotent; no `--as`; works before or after `init`. |
+| `job gitignore` | Append the missing entries (`.jobs.db`, `.jobs.db-shm`, `.jobs.db-wal`) to `.gitignore` in the database's directory, creating the file if absent. Idempotent; no `--as`; works before or after `init`. Add `.jobs/local.json` by hand — this machine's identity, strict flag and focus live there and should never be committed. |
 | `job merge <other.jobs.db> [--dry-run]` | Fold a diverged copy of this database into the local one. The two files must share an event prefix; unrelated databases are refused. Tasks on one side only are copied whole (labels, blocks, criteria, provenance, events); tasks on both merge per table — the task row from the later edit, labels and blocks as a union, criteria matched by short id, notes and events deduplicated. A live claim survives unless the other side closed the task. Prints a report of what won where and every claim it dropped; `--dry-run`/`-n` writes nothing, `--format=json` for the machine shape. The other file is never written and a second merge of the same pair is a no-op. No `--as` — merge copies history rather than making it. |
 | `job identity set <name>` | Change the default writer identity. Requires `--as <name>` on the call (bootstrap discipline — the change itself is attributed). |
 | `job identity strict on\|off` | Toggle strict mode. Requires `--as`. |
@@ -281,7 +281,7 @@ Your **focus** is the root tree that scopes every no-argument default: bare `nex
 | `job --as <name> focus <id>` | Set it explicitly. Name any task in the tree — its root is used, and that root's kind decides which of the two slots moves. |
 | `job --as <name> focus --release` | Release both slots. `--release --issues` releases only the issue focus. |
 
-- **Claiming is the usual setter.** A successful claim points the focus *for the claimed root's kind* at that root (`focus_set` in the event log, carrying the kind it was set for) — last claim wins, no ceremony. Claiming a bug moves your issue focus and leaves your plan's focus exactly where it was.
+- **Claiming is the usual setter.** A successful claim points the focus *for the claimed root's kind* at that root — last claim wins, no ceremony. Focus is machine-local state, held in `.jobs/local.json` beside the database rather than in the event log. Claiming a bug moves your issue focus and leaves your plan's focus exactly where it was.
 - **Focus is per-actor.** Two agents sharing a database each keep their own lanes; one switching trees never moves another's defaults.
 - **It releases itself.** When a focused root completes (including by cascade) or is canceled, that kind's focus releases automatically. The other kind is untouched.
 - **Exhaustion fails loudly.** A focused root with no available leaf makes the matching no-arg `next` / `claim --next` return an error naming the root and the escapes — claim in another tree, or `job focus --release` — instead of silently crossing into a different plan.

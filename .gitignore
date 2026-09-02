@@ -6,6 +6,10 @@
 .jobs.db
 .jobs.db-wal
 .jobs.db-shm
+.jobs.db.lock
+
+# Machine-local job state (identity, strict mode, focus)
+.jobs/local.json
 
 # Go
 vendor/

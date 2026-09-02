@@ -64,6 +64,9 @@ var parityFixtures = []parityFixture{
 	{"edited", "alice", `{"title":"new title"}`},
 	{"moved", "alice", `{"to":"AbC12"}`},
 	{"reopened", "alice", `{}`},
+	// Focus moved to local.json (pItH3), so nothing writes these any more;
+	// rows already in a database are history and must still render, through
+	// the same generic fallback both renderers give an unknown type.
 	{"focus_set", "alice", `{"task":"AbC12"}`},
 	{"focus_released", "alice", `{}`},
 	{"teleported", "alice", `{"text":"an event type the server has never heard of"}`},
@@ -259,9 +262,8 @@ func normalizeRowHTML(s string) string {
 // to a listener registered for that exact name, so live.js has to name
 // every event type the store can emit or those events silently never
 // reach any live module. (Before task vz1tg, found_in_set,
-// kind_changed, criterion_state, criteria_added, claim_expired and the
-// focus events were all missing from that list — the rows never
-// arrived at all.)
+// kind_changed, criterion_state, criteria_added and claim_expired were
+// all missing from that list — the rows never arrived at all.)
 //
 // The expected vocabulary is scraped from the recordEvent call sites in
 // internal/job, so adding a new event type there fails this test until

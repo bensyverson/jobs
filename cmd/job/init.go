@@ -52,12 +52,12 @@ func newInitCmd() *cobra.Command {
 			// --strict is the stronger statement, so it wins over --as:
 			// under strict mode there is no default identity to record.
 			if strict {
-				if err := job.SetStrict(db, true); err != nil {
+				if err := job.InitIdentity(db, "", true); err != nil {
 					return err
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), "Strict mode: writes require --as <name> (no default identity).")
 			} else {
-				if err := job.SetDefaultIdentity(db, asFlag); err != nil {
+				if err := job.InitIdentity(db, asFlag, false); err != nil {
 					return err
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Default identity: %s\n", asFlag)

@@ -1,23 +1,26 @@
 package job
 
 import (
+	"database/sql"
 	"testing"
 )
 
-// iarXd — Focus auto-releases when its root closes. GetFocus already reads a
-// done/canceled root as released (implicit release); these tests pin the
-// explicit focus_released events emitted so the shift is visible in the
-// event stream (`job tail`) for every actor focused on the closing root.
+// iarXd — Focus auto-releases when its root closes, for every actor focused
+// on it. Focus is machine-local state resolved through the tasks table, so
+// the release is derived rather than recorded: a done or canceled root reads
+// as no focus, and no event is written for it.
 
-func focusReleasedCount(t *testing.T, db dbtx, actor string) int {
+// focusOf is GetFocusKind's task slot as a short id, "" for no live focus.
+func focusOf(t *testing.T, db *sql.DB, actor string) string {
 	t.Helper()
-	var n int
-	if err := db.QueryRow(
-		"SELECT COUNT(*) FROM events WHERE event_type = 'focus_released' AND actor = ?", actor,
-	).Scan(&n); err != nil {
-		t.Fatalf("count focus_released for %s: %v", actor, err)
+	got, err := GetFocus(db, actor)
+	if err != nil {
+		t.Fatalf("GetFocus(%s): %v", actor, err)
 	}
-	return n
+	if got == nil {
+		return ""
+	}
+	return got.ShortID
 }
 
 // wjS — Cascade-closing a focused root releases focus for every actor
@@ -38,8 +41,8 @@ func TestCascadeCloseRoot_ReleasesFocusForAllActors(t *testing.T) {
 	if _, _, err := RunDone(db, []string{leaf1}, false, "", nil, "alice", false, ""); err != nil {
 		t.Fatalf("alice done: %v", err)
 	}
-	if focusReleasedCount(t, db, "alice") != 0 || focusReleasedCount(t, db, "bob") != 0 {
-		t.Fatalf("no focus_released expected while the root is still open")
+	if focusOf(t, db, "alice") != root || focusOf(t, db, "bob") != root {
+		t.Fatalf("both actors must still be focused on %s while it is open", root)
 	}
 
 	// Closing the last open leaf cascade-closes the root.
@@ -48,20 +51,16 @@ func TestCascadeCloseRoot_ReleasesFocusForAllActors(t *testing.T) {
 	}
 
 	for _, actor := range []string{"alice", "bob"} {
-		got, err := GetFocus(db, actor)
-		if err != nil {
-			t.Fatalf("GetFocus(%s): %v", actor, err)
+		if got := focusOf(t, db, actor); got != "" {
+			t.Errorf("GetFocus(%s) after root cascade-close: got %s, want none", actor, got)
 		}
-		if got != nil {
-			t.Errorf("GetFocus(%s) after root cascade-close: got %s, want nil", actor, got.ShortID)
-		}
-		if n := focusReleasedCount(t, db, actor); n != 1 {
-			t.Errorf("focus_released events for %s: got %d, want 1", actor, n)
+		if n := focusEventCount(t, db, actor); n != 0 {
+			t.Errorf("focus events for %s: got %d, want 0", actor, n)
 		}
 	}
 }
 
-// A direct `done` on a childless focused root also emits the release.
+// A direct `done` on a childless focused root releases it too.
 func TestDirectDoneRoot_ReleasesFocus(t *testing.T) {
 	db := SetupTestDB(t)
 	root := MustAdd(t, db, "", "Childless root")
@@ -70,8 +69,11 @@ func TestDirectDoneRoot_ReleasesFocus(t *testing.T) {
 	if _, _, err := RunDone(db, []string{root}, false, "wrapped", nil, TestActor, false, ""); err != nil {
 		t.Fatalf("done: %v", err)
 	}
-	if n := focusReleasedCount(t, db, TestActor); n != 1 {
-		t.Errorf("focus_released events: got %d, want 1", n)
+	if got := focusOf(t, db, TestActor); got != "" {
+		t.Errorf("GetFocus after closing the focused root: got %s, want none", got)
+	}
+	if n := focusEventCount(t, db, TestActor); n != 0 {
+		t.Errorf("focus events: got %d, want 0", n)
 	}
 }
 
@@ -87,19 +89,15 @@ func TestCancelRoot_ReleasesFocus(t *testing.T) {
 		t.Fatalf("RunCancel: %v", err)
 	}
 
-	got, err := GetFocus(db, TestActor)
-	if err != nil {
-		t.Fatalf("GetFocus: %v", err)
+	if got := focusOf(t, db, TestActor); got != "" {
+		t.Errorf("GetFocus after root cancel: got %s, want none", got)
 	}
-	if got != nil {
-		t.Errorf("GetFocus after root cancel: got %s, want nil", got.ShortID)
-	}
-	if n := focusReleasedCount(t, db, TestActor); n != 1 {
-		t.Errorf("focus_released events: got %d, want 1", n)
+	if n := focusEventCount(t, db, TestActor); n != 0 {
+		t.Errorf("focus events: got %d, want 0", n)
 	}
 }
 
-// Closing a root nobody is focused on emits nothing.
+// Closing a root nobody is focused on leaves every focus alone.
 func TestCloseUnfocusedRoot_NoReleaseEvents(t *testing.T) {
 	db := SetupTestDB(t)
 	focusRoot := MustAdd(t, db, "", "Focused root")
@@ -111,21 +109,14 @@ func TestCloseUnfocusedRoot_NoReleaseEvents(t *testing.T) {
 		t.Fatalf("done other root: %v", err)
 	}
 
-	if n := focusReleasedCount(t, db, TestActor); n != 0 {
-		t.Errorf("focus_released events after closing an unfocused root: got %d, want 0", n)
-	}
-	got, err := GetFocus(db, TestActor)
-	if err != nil {
-		t.Fatalf("GetFocus: %v", err)
-	}
-	if got == nil || got.ShortID != focusRoot {
-		t.Errorf("focus must survive closing an unrelated root: got %v, want %s", got, focusRoot)
+	if got := focusOf(t, db, TestActor); got != focusRoot {
+		t.Errorf("focus must survive closing an unrelated root: got %q, want %s", got, focusRoot)
 	}
 }
 
 // lXi9K — An issue root never auto-closes (it is open-ended by design), so
-// the cascade must never reach releaseFocusOnRootClose for it: closing the
-// last open bug in an issue tree must not release anyone's issue focus.
+// closing the last open bug in an issue tree must not release anyone's issue
+// focus.
 func TestCascadeCloseIssueRoot_DoesNotReleaseFocus(t *testing.T) {
 	db := SetupTestDB(t)
 	root, err := RunAddKind(db, "", "Bugs", "", "", nil, TestActor, KindIssue)
@@ -145,9 +136,6 @@ func TestCascadeCloseIssueRoot_DoesNotReleaseFocus(t *testing.T) {
 
 	MustDone(t, db, bug)
 
-	if n := focusReleasedCount(t, db, TestActor); n != 0 {
-		t.Errorf("focus_released events after closing an issue root's last child: got %d, want 0", n)
-	}
 	got, err = GetFocusKind(db, TestActor, KindIssue)
 	if err != nil {
 		t.Fatalf("GetFocusKind after done: %v", err)

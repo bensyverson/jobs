@@ -51,10 +51,10 @@ Issues: (none)
 
 The rules, in claim order:
 
-- **Claiming is the usual setter.** Any successful claim outside your focused root of that root's kind flips that focus to the claimed task's root (`focus_set` in the event log, carrying the kind it was set for) — last claim wins, no ceremony. `job focus <id>` is the explicit form; it accepts any task in the tree and focuses its root.
+- **Claiming is the usual setter.** Any successful claim outside your focused root of that root's kind flips that focus to the claimed task's root — last claim wins, no ceremony. `job focus <id>` is the explicit form; it accepts any task in the tree and focuses its root.
 - **Each kind is its own slot.** Claiming inside an [issue-tree](../../concepts/tree-kinds/) moves your issue focus and leaves your task focus standing, and vice versa.
-- **Focus is per-actor.** Two agents sharing a database each keep their own lane; one agent switching trees never moves another's defaults.
-- **It releases itself.** When a focused root completes (including by cascade) or is canceled, that kind's focus releases automatically and the other kind is untouched. `focus --release` is the manual version — the "pause this tree" case.
+- **Focus is per-actor, and machine-local.** Two agents sharing a database each keep their own lane; one agent switching trees never moves another's defaults. Focus lives in `.jobs/local.json` beside the database, not in the event log — it records nothing and travels nowhere.
+- **It releases itself.** When a focused root completes (including by cascade) or is canceled, that kind's focus releases automatically — a closed root simply reads as no focus — and the other kind is untouched. `focus --release` is the manual version, the "pause this tree" case.
 - **Exhaustion fails loudly.** When your focused root has no available leaf, the matching no-arg `next`/`claim --next` return an error naming the root and the escapes — claim in another tree to shift focus, or `focus --release` — instead of silently crossing into a different plan.
 - **Explicit arguments always win.** `claim --next <id>`, `next <id>`, `orient <id>`, and `status <id>` behave exactly as if focus didn't exist.
 - **`--issues` follows your issue focus.** With one set, `next --issues` / `orient --issues` / `claim --next --issues` stay inside it; with none set they walk every issue-tree. A focus on an issue root no longer redirects the plain, plan-shaped defaults — that is what the per-kind split bought.

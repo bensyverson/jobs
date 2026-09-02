@@ -2,7 +2,6 @@ package job
 
 import (
 	"database/sql"
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -66,27 +65,19 @@ func TestSetFocus_KeepsOneSlotPerKind(t *testing.T) {
 	}
 }
 
-// The focus_set event carries the root's kind, so a later conversion cannot
-// retroactively move a focus between slots.
-func TestSetFocus_RecordsTheRootKindOnTheEvent(t *testing.T) {
+// The slot a focus lands in is decided by the root's kind at set time, so a
+// later conversion cannot retroactively move a focus between slots.
+func TestSetFocus_RecordsTheRootKindOnTheSlot(t *testing.T) {
 	db := SetupTestDB(t)
 	_, _, issueRoot, _ := seedTwoKinds(t, db)
 
 	mustSetFocus(t, db, issueRoot, TestActor)
 
-	var detail string
-	if err := db.QueryRow(
-		"SELECT detail FROM events WHERE event_type = 'focus_set' AND actor = ? ORDER BY id DESC LIMIT 1",
-		TestActor,
-	).Scan(&detail); err != nil {
-		t.Fatalf("read focus_set detail: %v", err)
+	if slot := localFocusSlot(t, db, TestActor, KindIssue); slot != issueRoot {
+		t.Errorf("issue slot: got %q, want %q", slot, issueRoot)
 	}
-	var d map[string]any
-	if err := json.Unmarshal([]byte(detail), &d); err != nil {
-		t.Fatalf("unmarshal detail %q: %v", detail, err)
-	}
-	if d["kind"] != string(KindIssue) {
-		t.Errorf("focus_set detail kind: got %v, want %q (detail: %s)", d["kind"], KindIssue, detail)
+	if slot := localFocusSlot(t, db, TestActor, KindTask); slot != "" {
+		t.Errorf("task slot: got %q, want empty (an issue root never occupies it)", slot)
 	}
 }
 
@@ -249,8 +240,8 @@ func TestCloseIssueLeaf_LeavesIssueFocusInPlace(t *testing.T) {
 	if got == nil || got.ShortID != taskRoot {
 		t.Errorf("task focus after an issue leaf closed: got %v, want %s (untouched)", got, taskRoot)
 	}
-	if n := focusReleasedCount(t, db, "bystander"); n != 0 {
-		t.Errorf("focus_released events for the bystander: got %d, want 0 (root never closes)", n)
+	if slot := localFocusSlot(t, db, "bystander", KindIssue); slot != issueRoot {
+		t.Errorf("the bystander's issue focus: got %q, want %q (root never closes)", slot, issueRoot)
 	}
 }
 

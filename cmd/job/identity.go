@@ -8,15 +8,15 @@ import (
 	job "github.com/bensyverson/jobs/internal/job"
 )
 
-// `job identity` — group for managing the DB-level default writer identity
-// and strict mode. Both subcommands are writes and therefore require --as
+// `job identity` — group for managing the machine-local default writer
+// identity and strict mode (both live in .jobs/local.json beside the cache). Both subcommands are writes and therefore require --as
 // (bootstrap discipline: changing who "default" means is itself an
 // attributable event).
 func newIdentityCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "identity",
 		Short: "Manage the default writer identity and strict mode",
-		Long:  "Commands: `set <name>` records a DB-level default identity; `strict on|off` toggles strict mode (when on, writes always require --as). Both require --as <name>.",
+		Long:  "Commands: `set <name>` records the machine-local default identity; `strict on|off` toggles strict mode (when on, writes always require --as). Both require --as <name>.",
 	}
 	cmd.AddCommand(newIdentitySetCmd())
 	cmd.AddCommand(newIdentityStrictCmd())
@@ -44,7 +44,7 @@ func requireAsStrict() (string, error) {
 func newIdentitySetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set <name>",
-		Short: "Set the default writer identity for this database",
+		Short: "Set the default writer identity for this checkout",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if _, err := requireAsStrict(); err != nil {
