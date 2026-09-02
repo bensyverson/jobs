@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	job "github.com/bensyverson/jobs/internal/job"
 )
 
 // 88QEE — `job issue <title>` is `add` with the parent resolved and the
@@ -264,6 +266,48 @@ func TestIssueCmd_BodyFlagsAndLabelsMatchAdd(t *testing.T) {
 	}
 	if show := mustShow(t, dbFile, newIssueID(out)); !strings.Contains(show, "Body read from stdin") {
 		t.Fatalf("show = %q, want the stdin body", show)
+	}
+}
+
+// TestIssueCmd_CriterionFlagAttachesPendingCriteria pins that `issue` shares
+// `add`'s repeatable --criterion flag: each value lands as a pending
+// criterion on the new task without a follow-up `job edit`.
+func TestIssueCmd_CriterionFlagAttachesPendingCriteria(t *testing.T) {
+	dbFile := setupCLI(t)
+	addIssueRoot(t, dbFile, "Bugs")
+
+	out, _, err := runCLI(t, dbFile, "issue", "A defect",
+		"--criterion", "Repro steps documented",
+		"--criterion", "Fix verified on CI",
+		"--as", "tester")
+	if err != nil {
+		t.Fatalf("issue --criterion: %v", err)
+	}
+
+	db := openTestDB(t, dbFile)
+	defer db.Close()
+	task, err := job.GetTaskByShortID(db, newIssueID(out))
+	if err != nil {
+		t.Fatalf("GetTaskByShortID: %v", err)
+	}
+	if task == nil {
+		t.Fatal("issue: task not found")
+	}
+	criteria, err := job.GetCriteria(db, task.ID)
+	if err != nil {
+		t.Fatalf("GetCriteria: %v", err)
+	}
+	if len(criteria) != 2 {
+		t.Fatalf("criteria = %d, want 2: %+v", len(criteria), criteria)
+	}
+	wantLabels := map[string]bool{"Repro steps documented": true, "Fix verified on CI": true}
+	for _, c := range criteria {
+		if !wantLabels[c.Label] {
+			t.Errorf("unexpected criterion label %q", c.Label)
+		}
+		if c.State != job.CriterionPending {
+			t.Errorf("criterion %q state = %q, want %q", c.Label, c.State, job.CriterionPending)
+		}
 	}
 }
 

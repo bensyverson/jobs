@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"io"
 
@@ -22,6 +23,22 @@ func printAddAdvisories(out io.Writer, res *job.AddResult, parentShortID string,
 		fmt.Fprintf(out, "  %s now has %d children; complete them all to auto-close the parent.\n",
 			parentShortID, priorChildCount+1)
 	}
+}
+
+// attachCriteria parses --criterion values into pending Criterion rows and
+// attaches them to shortID. `add` and `issue` share it so a criterion given
+// at creation behaves identically from either verb; a nil/empty slice is a
+// no-op so callers don't need to guard the call themselves.
+func attachCriteria(db *sql.DB, shortID string, criteria []string, actor string) error {
+	if len(criteria) == 0 {
+		return nil
+	}
+	items := make([]job.Criterion, 0, len(criteria))
+	for _, label := range criteria {
+		items = append(items, job.Criterion{Label: label})
+	}
+	_, err := job.RunAddCriteria(db, shortID, items, actor)
+	return err
 }
 
 func newAddCmd() *cobra.Command {
@@ -164,14 +181,8 @@ func newAddCmd() *cobra.Command {
 			if !idOnly {
 				printAddAdvisories(cmd.OutOrStdout(), res, parentShortID, priorChildCount, parentIsIssueRoot)
 			}
-			if len(criteria) > 0 {
-				items := make([]job.Criterion, 0, len(criteria))
-				for _, label := range criteria {
-					items = append(items, job.Criterion{Label: label})
-				}
-				if _, err := job.RunAddCriteria(db, res.ShortID, items, actor); err != nil {
-					return err
-				}
+			if err := attachCriteria(db, res.ShortID, criteria, actor); err != nil {
+				return err
 			}
 			return nil
 		},

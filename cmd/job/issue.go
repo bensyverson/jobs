@@ -20,6 +20,7 @@ func newIssueCmd() *cobra.Command {
 	var desc string
 	var descFile string
 	var labels []string
+	var criteria []string
 	var foundIn string
 	cmd := &cobra.Command{
 		Use:   "issue <title>",
@@ -28,7 +29,8 @@ func newIssueCmd() *cobra.Command {
 			"(claiming inside an issue tree sets it), else the only issue root in the database; with several and " +
 			"no focus, the error names them and `job focus <id>` picks one. --found-in defaults to your live claim " +
 			"when you hold exactly one, so provenance is right by construction; `--found-in none` suppresses it and " +
-			"`--found-in <id>` names a different source. Bodies work as on `add`: --desc, -F <path>, -F - for stdin.",
+			"`--found-in <id>` names a different source. Bodies work as on `add`: --desc, -F <path>, -F - for stdin, " +
+			"--criterion (repeatable) to attach acceptance criteria.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openDBFromCmd()
@@ -86,12 +88,16 @@ func newIssueCmd() *cobra.Command {
 			if hint != "" {
 				fmt.Fprintln(out, hint)
 			}
+			if err := attachCriteria(db, res.ShortID, criteria, actor); err != nil {
+				return err
+			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVarP(&desc, "desc", "d", "", "issue description")
 	registerFileFlag(cmd, &descFile, "description", "desc")
 	cmd.Flags().StringArrayVarP(&labels, "label", "l", nil, "label to attach (repeatable)")
+	cmd.Flags().StringArrayVar(&criteria, "criterion", nil, "acceptance criterion to attach, defaults to pending state (repeatable)")
 	cmd.Flags().StringVar(&foundIn, "found-in", "",
 		"task that surfaced this issue: an id, or \"none\" for no edge; defaults to your live claim when you hold exactly one")
 	return cmd

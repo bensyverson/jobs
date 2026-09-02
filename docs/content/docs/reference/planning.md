@@ -43,6 +43,7 @@ job issue "Router drops the trailing slash"
 job issue "Panics on an empty tree" -d "Reproduces with an empty .jobs.db." -l p0
 job issue "Unrelated typo in the README" --found-in none
 job issue "Found while reviewing" --found-in kTuMb
+job issue "Bake compliance" --criterion "audit log lines exist"
 ```
 
 How the parent is chosen, in order:
@@ -58,7 +59,7 @@ How the source is chosen:
 - **No edge and a one-line hint** naming `--found-in`, when you hold several: guessing between them would be worse than asking.
 - `--found-in <id>` overrides the default; `--found-in none` records no edge at all.
 
-Everything else matches `add`: `-d`/`--desc`, `-F <path>` (and `-F -` for stdin), and repeatable `-l`/`--label`. Output matches it too — the new short id on the first line, then the parent's advisory lines, then a `Found in:` acknowledgement when an edge was recorded.
+Everything else matches `add`: `-d`/`--desc`, `-F <path>` (and `-F -` for stdin), repeatable `-l`/`--label`, and repeatable `--criterion` to seed [acceptance criteria](../../concepts/criteria/) on the new issue. Output matches it too — the new short id on the first line, then the parent's advisory lines, then a `Found in:` acknowledgement when an edge was recorded.
 
 
 ## `import`

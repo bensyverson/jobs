@@ -147,9 +147,10 @@ All writes additionally require `--as <name>` (see [Identity](#identity)).
 | | `-b, --before <id>` Insert before this sibling. |
 | | `--found-in <id>` Record the task that surfaced this one. Provenance only — no parenting, no blocking. The source is resolved before the task is created, so a bad id leaves nothing behind. |
 | | `--kind task\|issue` Tree kind for a new **root** (default `task`). See [Tree kinds](#tree-kinds). Invalid with a parent — kind is root-only. |
+| | `--criterion <label>` Attach an acceptance criterion, pending, to the new task. Repeatable. See [Acceptance criteria](#acceptance-criteria). |
 | `job issue <title>` | File an issue: a task under the resolved issue-tree root, with its provenance defaulted. The root is your focused issue root, else the only issue-tree root in the database; with several and none focused it exits non-zero naming each one and `job focus <id>`, and with none it says to run `job add <title> --kind issue`. See [Tree kinds](#tree-kinds) and [Found-in](#found-in). |
 | | `--found-in <id>\|none` Source of the issue. Defaults to your live claim when you hold exactly one; with several, no edge is recorded and a one-line hint names the flag. `none` records no edge. |
-| | `-d, --desc <text>` / `-F, --file <path>` / `-l, --label <name>` Behave exactly as on `add`. |
+| | `-d, --desc <text>` / `-F, --file <path>` / `-l, --label <name>` / `--criterion <label>` Behave exactly as on `add`. |
 
 ### Viewing tasks
 
@@ -202,8 +203,9 @@ that the close should verify. Each criterion has a state (`pending`,
 `x7e`) usable in the `--criterion <ref>=<state>` form so a label like
 `Renders only when the task has a completion note (existing condition)`
 survives shell quoting cleanly. Criteria are authored via the YAML import
-grammar (`criteria: [...]` on a task) or `job add --criterion <label>`;
-they are listed by `job show`, with the short id at the head of each row,
+grammar (`criteria: [...]` on a task), `job add --criterion <label>`, or
+`job issue --criterion <label>`; they are listed by `job show`, with the
+short id at the head of each row,
 and tracked through their own event types (`criteria_added`,
 `criterion_state`).
 

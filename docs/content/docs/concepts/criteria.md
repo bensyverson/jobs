@@ -17,7 +17,7 @@ Criteria: 2 pending — mark each before close, or use --force-close-with-pendin
   yFW [ ] response body is valid JSON
 ```
 
-Criteria are author-time: defined when the task is created (via the YAML import grammar's `criteria: [...]` key, or `job add --criterion "<label>"`). State transitions are recorded as `criterion_state` events on the event log; the initial set is recorded as a single `criteria_added` event.
+Criteria are author-time: defined when the task is created (via the YAML import grammar's `criteria: [...]` key, or `job add`/`job issue --criterion "<label>"`). State transitions are recorded as `criterion_state` events on the event log; the initial set is recorded as a single `criteria_added` event.
 
 ## The strict close
 
