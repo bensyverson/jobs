@@ -388,6 +388,11 @@ func loadActorEvents(ctx context.Context, db *sql.DB, name string, now time.Time
 	}
 	defer rows.Close()
 
+	names, err := job.LoadReplicaNames(db)
+	if err != nil {
+		return nil, err
+	}
+
 	var out []LogEventRow
 	for rows.Next() {
 		var e job.EventEntry
@@ -397,7 +402,7 @@ func loadActorEvents(ctx context.Context, db *sql.DB, name string, now time.Time
 			return nil, err
 		}
 		e.Actor = name
-		out = append(out, buildLogEventRow(e, title, now))
+		out = append(out, buildLogEventRow(e, title, now, names))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

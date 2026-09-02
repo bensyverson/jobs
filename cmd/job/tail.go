@@ -103,6 +103,11 @@ func newTailCmd() *cobra.Command {
 				cancel()
 			}()
 
+			names, err := job.LoadReplicaNames(db)
+			if err != nil {
+				return err
+			}
+
 			return job.RunTail(ctx, db, shortID, 1*time.Second, func(events []job.EventEntry) error {
 				events = job.FilterEvents(events, filter)
 				if len(events) == 0 {
@@ -111,7 +116,7 @@ func newTailCmd() *cobra.Command {
 				if format == "json" {
 					return job.FormatEventLogJSONLines(cmd.OutOrStdout(), events)
 				}
-				job.RenderEventLogMarkdown(cmd.OutOrStdout(), events)
+				job.RenderEventLogMarkdown(cmd.OutOrStdout(), events, names)
 				return nil
 			})
 		},

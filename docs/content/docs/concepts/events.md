@@ -64,6 +64,7 @@ Liveness:
 
 Store maintenance — rare, and written by the store rather than by a verb you call:
 
+- `replica` — the checkout that owns a log file: its label, hostname, path and OS user. It is the first line every replica appends, and [`job replica rename`](../the-store/#replicas) appends another; the latest one per replica is the name every reader shows. It applies no state.
 - `snapshot` — full state at one point in the log, applied as an overwrite. One is written when a database from before the store is [adopted](../the-store/#adopting-a-database-written-before-the-store).
 - `rekeyed` — `job rekey` giving one replica's task a fresh short id after two replicas minted the same one. Every machine that pulls the log applies the same rename.
 

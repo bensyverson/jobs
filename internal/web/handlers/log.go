@@ -89,6 +89,10 @@ type LogEventRow struct {
 	// the expiration sweep). The template renders these without an
 	// avatar/link so the prior claimer isn't surfaced as the doer.
 	IsSystem bool
+	// ReplicaLabel names the machine an event was written on, and is set
+	// only for a FOREIGN event — one whose replica is not this checkout's.
+	// A single-machine store therefore renders exactly as it always did.
+	ReplicaLabel string
 	// Metadata is the trailing per-event payload column on the log
 	// row. Most events carry one of: a short text snippet (note body,
 	// completion note, cancel reason, claim duration, criterion
@@ -389,10 +393,15 @@ func loadLogEvents(db *sql.DB, f LogFilters, rg Range) (rows []LogEventRow, tota
 		return nil, 0, false, err
 	}
 
+	names, err := job.LoadReplicaNames(db)
+	if err != nil {
+		return nil, 0, false, err
+	}
+
 	now := time.Now()
 	rows = make([]LogEventRow, len(filtered))
 	for i, e := range filtered {
-		rows[i] = buildLogEventRow(e, titles[e.TaskID], now)
+		rows[i] = buildLogEventRow(e, titles[e.TaskID], now, names)
 	}
 	return rows, total, hasMore, nil
 }
@@ -408,7 +417,7 @@ const systemActor = "Jobs"
 //
 // The client mirror is assets/js/log-row.mjs; log_row_parity_test.go
 // renders the same event both ways and diffs the markup.
-func buildLogEventRow(e job.EventEntry, title string, now time.Time) LogEventRow {
+func buildLogEventRow(e job.EventEntry, title string, now time.Time, names job.ReplicaNames) LogEventRow {
 	ts := time.Unix(e.CreatedAt, 0)
 	row := LogEventRow{
 		EventID:   e.ID,
@@ -428,6 +437,7 @@ func buildLogEventRow(e job.EventEntry, title string, now time.Time) LogEventRow
 		row.ActorURL = ""
 		row.IsSystem = true
 	}
+	row.ReplicaLabel = names.Foreign(e.Rep)
 	row.Metadata = buildLogRowMetadata(e.EventType, e.Detail)
 	return row
 }

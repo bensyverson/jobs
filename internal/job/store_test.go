@@ -149,8 +149,10 @@ func TestCommitAppendsToTheLogBeforeTheWatermarkAdvances(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read log: %v", err)
 	}
-	if len(evs) == 0 || evs[0].Type != eventlog.Type(EventCreated) {
-		t.Fatalf("log does not open with the created event: %+v", evs)
+	// A replica's file opens by saying who the replica is (l5SEtr); the
+	// command's own events follow it.
+	if len(evs) < 2 || evs[0].Type != eventlog.Type(EventReplica) || evs[1].Type != eventlog.Type(EventCreated) {
+		t.Fatalf("log does not open with the replica event and then the created event: %+v", evs)
 	}
 	if evs[0].Seq != 1 {
 		t.Fatalf("first line seq = %d, want 1", evs[0].Seq)

@@ -96,6 +96,7 @@
     "kind_changed",
     "purged",
     "heartbeat",
+    "replica",
   ];
 
   function saveLastPosition(position) {

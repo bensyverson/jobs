@@ -221,9 +221,11 @@ func logicalDump(t *testing.T, db *sql.DB) string {
 // merging them would interleave unrelated histories. Refuse.
 func TestMerge_RefusesUnrelatedDatabases(t *testing.T) {
 	newMergeClock(t)
-	dir := t.TempDir()
-	aPath := filepath.Join(dir, "a.db")
-	bPath := filepath.Join(dir, "b.db")
+	// One store per directory: two caches sharing a directory share its
+	// .jobs/ store, which makes them the same database rather than two
+	// unrelated ones.
+	aPath := filepath.Join(t.TempDir(), "a.db")
+	bPath := filepath.Join(t.TempDir(), "b.db")
 	a := mustOpenAt(t, aPath)
 	b := mustOpenAt(t, bPath)
 	MustAdd(t, a, "", "Alpha")

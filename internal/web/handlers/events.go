@@ -127,10 +127,16 @@ func serveJSON(deps Deps, w http.ResponseWriter, r *http.Request, filter EventsF
 		return
 	}
 
+	names, err := job.LoadReplicaNames(deps.DB)
+	if err != nil {
+		InternalError(deps, w, "replica names", err)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	payload := make([]eventJSON, len(filtered))
 	for i, e := range filtered {
-		payload[i] = toEventJSON(e, titles[e.TaskID])
+		payload[i] = toEventJSON(e, titles[e.TaskID], names)
 	}
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
 		// Can't rewrite headers at this point; server will close the
@@ -193,11 +199,12 @@ func serveSSE(deps Deps, w http.ResponseWriter, r *http.Request, filter EventsFi
 		InternalError(deps, w, "backfill titles", err)
 		return
 	}
+	names := newReplicaNameCache(deps)
 	for _, e := range backfill {
 		if !filter.Matches(e, labels) {
 			continue
 		}
-		if !writeSSEFrame(w, e, titles[e.TaskID]) {
+		if !writeSSEFrame(w, e, titles[e.TaskID], names.namesFor(e.Rep)) {
 			return
 		}
 		flusher.Flush()
@@ -231,7 +238,7 @@ func serveSSE(deps Deps, w http.ResponseWriter, r *http.Request, filter EventsFi
 				continue
 			}
 			title := titleForTask(deps, e.TaskID)
-			if !writeSSEFrame(w, e, title) {
+			if !writeSSEFrame(w, e, title, names.namesFor(e.Rep)) {
 				return
 			}
 			flusher.Flush()
@@ -304,18 +311,53 @@ type eventJSON struct {
 	Actor     string `json:"actor"`
 	Detail    string `json:"detail"`
 	CreatedAt string `json:"created_at"`
+	// ReplicaLabel names the machine the event was written on, and is sent
+	// only for a foreign event — the client renders it as a muted suffix.
+	ReplicaLabel string `json:"replica_label,omitempty"`
 }
 
-func toEventJSON(e job.EventEntry, title string) eventJSON {
+// replicaNameCache holds the replica labels for the life of one SSE stream.
+//
+// A stream can outlive the arrival of a machine nobody had heard of when it
+// opened, so an event naming an unknown replica reloads the map — once per
+// unknown replica, not once per event, since a replica that has never
+// announced itself would otherwise re-query forever.
+type replicaNameCache struct {
+	deps  Deps
+	names job.ReplicaNames
+	asked map[string]bool
+}
+
+func newReplicaNameCache(deps Deps) *replicaNameCache {
+	c := &replicaNameCache{deps: deps, asked: map[string]bool{}}
+	c.names, _ = job.LoadReplicaNames(deps.DB)
+	return c
+}
+
+// namesFor returns the label map to render rep with, reloading it first if rep is
+// a replica this cache has not seen.
+func (c *replicaNameCache) namesFor(rep string) job.ReplicaNames {
+	if rep == "" || rep == c.names.Local || c.names.Labels[rep] != "" || c.asked[rep] {
+		return c.names
+	}
+	c.asked[rep] = true
+	if fresh, err := job.LoadReplicaNames(c.deps.DB); err == nil {
+		c.names = fresh
+	}
+	return c.names
+}
+
+func toEventJSON(e job.EventEntry, title string, names job.ReplicaNames) eventJSON {
 	return eventJSON{
-		ID:        e.ID,
-		Position:  e.Position().String(),
-		TaskID:    e.ShortID,
-		TaskTitle: title,
-		EventType: e.EventType,
-		Actor:     e.Actor,
-		Detail:    e.Detail,
-		CreatedAt: time.Unix(e.CreatedAt, 0).UTC().Format(time.RFC3339),
+		ReplicaLabel: names.Foreign(e.Rep),
+		ID:           e.ID,
+		Position:     e.Position().String(),
+		TaskID:       e.ShortID,
+		TaskTitle:    title,
+		EventType:    e.EventType,
+		Actor:        e.Actor,
+		Detail:       e.Detail,
+		CreatedAt:    time.Unix(e.CreatedAt, 0).UTC().Format(time.RFC3339),
 	}
 }
 
@@ -330,8 +372,8 @@ func toEventJSON(e job.EventEntry, title string) eventJSON {
 //
 // The id: field is the log position so a browser's Last-Event-ID header (and
 // the value live.js persists) is usable verbatim as ?since=.
-func writeSSEFrame(w http.ResponseWriter, e job.EventEntry, title string) bool {
-	payload, err := json.Marshal(toEventJSON(e, title))
+func writeSSEFrame(w http.ResponseWriter, e job.EventEntry, title string, names job.ReplicaNames) bool {
+	payload, err := json.Marshal(toEventJSON(e, title, names))
 	if err != nil {
 		return false
 	}

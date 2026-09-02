@@ -45,7 +45,11 @@ func newLogCmd() *cobra.Command {
 				cmd.OutOrStdout().Write(b)
 				fmt.Fprintln(cmd.OutOrStdout())
 			} else {
-				job.RenderEventLogMarkdown(cmd.OutOrStdout(), events)
+				names, err := job.LoadReplicaNames(db)
+				if err != nil {
+					return err
+				}
+				job.RenderEventLogMarkdown(cmd.OutOrStdout(), events, names)
 			}
 			return nil
 		},

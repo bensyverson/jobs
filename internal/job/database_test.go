@@ -2244,7 +2244,7 @@ func TestRunLog_FormattedMarkdown(t *testing.T) {
 	}
 
 	var buf strings.Builder
-	RenderEventLogMarkdown(&buf, events)
+	RenderEventLogMarkdown(&buf, events, ReplicaNames{})
 	output := buf.String()
 
 	if !strings.Contains(output, "[") {

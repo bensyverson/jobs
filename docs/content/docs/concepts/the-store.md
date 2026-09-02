@@ -50,6 +50,10 @@ The `*` is doing the work — one pattern for the cache and everything that sits
 
 The id decides one thing: which file this checkout appends to. Nobody ever writes another replica's file, so two machines can work at the same time and git never sees a conflict in the log.
 
+**A replica has a name.** The first line a replica ever appends is a `replica` event carrying a human-readable label plus the facts behind it — hostname, checkout path and OS user — so a log file says who wrote it without any extra tracked file for two machines to fight over. The default label is the hostname and the checkout path (`ben-mbp:~/git/Jobs`); `job init --replica-name <label>` picks one up front, and `job replica rename <label> --as <name>` changes it later by appending a fresh `replica` event. The latest event per replica wins, so a rename is history rather than a rewrite, and it propagates with the log like anything else.
+
+The label shows up in three places. `job status` puts it beside the id on the store line. `job replicas` lists every replica the store has seen with its label, host, user, path, event count and last activity, marking the one that is this checkout. And `job log` and the dashboard's log rows show it beside the id for **foreign** events only — events written on another machine — so a single-machine user never sees it at all.
+
 Losing `local.json` costs nothing but the id — the next command mints a fresh one and starts a new file. The old file stays in the log and is still part of the record.
 
 `local.json` is per machine on purpose. The default identity, strict mode and your [focus](../../reference/execution/#focus) are facts about *this checkout*, not about the project: the same repo cloned on a colleague's laptop should not inherit your identity. Keeping them out of the cache also means `rm .jobs.db` cannot lose them.
@@ -64,8 +68,8 @@ The cache records a **watermark** for each log file: the byte offset it has appl
 `job status` says which of the two happened:
 
 ```text
-Store: replica 785RLT · 1 log file, 3 events · cache in sync
-Store: replica 785RLT · 2 log files, 5 events · cache rebuilt on open
+Store: replica 785RLT "ben-mbp:~/git/Jobs" · 1 log file, 3 events · cache in sync
+Store: replica 785RLT "ben-mbp:~/git/Jobs" · 2 log files, 5 events · cache rebuilt on open
 ```
 
 Two other states can appear there. `log incomplete` means the cache holds events for a replica whose log file is missing and cannot be written back — replaying would lose them, so nothing is rebuilt and the cache is left as it is. `predates the store` means the database has not been adopted yet (see below).
@@ -146,4 +150,4 @@ Reading it is encouraged. `git log -p .jobs/` is the tracker's history, and a pu
 
 - [The event log](../events/) — what an event is, and the catalogue of types.
 - [Across machines](../../getting-started/across-machines/) — the clone-and-pull walkthrough.
-- [Setup reference](../../reference/setup/) — `gitignore`, `rebuild`, `rekey` and `merge` in full.
+- [Setup reference](../../reference/setup/) — `gitignore`, `replicas`, `replica rename`, `rebuild`, `rekey` and `merge` in full.

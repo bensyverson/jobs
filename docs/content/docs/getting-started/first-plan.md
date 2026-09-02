@@ -83,7 +83,7 @@ job status
 ```text
 3 open, 0 done (last activity: 0s ago)
 Identity: alice (default) · strict mode off
-Store: replica S8OIBo · 1 log file, 7 events · cache in sync
+Store: replica S8OIBo "laptop:~/src/healthz" · 1 log file, 8 events · cache in sync
 
   Add /healthz endpoint (5i5vFN): 0 of 2 done · next AIs0dP
 Next: AIs0dP "Write the handler"
@@ -176,7 +176,7 @@ job status
 ```text
 0 open, 3 done (last activity: 0s ago)
 Identity: alice (default) · strict mode off
-Store: replica S8OIBo · 1 log file, 15 events · cache in sync
+Store: replica S8OIBo "laptop:~/src/healthz" · 1 log file, 16 events · cache in sync
 ```
 
 The plan is done. Every state change above is preserved as an event — replay it with `job log 5i5vFN` to see the full transcript, or read `.jobs/log/S8OIBo.jsonl`, which is the same history as text.

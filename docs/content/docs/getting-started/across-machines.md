@@ -46,13 +46,13 @@ job status
 ```text
 3 open, 0 done (last activity: 5s ago)
 Identity: none set · --as required on writes
-Store: replica unFNeC · 1 log file, 3 events · cache rebuilt on open
+Store: replica unFNeC "desktop:~/src/desktop" · 1 log file, 4 events · cache rebuilt on open
 
   Add /healthz endpoint (1MkrBb): 0 of 2 done · next 9FZ08F
 Next: 9FZ08F "Write the handler"
 ```
 
-Three things happened on that one command. A replica id was minted for this checkout and written to `.jobs/local.json`. `.jobs.db` was built from the log — that is the `cache rebuilt on open`. And the plan is there, with the same task ids the other machine sees.
+Three things happened on that one command. A replica id was minted for this checkout and written to `.jobs/local.json`, and the first line this checkout appends to the log is a `replica` event naming it — `desktop:~/src/desktop` by default, from the hostname and the path. `job replica rename <label>` changes it; `job replicas` lists every machine the store has seen. `.jobs.db` was built from the log — that is the `cache rebuilt on open`. And the plan is there, with the same task ids the other machine sees.
 
 `Identity: none set` is the one thing that does not travel, by design: the default identity is per checkout, so pass `--as` or run `job identity set <name> --as <name>` here.
 
@@ -97,7 +97,7 @@ job status
 ```text
 2 open, 1 done (last activity: 0s ago)
 Identity: alice (default) · strict mode off
-Store: replica 785RLT · 2 log files, 5 events · cache rebuilt on open
+Store: replica 785RLT "laptop:~/src/laptop" · 2 log files, 7 events · cache rebuilt on open
 
   Add /healthz endpoint (1MkrBb): 1 of 2 done · next s50oFD
 Next: s50oFD "Wire it into the router"

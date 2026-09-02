@@ -13,6 +13,7 @@ import (
 func newInitCmd() *cobra.Command {
 	var force bool
 	var strict bool
+	var replicaName string
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize a new job database",
@@ -21,6 +22,7 @@ func newInitCmd() *cobra.Command {
 			"Use the name of whoever is running the command — a person's handle, or, for an automated assistant, the assistant's own name rather than the account it runs under. " +
 			"$USER is the human who launched the session, which is usually not who is doing the work.\n\n" +
 			"Pass --strict instead to record no default at all; every write then has to carry its own --as.\n\n" +
+			"--replica-name <label> names this checkout in the shared log: every log file opens with a `replica` event, and the label is what `job status`, `job log` and `job replicas` show beside the six-character replica id. The default is this machine's hostname and the checkout's path; `job replica rename` changes it later.\n\n" +
 			"The database is local to your checkout by default: run `job gitignore` to add the recommended entries to .gitignore.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -63,6 +65,13 @@ func newInitCmd() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "Default identity: %s\n", asFlag)
 			}
 
+			if replicaName != "" {
+				if _, err := job.SetReplicaName(db, replicaName, asFlag); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Replica name: %s\n", replicaName)
+			}
+
 			// Only advice that can be acted on: inside a repository, and
 			// only while something is still unignored.
 			dir := filepath.Dir(path)
@@ -83,6 +92,7 @@ func newInitCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite existing database")
 	cmd.Flags().BoolVar(&strict, "strict", false, "require --as on every write; do not set a default identity")
+	cmd.Flags().StringVar(&replicaName, "replica-name", "", "human-readable name for this checkout's replica (default: hostname and path)")
 	return cmd
 }
 

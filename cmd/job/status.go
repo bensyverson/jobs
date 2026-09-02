@@ -198,6 +198,7 @@ func storeJSON(s *job.StoreStatus) map[string]any {
 	}
 	return map[string]any{
 		"replica": s.Rep,
+		"label":   s.Label,
 		"files":   s.Files,
 		"events":  s.Events,
 		"cache":   string(s.State),

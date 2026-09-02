@@ -197,8 +197,15 @@ func RunTailUntilClose(
 		timeoutCtx = tctx
 	}
 
+	// Read once, outside the poll loop: a replica's name changes about as
+	// often as a machine does.
+	names, err := LoadReplicaNames(db)
+	if err != nil {
+		return err
+	}
+
 	var loopErr error
-	err := RunTail(ctx, db, shortID, pollInterval, func(events []EventEntry) error {
+	err = RunTail(ctx, db, shortID, pollInterval, func(events []EventEntry) error {
 		// Scan for terminal events on watched IDs before filtering for display.
 		for _, e := range events {
 			if !watchSet[e.ShortID] {
@@ -225,7 +232,7 @@ func RunTailUntilClose(
 						return err
 					}
 				} else {
-					RenderEventLogMarkdown(w, display)
+					RenderEventLogMarkdown(w, display, names)
 				}
 			}
 		}

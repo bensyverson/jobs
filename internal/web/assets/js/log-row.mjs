@@ -14,7 +14,8 @@
 
   Input is the SSE frame shape (handlers.eventJSON): id, task_id,
   task_title, event_type, actor, detail (a JSON *string*), created_at
-  (RFC3339).
+  (RFC3339), and replica_label — the name of the machine the event was
+  written on, sent only for a foreign replica.
 */
 
 import { escapeHTML, relativeTime } from "./scrub-util.mjs";
@@ -177,6 +178,7 @@ export function renderLogRow(ev, { nowSec = Date.now() / 1000 } = {}) {
     `<span class="c-id-pill">${escapeHTML(shortID)}</span>` +
     `<span class="c-log-row__detail">` +
     (ev.task_title ? `<span class="c-log-row__title">${escapeHTML(ev.task_title)}</span>` : "") +
+    (ev.replica_label ? `<span class="c-log-row__replica">${escapeHTML(ev.replica_label)}</span>` : "") +
     `</span>` +
     renderMeta(type, metadataFor(type, ev.detail)) +
     `<a href="/tasks/${escapeHTML(shortID)}" data-peek class="c-row-link" aria-label="Open task ${escapeHTML(shortID)}"></a>` +

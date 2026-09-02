@@ -582,10 +582,18 @@ func RenderNextText(w io.Writer, task *Task) {
 	}
 }
 
-func RenderEventLogMarkdown(w io.Writer, events []EventEntry) {
+// RenderEventLogMarkdown writes one line per event. names supplies the
+// replica labels: an event written on another machine carries that machine's
+// name after the actor, and an event of this checkout's own carries nothing
+// extra — a single-machine user sees the same log they always did.
+func RenderEventLogMarkdown(w io.Writer, events []EventEntry, names ReplicaNames) {
 	for _, e := range events {
 		ts := formatTimestamp(e.CreatedAt)
 		desc := FormatEventDescription(e.EventType, e.Detail)
+		if from := names.Foreign(e.Rep); from != "" {
+			fmt.Fprintf(w, "[%s] %s %s  @%s · %s\n", ts, e.ShortID, desc, e.Actor, from)
+			continue
+		}
 		fmt.Fprintf(w, "[%s] %s %s  @%s\n", ts, e.ShortID, desc, e.Actor)
 	}
 }

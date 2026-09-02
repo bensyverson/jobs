@@ -11,6 +11,7 @@ package handlers
 // the two renderers cannot drift.
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -34,6 +35,11 @@ type parityFixture struct {
 	eventType string
 	actor     string
 	detail    string
+	// rep is the replica the event was written on. Empty means the local
+	// one, parityLocalRep — the everyday case, where no replica is named.
+	// A fixture that sets it is a FOREIGN event, and both renderers have to
+	// hang the machine's label off it identically.
+	rep string
 }
 
 // parityFixtures covers every type in knownEventTypes plus the event
@@ -42,34 +48,54 @@ type parityFixture struct {
 // plain pass-through types. TestLogRowParity_CoversKnownEventTypes
 // fails if a knownEventTypes entry is missing here.
 var parityFixtures = []parityFixture{
-	{"created", "alice", `{"title":"Root task"}`},
-	{"claimed", "alice", `{"duration":"30m"}`},
-	{"done", "alice", `{"note":"shipped it"}`},
-	{"done", "alice", `{"note":""}`},
-	{"blocked", "bob", `{"blocker_id":"AbC12"}`},
-	{"unblocked", "bob", `{"blocker_id":"AbC12"}`},
-	{"noted", "agent-loglive", `{"text":"a note body with <angle> & \"quote\" chars"}`},
-	{"criteria_added", "alice", `{"criteria":[{"label":"tests pass"},{"label":"docs updated"}]}`},
-	{"criterion_state", "alice", `{"label":"tests pass","state":"passed"}`},
-	{"criterion_state", "alice", `{"label":"tests pass","state":"failed"}`},
-	{"criterion_state", "alice", `{"label":"tests pass"}`},
-	{"found_in_set", "alice", `{"source_id":"QnB2g"}`},
-	{"found_in_set", "alice", `{"source_id":"QnB2g","previous_source_id":"zzTop"}`},
-	{"found_in_cleared", "alice", `{"source_id":"QnB2g"}`},
-	{"kind_changed", "alice", `{"from":"task","to":"issue"}`},
-	{"released", "alice", `{}`},
-	{"canceled", "alice", `{"reason":"obsolete"}`},
-	{"labeled", "alice", `{"names":["web","bug"]}`},
-	{"claim_expired", "alice", `{"duration":"30m"}`},
-	{"edited", "alice", `{"title":"new title"}`},
-	{"moved", "alice", `{"to":"AbC12"}`},
-	{"reopened", "alice", `{}`},
+	{"created", "alice", `{"title":"Root task"}`, ""},
+	{"claimed", "alice", `{"duration":"30m"}`, ""},
+	{"done", "alice", `{"note":"shipped it"}`, ""},
+	{"done", "alice", `{"note":""}`, ""},
+	{"blocked", "bob", `{"blocker_id":"AbC12"}`, ""},
+	{"unblocked", "bob", `{"blocker_id":"AbC12"}`, ""},
+	{"noted", "agent-loglive", `{"text":"a note body with <angle> & \"quote\" chars"}`, ""},
+	{"criteria_added", "alice", `{"criteria":[{"label":"tests pass"},{"label":"docs updated"}]}`, ""},
+	{"criterion_state", "alice", `{"label":"tests pass","state":"passed"}`, ""},
+	{"criterion_state", "alice", `{"label":"tests pass","state":"failed"}`, ""},
+	{"criterion_state", "alice", `{"label":"tests pass"}`, ""},
+	{"found_in_set", "alice", `{"source_id":"QnB2g"}`, ""},
+	{"found_in_set", "alice", `{"source_id":"QnB2g","previous_source_id":"zzTop"}`, ""},
+	{"found_in_cleared", "alice", `{"source_id":"QnB2g"}`, ""},
+	{"kind_changed", "alice", `{"from":"task","to":"issue"}`, ""},
+	{"released", "alice", `{}`, ""},
+	{"canceled", "alice", `{"reason":"obsolete"}`, ""},
+	{"labeled", "alice", `{"names":["web","bug"]}`, ""},
+	{"claim_expired", "alice", `{"duration":"30m"}`, ""},
+	{"edited", "alice", `{"title":"new title"}`, ""},
+	{"moved", "alice", `{"to":"AbC12"}`, ""},
+	{"reopened", "alice", `{}`, ""},
 	// Focus moved to local.json (pItH3), so nothing writes these any more;
 	// rows already in a database are history and must still render, through
 	// the same generic fallback both renderers give an unknown type.
-	{"focus_set", "alice", `{"task":"AbC12"}`},
-	{"focus_released", "alice", `{}`},
-	{"teleported", "alice", `{"text":"an event type the server has never heard of"}`},
+	{"focus_set", "alice", `{"task":"AbC12"}`, ""},
+	{"focus_released", "alice", `{}`, ""},
+	{"teleported", "alice", `{"text":"an event type the server has never heard of"}`, ""},
+	// Written on another machine: the row carries that machine's label.
+	{"noted", "sam", `{"text":"pushed from the laptop"}`, parityForeignRep},
+	// Another machine that never announced itself: its id stands in for a
+	// label rather than nothing at all.
+	{"done", "sam", `{"note":"closed elsewhere"}`, parityUnknownRep},
+}
+
+// The replicas the parity fixtures are written on, and the label the
+// foreign one announced.
+const (
+	parityLocalRep     = "k7Qx2m"
+	parityForeignRep   = "Zq4LmP"
+	parityUnknownRep   = "Vv90aa"
+	parityForeignLabel = `sam-mbp:~/src/jobs`
+)
+
+// parityNames is what the server resolves a row's replica through.
+var parityNames = job.ReplicaNames{
+	Local:  parityLocalRep,
+	Labels: map[string]string{parityLocalRep: "ben-mbp:~/git/Jobs", parityForeignRep: parityForeignLabel},
 }
 
 const parityTitle = `A task title with <angle> & "quote" chars`
@@ -121,14 +147,15 @@ func TestLogRowParity_ServerAndClientMarkupMatch(t *testing.T) {
 	engine := parityEngine(t)
 
 	type clientEvent struct {
-		ID        int64  `json:"id"`
-		Position  string `json:"position"`
-		TaskID    string `json:"task_id"`
-		TaskTitle string `json:"task_title"`
-		EventType string `json:"event_type"`
-		Actor     string `json:"actor"`
-		Detail    string `json:"detail"`
-		CreatedAt string `json:"created_at"`
+		ID           int64  `json:"id"`
+		Position     string `json:"position"`
+		TaskID       string `json:"task_id"`
+		TaskTitle    string `json:"task_title"`
+		EventType    string `json:"event_type"`
+		Actor        string `json:"actor"`
+		Detail       string `json:"detail"`
+		CreatedAt    string `json:"created_at"`
+		ReplicaLabel string `json:"replica_label,omitempty"`
 	}
 
 	events := make([]clientEvent, 0, len(parityFixtures))
@@ -137,7 +164,7 @@ func TestLogRowParity_ServerAndClientMarkupMatch(t *testing.T) {
 		e := job.EventEntry{
 			ID:        int64(i + 1),
 			TS:        1756742400000,
-			Rep:       "k7Qx2m",
+			Rep:       cmp.Or(f.rep, parityLocalRep),
 			Seq:       uint64(i + 1),
 			TaskID:    7,
 			ShortID:   "AbC12",
@@ -148,21 +175,22 @@ func TestLogRowParity_ServerAndClientMarkupMatch(t *testing.T) {
 			// non-trivial label on both sides ("2m", not "just now").
 			CreatedAt: now.Add(-2 * time.Minute).Unix(),
 		}
-		row := buildLogEventRow(e, parityTitle, now)
+		row := buildLogEventRow(e, parityTitle, now, parityNames)
 		var sb strings.Builder
 		if err := engine.RenderFragment(&sb, "log", "log-row", row); err != nil {
 			t.Fatalf("render log-row fragment for %s: %v", f.eventType, err)
 		}
 		serverRows = append(serverRows, normalizeRowHTML(sb.String()))
 		events = append(events, clientEvent{
-			ID:        e.ID,
-			Position:  e.Position().String(),
-			TaskID:    e.ShortID,
-			TaskTitle: parityTitle,
-			EventType: e.EventType,
-			Actor:     e.Actor,
-			Detail:    e.Detail,
-			CreatedAt: time.Unix(e.CreatedAt, 0).UTC().Format(time.RFC3339),
+			ID:           e.ID,
+			Position:     e.Position().String(),
+			TaskID:       e.ShortID,
+			TaskTitle:    parityTitle,
+			EventType:    e.EventType,
+			Actor:        e.Actor,
+			Detail:       e.Detail,
+			CreatedAt:    time.Unix(e.CreatedAt, 0).UTC().Format(time.RFC3339),
+			ReplicaLabel: parityNames.Foreign(e.Rep),
 		})
 	}
 
@@ -412,14 +440,15 @@ func TestLogRowParity_ActorPageMatchesClient(t *testing.T) {
 	engine := parityEngine(t)
 
 	type clientEvent struct {
-		ID        int64  `json:"id"`
-		Position  string `json:"position"`
-		TaskID    string `json:"task_id"`
-		TaskTitle string `json:"task_title"`
-		EventType string `json:"event_type"`
-		Actor     string `json:"actor"`
-		Detail    string `json:"detail"`
-		CreatedAt string `json:"created_at"`
+		ID           int64  `json:"id"`
+		Position     string `json:"position"`
+		TaskID       string `json:"task_id"`
+		TaskTitle    string `json:"task_title"`
+		EventType    string `json:"event_type"`
+		Actor        string `json:"actor"`
+		Detail       string `json:"detail"`
+		CreatedAt    string `json:"created_at"`
+		ReplicaLabel string `json:"replica_label,omitempty"`
 	}
 
 	events := make([]clientEvent, 0, len(parityFixtures))
@@ -428,7 +457,7 @@ func TestLogRowParity_ActorPageMatchesClient(t *testing.T) {
 		e := job.EventEntry{
 			ID:        int64(i + 1),
 			TS:        1756742400000,
-			Rep:       "k7Qx2m",
+			Rep:       cmp.Or(f.rep, parityLocalRep),
 			Seq:       uint64(i + 1),
 			TaskID:    7,
 			ShortID:   "AbC12",
@@ -437,21 +466,22 @@ func TestLogRowParity_ActorPageMatchesClient(t *testing.T) {
 			Detail:    f.detail,
 			CreatedAt: now.Add(-2 * time.Minute).Unix(),
 		}
-		row := buildLogEventRow(e, parityTitle, now)
+		row := buildLogEventRow(e, parityTitle, now, parityNames)
 		var sb strings.Builder
 		if err := engine.RenderFragment(&sb, "actor_single", "log-row", row); err != nil {
 			t.Fatalf("render log-row fragment through actor_single for %s: %v", f.eventType, err)
 		}
 		serverRows = append(serverRows, normalizeRowHTML(sb.String()))
 		events = append(events, clientEvent{
-			ID:        e.ID,
-			Position:  e.Position().String(),
-			TaskID:    e.ShortID,
-			TaskTitle: parityTitle,
-			EventType: e.EventType,
-			Actor:     e.Actor,
-			Detail:    e.Detail,
-			CreatedAt: time.Unix(e.CreatedAt, 0).UTC().Format(time.RFC3339),
+			ID:           e.ID,
+			Position:     e.Position().String(),
+			TaskID:       e.ShortID,
+			TaskTitle:    parityTitle,
+			EventType:    e.EventType,
+			Actor:        e.Actor,
+			Detail:       e.Detail,
+			CreatedAt:    time.Unix(e.CreatedAt, 0).UTC().Format(time.RFC3339),
+			ReplicaLabel: parityNames.Foreign(e.Rep),
 		})
 	}
 

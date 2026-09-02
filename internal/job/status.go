@@ -28,7 +28,10 @@ type StatusSummary struct {
 // cache is disposable, so "is the cache current?" is a question worth being
 // able to ask.
 type StoreStatus struct {
-	Rep    string
+	Rep string
+	// Label is this replica's human-readable name — the latest `replica`
+	// event's label. Empty until this checkout has written once.
+	Label  string
 	Files  int
 	Events int
 	State  StoreState
@@ -51,6 +54,11 @@ func storeStatus(db *sql.DB) *StoreStatus {
 	// log file since.
 	if local, err := LoadLocalState(path); err == nil {
 		s.Rep = local.Rep
+	}
+	if s.Rep != "" {
+		if labels, err := replicaLabels(db); err == nil {
+			s.Label = labels[s.Rep]
+		}
 	}
 	if files, err := eventlog.Files(eventlog.StoreDir(path)); err == nil {
 		s.Files = len(files)
@@ -258,7 +266,11 @@ func RenderStatus(w io.Writer, s *StatusSummary) {
 		if st.Events == 1 {
 			events = "event"
 		}
-		fmt.Fprintf(w, "Store: replica %s · %d %s, %d %s · cache %s\n",
-			rep, st.Files, files, st.Events, events, st.State)
+		name := ""
+		if st.Label != "" {
+			name = fmt.Sprintf(" %q", st.Label)
+		}
+		fmt.Fprintf(w, "Store: replica %s%s · %d %s, %d %s · cache %s\n",
+			rep, name, st.Files, files, st.Events, events, st.State)
 	}
 }

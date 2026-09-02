@@ -204,6 +204,8 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newMergeCmd())
 	cmd.AddCommand(newRebuildCmd())
 	cmd.AddCommand(newRekeyCmd())
+	cmd.AddCommand(newReplicasCmd())
+	cmd.AddCommand(newReplicaCmd())
 	cmd.AddCommand(newSchemaCmd())
 	cmd.AddCommand(newStatusCmd())
 	cmd.AddCommand(newOrientCmd())

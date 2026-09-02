@@ -36,6 +36,7 @@ const (
 	EventReparented     EventType = "reparented"
 	EventRekeyed        EventType = "rekeyed"
 	EventSnapshot       EventType = "snapshot"
+	EventReplica        EventType = "replica"
 )
 
 // ReleaseReason names why a claim ended when the holder did not ask. It is a
@@ -290,6 +291,21 @@ type ReparentedPayload struct {
 	OldSortKey    string `json:"old_sort_key"`
 	Direction     string `json:"direction,omitempty"`
 	RelativeTo    string `json:"relative_to,omitempty"`
+}
+
+// ReplicaPayload names the checkout that owns a log file. It is the first
+// line a replica ever appends, and `job replica rename` appends another; the
+// latest one per replica is the name every reader shows.
+//
+// It applies no state — there is no replicas table, and nothing here can
+// disagree with anything else — so it has no entry in applyTable. Host, Path
+// and User are recorded separately from Label so a rename never loses the
+// facts the default label was built from.
+type ReplicaPayload struct {
+	Label string `json:"label"`
+	Host  string `json:"host,omitempty"`
+	Path  string `json:"path,omitempty"`
+	User  string `json:"user,omitempty"`
 }
 
 // SnapshotPayload is the whole state of a cache in one event: every task, every

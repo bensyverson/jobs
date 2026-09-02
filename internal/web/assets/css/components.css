@@ -615,6 +615,25 @@ a.c-log-row__actor {
   min-width: 0;
 }
 
+/* The machine an event came from. Rendered only for a FOREIGN replica —
+   one that is not this checkout — so a single-machine dashboard never
+   shows it. It shares the detail cell with the title rather than taking a
+   column of its own: it is rare, and the grid is already dense. */
+.c-log-row__replica {
+  color: var(--color-on-surface-dim);
+  font-family: var(--font-mono);
+  font-size: var(--font-data-id-size);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.c-log-row__replica::before {
+  content: "@ ";
+}
+
 .c-log-row__note {
   color: var(--color-on-surface-muted);
   overflow: hidden;

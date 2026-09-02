@@ -80,16 +80,16 @@ job status --format=json                   # machine-parsable form
 
 **Issue-tree roots don't get a rollup row.** The per-root rollup lists task-tree roots only — an [issue-tree](../../concepts/tree-kinds/) root is demoted to one summary line below it: `Issues: 3 open (1 claimed) · next rqWzZ`. `open` counts every non-closed task under an issue root; `claimed` is the subset currently claimed (scoped to the caller with `--as`, exactly like the preamble's own claimed count); `next` names the leaf `job next --issues` would hand out, and the `· next …` tail drops off when nothing is claimable. The whole line is omitted when the database has no issue-tree root.
 
-The `Store:` line names this checkout's replica, how much log there is, and whether the cache is current:
+The `Store:` line names this checkout's replica — its id and its [label](../setup/#replicas) — how much log there is, and whether the cache is current:
 
 ```text
-Store: replica 6oDqmc · 2 log files, 10 events · cache in sync
-Store: replica 6oDqmc · 2 log files, 10 events · cache rebuilt on open
+Store: replica 6oDqmc "ben-mbp:~/src/healthz" · 2 log files, 10 events · cache in sync
+Store: replica 6oDqmc "ben-mbp:~/src/healthz" · 2 log files, 10 events · cache rebuilt on open
 ```
 
 `cache rebuilt on open` means a log file grew — usually a `git pull` — and `.jobs.db` was replayed from `.jobs/log` before this command ran. See [The store](../../concepts/the-store/).
 
-`--format=json` mirrors the human output's structure. Forest scope returns `{identity, counts, last_activity_unix, roots, next, focus, stale, decisions, issues, store}`, where `store` is `{replica, files, events, cache}`; `roots` lists task-tree roots only, and `issues` is `{open, claimed, next}` shaped like `next` — `null` when there is no issue-tree root. Subtree scope swaps the preamble for `{target, children, …}`. See [the JSON output reference](../../machine-interface/json-output/) for the per-field shape.
+`--format=json` mirrors the human output's structure. Forest scope returns `{identity, counts, last_activity_unix, roots, next, focus, stale, decisions, issues, store}`, where `store` is `{replica, label, files, events, cache}`; `roots` lists task-tree roots only, and `issues` is `{open, claimed, next}` shaped like `next` — `null` when there is no issue-tree root. Subtree scope swaps the preamble for `{target, children, …}`. See [the JSON output reference](../../machine-interface/json-output/) for the per-field shape.
 
 `summary` is a deprecated alias and emits a stderr notice on every call.
 

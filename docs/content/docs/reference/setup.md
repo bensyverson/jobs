@@ -3,7 +3,7 @@ title: Setup
 weight: 1
 ---
 
-The verbs that bring a store into existence, govern who is allowed to write to it, and put one back together: `init`, `gitignore`, `identity`, `schema`, `merge`, `rebuild` and `rekey`. Only the last three touch tasks, and only to rebuild them from the log or reconcile two copies of the same ones. [The store](../../concepts/the-store/) is the model these last three assume.
+The verbs that bring a store into existence, govern who is allowed to write to it, and put one back together: `init`, `gitignore`, `identity`, `replicas`, `replica rename`, `schema`, `merge`, `rebuild` and `rekey`. Only the last three touch tasks, and only to rebuild them from the log or reconcile two copies of the same ones. [The store](../../concepts/the-store/) is the model these last three assume.
 
 ## `init`
 
@@ -13,6 +13,7 @@ Creates a `.jobs.db` in the current directory and records a default writer ident
 job init --as claude                      # pin a specific name as the default
 job init --strict                         # no default; every write needs --as
 job init --force                          # overwrite an existing .jobs.db
+job init --as ben --replica-name ben-mbp  # name this checkout in the shared log
 ```
 
 A few things worth knowing that the help text doesn't dwell on:
@@ -21,6 +22,7 @@ A few things worth knowing that the help text doesn't dwell on:
 - There is no `$USER` fallback, ever. The database only ever holds what you pass to `--as`. Move the project to another machine and the recorded default still holds.
 - `--strict` is the only mode that accepts no default. It's the right choice when several agents share a checkout and you want every event attributable to whoever is actually working — there's no ambient identity to forget.
 - When the current directory is a git repository and `.gitignore` is missing an entry Jobs needs, `init` prints a copy-pasteable hint after the identity line, and points at `job gitignore` to write it for you.
+- `--replica-name <label>` names *this checkout* rather than the person at it. The name waits in `.jobs/local.json` until the first write mints the replica, and becomes the label on the `replica` event that opens this checkout's log file. Leave it off and the label is this machine's hostname and the checkout's path. See [`replicas`](#replicas).
 
 ## `gitignore`
 
@@ -49,6 +51,41 @@ job identity strict off --as claude       # restore the convenience of a default
 The `--as` requirement is bootstrap discipline: the change is itself a write, so it needs attribution. Otherwise an unattributed `identity set` could quietly relabel every following commit.
 
 Toggling strict *off* does **not** revive a prior default — it leaves the default unset until you run `identity set` explicitly. Plan accordingly.
+
+## `replicas`
+
+Lists every checkout that has ever written to this store.
+
+```sh
+job replicas
+job replicas --format=json
+```
+
+```text
+2 replicas
+
+arMAXc "ben-mbp:~/git/Jobs"  ← this checkout
+  ben-mbp · ben · /Users/ben/git/Jobs
+  2840 events · last 4m ago
+
+Zq4LmP "sam-mbp:~/src/jobs"
+  sam-mbp · sam · /Users/sam/src/jobs
+  61 events · last 2d ago
+```
+
+A replica id is six base62 characters — enough to keep two checkouts' log files apart, and no help at all in remembering which machine is which. So the first line every replica appends is a `replica` event carrying a label plus the facts behind it: hostname, checkout path and OS user. This listing is read straight back out of those events, so it needs no extra file and no schema of its own.
+
+The label shows up wherever a replica does: beside the id on `job status`'s store line, and on `job log` rows and dashboard rows for **foreign** events only — events written on another machine. Your own events never carry it, so a single-machine store reads exactly as it always did.
+
+## `replica rename`
+
+Gives this checkout's replica a new name.
+
+```sh
+job replica rename "ben-mbp" --as ben
+```
+
+The rename is an *append*: a fresh `replica` event whose label every reader takes as the current one. The old event stays in the log, so the history says what the machine used to be called, and the new name travels to other machines with the next `git pull` like any other event. Requires `--as`, as writes do.
 
 ## `schema`
 

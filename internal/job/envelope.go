@@ -29,6 +29,11 @@ type recorder struct {
 	clock     *eventlog.Clock
 	cachePath string
 
+	// label is the name `job init --replica-name` parked in local.json for
+	// the replica event this checkout has not written yet. Empty means the
+	// default label — hostname and checkout path.
+	label string
+
 	// seq is the last sequence number handed out, primed from this replica's
 	// log file at the start of the batch.
 	seq uint64
@@ -62,7 +67,7 @@ func newRecorderLocked(path string) (*recorder, error) {
 	// tests move time with, and task timestamps now come from this clock.
 	clock := eventlog.NewClockWith(func() time.Time { return CurrentNowFunc() })
 	clock.Load(state.LastSeen)
-	return &recorder{rep: rep, clock: clock, cachePath: path}, nil
+	return &recorder{rep: rep, clock: clock, cachePath: path, label: state.ReplicaName}, nil
 }
 
 // envelope mints the next envelope for this replica. task is a short id, or
@@ -134,10 +139,25 @@ func (r *recorder) persistLocked() error {
 type eventBatch struct {
 	rec    *recorder
 	events []eventlog.Envelope
+
+	// needReplica is set by commit when this replica has never announced
+	// itself. The announcement is emitted lazily, ahead of the first real
+	// event of the batch, so a command that decides to write nothing leaves
+	// the log untouched — and so a fresh replica's announcement is seq 1 of
+	// its file, before anything it describes.
+	needReplica bool
 }
 
 // emit mints an envelope for the event and applies it.
 func (b *eventBatch) emit(tx dbtx, typ EventType, task, actor string, payload any) error {
+	if b.needReplica {
+		// Cleared first: the announcement is emitted through this same
+		// method, and the flag is what stops it recurring.
+		b.needReplica = false
+		if err := b.emit(tx, EventReplica, "", actor, newReplicaPayload(b.rec.cachePath, b.rec.label)); err != nil {
+			return err
+		}
+	}
 	e, err := b.rec.envelope(typ, task, actor, payload)
 	if err != nil {
 		return err
@@ -200,7 +220,14 @@ func commit(db *sql.DB, fn func(tx dbtx, b *eventBatch) error) error {
 	}
 	defer tx.Rollback()
 
-	batch := &eventBatch{rec: rec}
+	// One EXISTS per write, answered false for the whole life of a replica
+	// after its first: has this checkout ever said who it is?
+	needReplica, err := replicaEventMissing(tx, rec.rep)
+	if err != nil {
+		return err
+	}
+
+	batch := &eventBatch{rec: rec, needReplica: needReplica}
 	if err := fn(tx, batch); err != nil {
 		return err
 	}

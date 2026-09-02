@@ -37,6 +37,11 @@ type LocalState struct {
 	// LastSeen is the hybrid logical clock's high-water mark in
 	// milliseconds. Reserved for the store leaf; nothing reads it yet.
 	LastSeen int64 `json:"last_seen,omitempty"`
+	// ReplicaName is the label to give this checkout's replica when its id
+	// is minted. `job init --replica-name` records it here because at init
+	// there is usually no replica yet; the first write turns it into the
+	// replica event's label. Renaming later is an event, not this field.
+	ReplicaName string `json:"replica_name,omitempty"`
 	// Identity is the default writer identity used when --as is omitted.
 	Identity string `json:"identity,omitempty"`
 	// Strict disables the default identity: every write must pass --as.
