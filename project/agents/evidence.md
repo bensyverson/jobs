@@ -1,4 +1,4 @@
-<!-- agents:begin evidence@f7acd9 -->
+<!-- agents:begin evidence@2393e6 -->
 # Working with evidence
 
 Principles, not procedures. Each was paid for at least once. Read this before measuring anything, verifying a claim, or writing down a cause.
@@ -24,6 +24,7 @@ Principles, not procedures. Each was paid for at least once. Read this before me
 - **Real data can validate a wrong rule.** A rule can pass against the entire live stream purely because no case happened to exercise it. Constructed cases must sit beside real-data checks; neither substitutes for the other.
 - **Prove a guard by mutation**: remove it, show the specific breakage with a number, put it back. "The COALESCE is needed" is an assertion; "dropping it inserts 386 duplicates" is a measurement.
 - **Inspecting a generated artifact's source is not inspecting its output** — render the SVG/PDF/chart and look at it.
+- **A clean preview proves the renderer, not the derivation.** It shows a component renders a declared state correctly, never that the app produces that state from real data; a declared state can describe a combination the system never builds. Derive the view-model through the production function wherever it is pure, and keep integration tests for the rest.
 
 ## Before you build it
 

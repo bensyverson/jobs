@@ -103,17 +103,18 @@ Pre-launch, zero users, no existing data. Never spend effort on backward compati
 - **`r.ParseForm()` reads a body only when it is urlencoded**; for multipart it leaves it empty without erroring. Keep one wire format per route — a handler that accepts two body shapes needs two sets of checks where the design wanted one.
 <!-- agents:end go -->
 
-<!-- agents:begin web@32992c -->
+<!-- agents:begin web@cd1317 -->
 ## Web
 
 - **Vanilla HTML, CSS and JS** — no frameworks or build tools beyond the server. WebComponents are the enhancement layer: the server ships each element's real content as HTML inside it, and the component's JS upgrades what's already there — never an empty tag that renders itself.
 - **Follow `DESIGN.md` when the project has one** — tokens, type scale, color roles and component conventions come from there, not from ad-hoc values.
+- **Every component ships its states, served.** Beside each component lives its catalog entry: a slug, a title, the source file, and its representative states — empty, ordinary, crowded, wrong, mid-flight — each with a slug, a name, and a one-sentence note saying what a reviewer looks at or what went wrong here once. A state's payload is the production view-model, never a preview-shaped twin: a twin drifts, renders states production cannot reach, and then looks like coverage. The app serves the catalog itself — `/preview` lists components, `/preview/<component>` stacks every state under its note, `/preview/<component>/<state>` is one state whole — through the real page shell, stylesheet and script, so it can never become a second renderer. Give it a zero-config entry (`<tool> preview`: no database, no credentials, no network, nothing on disk) and `--list --json` so an agent can walk it. Representative, not exhaustive: no matrix generator. A state reachable only through the script (a copied chip, a dropped stream) is declared by setting the attribute the script would set. Where the project keeps HTML goldens, the catalog is their input: one declaration, two readers.
 - **Every page works without JavaScript by default — ship full HTML.** Then use JS to enhance where users expect modern interactivity (re-sorting a list, a live-updating form field) so those don't need a full reload. No client-side routing and no client-side data fetching to render a page: this is the middle ground between 1994-style brutalism and shipping one `<div>` and a JS blob. A surface that is inherently live — a chat, a streaming dashboard — is the exception; the head names it.
 - **No inline `style` attributes**; styles live in stylesheets under a class or selector.
 - **Responsive and mobile-optimized from the first draft.** Without a brand identity, default to a simple, modern, clean aesthetic.
 - **Paths over query strings** (`/api/people/89`, not `?id=89`); queries only for search, sort, filters.
 - **Public pages carry rich `<head>` metadata** including schema.org data.
-- **Server-side tests cannot see the browser.** Keep a JS/browser runner and run it by hand whenever you change behavior a browser can observe — a green server suite is not evidence about the page.
+- **Server-side tests cannot see the browser.** Keep a JS/browser runner and run it by hand whenever you change behavior a browser can observe — a green server suite is not evidence about the page. The preview catalog is what you point `sleepy shot` at: one URL per state, both colour schemes, into the project's shot directory. That contact sheet is the review; a green suite is not.
 - **`sleepy` is the browser-evidence tool on this machine** (SleepyHollow, headless WebKit, globally installed — `sleepy --help`): `load` for HTTP facts and console errors, `shot --full-page --size WxH` at any viewport, `ax` for the accessibility tree, `wire` to prove the request inventory (e.g. zero external requests), `query`/`find`/`style` for semantic checks, `open`/`fill`/`click` + `--session` to drive flows. Renders offscreen — never a window on the user's display; anything else an agent launches must be windowless too. **`sleepy` alone is the day-to-day check** — don't run a second engine for routine work; at final integration and QA, check once in a Blink engine (Chrome plus Android is what most visitors see; Firefox is not needed). Chrome for Testing lives in puppeteer's cache (`~/.cache/puppeteer/chrome/*/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`; glob the version); launch it `--headless=new --disable-gpu --no-first-run --password-store=basic --use-mock-keychain --user-data-dir=$TMPDIR/chrome --window-size=WxH --screenshot=out.png <url>` — the two keychain flags are mandatory or every launch raises a macOS keychain prompt that stacks and outlives the process. Two traps: **`eval` runs in an isolated world** — page-JS state (upgraded component methods) reads as missing while DOM state shows; don't diagnose components from it — and **`pdf` renders one unpaginated screen-media sheet**; use an `NSPrintOperation` harness for print evidence (working example: nobedan `scripts/print-proposal/`).
 - **New components: one custom element per file, named for the element** (`<app>-thing` lives in `app-thing.js`), with a shadow root so component styles don't leak. Don't retrofit existing scripts as a side quest.
 <!-- agents:end web -->
@@ -131,31 +132,6 @@ Pre-launch, zero users, no existing data. Never spend effort on backward compati
 - **The head of `AGENTS.md` lists where the docs live; keep that list current.**
 <!-- agents:end docs -->
 
-<!-- agents:begin delegation-brief@222f55 -->
-## Delegating to subagents
-
-Design on the main thread; dispatch execution to agents for anything larger than a small change. **Read `project/agents/delegation.md` before dispatching** — it carries what to delegate, how to carve the work, the worktree workflow, the traps, and the briefing template.
-
-- Fanning out is a decision, not a default: map each leaf's file surface first, parallelize only the disjoint set, pre-carve or reserve a contended file to one writer, and serialize the rest.
-- Commit before dispatching — a worktree branches from local HEAD, so uncommitted work is invisible to the agent.
-- Agents never commit; the integrator makes every commit on `main`: snapshot the agent's branch with hooks off, `git merge --squash` it, read the diff (that is the code review), commit through the hooks with a real message from the agent's proposed one, push, then close the leaves.
-- Choose the model deliberately, require **deviations from the brief** and **"what in this brief is wrong?"** in every report, and verify what comes back — the pushback, not the typing, is usually the value.
-<!-- agents:end delegation-brief -->
-
-<!-- agents:begin jobs-brief@42b137 -->
-## Jobs
-
-`job` is the tracker for plans and tasks. **Read `project/agents/jobs.md` before filing or claiming work** — it carries the shape of the tree, criteria and blockers, the identity rules for agents, and how big a leaf should be.
-
-- Subagents pass a unique `--as <name>` and an absolute `--db` on every call; they `claim`, `note` and `release`, never `done`.
-<!-- agents:end jobs-brief -->
-
-<!-- agents:begin harness-brief@a03f30 -->
-## Harness
-
-The harness an agent runs inside has facts of its own — the Bash sandbox, `$TMPDIR`, no TTY, worktree isolation, background processes. **`project/agents/harness.md` carries them.** Read it the first time a tool call fails with a permission error or a "too complex to verify" refusal, and before writing a brief for a subagent.
-<!-- agents:end harness-brief -->
-
 <!-- agents:begin background@882e19 -->
 ## Background
 
@@ -163,3 +139,16 @@ The harness an agent runs inside has facts of its own — the Bash sandbox, `$TM
 
 **It holds *current* state, so it is rewritten, not appended.** Every number, date and name appears there once and links the dated `project/` document it came from; when a fact changes, edit the sentence that holds it and let the dated record keep the history.
 <!-- agents:end background -->
+
+<!-- agents:begin index@b19dd5 -->
+## Situational instructions
+
+These files carry instructions for specific situations. When one applies, read the file before acting and follow it.
+
+| Situation | File |
+|---|---|
+| Before dispatching any subagent | `project/agents/delegation.md` |
+| Before measuring anything, verifying a claim, or writing down a cause | `project/agents/evidence.md` |
+| Before filing or claiming work in job, and when running as a subagent | `project/agents/jobs.md` |
+| The first time a tool call is refused or denied, and before briefing a subagent | `project/agents/harness.md` |
+<!-- agents:end index -->
