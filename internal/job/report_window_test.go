@@ -92,8 +92,8 @@ func TestReport_DefaultsSinceToFirstEventAndUntilToNow(t *testing.T) {
 	if !r.Window.Until.Equal(day(3, time.Hour)) {
 		t.Errorf("Window.Until = %s, want now %s", r.Window.Until, day(3, time.Hour))
 	}
-	if r.Window.Bucket != BucketDay {
-		t.Errorf("Window.Bucket = %q, want day — all history under 90 days", r.Window.Bucket)
+	if r.Window.Bucket != BucketSixHours {
+		t.Errorf("Window.Bucket = %q, want 6h — three days of history buckets like 7d", r.Window.Bucket)
 	}
 }
 
@@ -117,9 +117,13 @@ func TestReport_AutomaticBucketAgreesWithBucketFor(t *testing.T) {
 	if r := f.report(ReportQuery{Until: day(91)}); r.Window.Bucket != BucketWeek {
 		t.Errorf("all over 91 days: bucket = %q, want week", r.Window.Bucket)
 	}
-	// A short all-history window still buckets by day, as BucketFor says.
-	if r := f.report(ReportQuery{Until: day(3)}); r.Window.Bucket != BucketDay {
-		t.Errorf("all over 3 days: bucket = %q, want day", r.Window.Bucket)
+	// A young store's all-history window buckets by its span, as BucketFor
+	// says, so a day-old store still draws a line rather than one point.
+	if r := f.report(ReportQuery{Until: day(3)}); r.Window.Bucket != BucketSixHours {
+		t.Errorf("all over 3 days: bucket = %q, want 6h", r.Window.Bucket)
+	}
+	if r := f.report(ReportQuery{Until: day(0, 20*time.Hour)}); r.Window.Bucket != BucketHour {
+		t.Errorf("all over 20 hours: bucket = %q, want hour", r.Window.Bucket)
 	}
 }
 

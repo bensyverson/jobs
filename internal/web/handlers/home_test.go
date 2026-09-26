@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	job "github.com/bensyverson/jobs/internal/job"
 	"github.com/bensyverson/jobs/internal/web/handlers"
 )
 
@@ -85,179 +86,133 @@ func homeSeedBlock(t *testing.T, db *sql.DB, blockedID, blockerID int64, at time
 	}
 }
 
-func TestHome_RendersFourSignalCards(t *testing.T) {
-	db := setupLogTestDB(t)
-	deps := newLogDeps(t, db)
+// ------------------------------------------------------------------
+// Chart panel (replaces the newly-blocked, longest-claim and
+// oldest-todo cards and the 60-minute histogram)
+// ------------------------------------------------------------------
 
-	body := fetchHome(t, deps)
-
-	mustContain(t, body, `class="c-grid-signals"`)
-
-	// One activity card + three alarm cards = four total.
-	cardRe := regexp.MustCompile(`class="c-signal-card c-signal-card--`)
-	matches := cardRe.FindAllStringIndex(body, -1)
-	if len(matches) != 4 {
-		t.Errorf("c-signal-card article count: got %d, want 4", len(matches))
+func fetchHomeQuery(t *testing.T, deps handlers.Deps, query string) string {
+	t.Helper()
+	req := httptest.NewRequest("GET", "/?"+query, nil)
+	w := httptest.NewRecorder()
+	handlers.Home(deps).ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("GET /?%s: status %d, body=%s", query, w.Code, w.Body.String())
 	}
-
-	mustContain(t, body, `Activity`)
-	mustContain(t, body, `Newly blocked`)
-	mustContain(t, body, `Longest active claim`)
-	mustContain(t, body, `Oldest todo`)
+	return w.Body.String()
 }
 
-func TestHome_ActivityHistogram_RendersBarsAndLegend(t *testing.T) {
-	db := setupLogTestDB(t)
-	deps := newLogDeps(t, db)
-
-	now := time.Now()
-	tID := homeSeedTask(t, db, "a", "a", "available", now.Add(-2*time.Hour))
-	// Seed a mix inside the 60m window so the legend has real numbers.
-	homeSeedEvent(t, db, tID, "created", now.Add(-50*time.Minute))
-	homeSeedEvent(t, db, tID, "claimed", now.Add(-30*time.Minute))
-	homeSeedEvent(t, db, tID, "done", now.Add(-10*time.Minute))
-	homeSeedEvent(t, db, tID, "blocked", now.Add(-2*time.Minute))
-
-	body := fetchHome(t, deps)
-
-	// All 60 bar slots rendered for layout stability — count the bar class.
-	barRe := regexp.MustCompile(`class="c-histogram__bar`)
-	matches := barRe.FindAllStringIndex(body, -1)
-	if len(matches) != 60 {
-		t.Errorf("c-histogram__bar count: got %d, want 60", len(matches))
-	}
-
-	// At least one non-empty bar has an inline --h style.
-	if !strings.Contains(body, `style="--h:`) {
-		t.Errorf("expected at least one bar with inline --h; body snippet:\n%s",
-			bodyExcerpt(body, "c-histogram", 600))
-	}
-
-	// Legend totals: 1 each of done/claim/create/block.
-	mustContain(t, body, `c-hist-swatch--done`)
-	mustContain(t, body, `c-hist-swatch--claim`)
-	mustContain(t, body, `c-hist-swatch--create`)
-	mustContain(t, body, `c-hist-swatch--block`)
-	mustContain(t, body, `>1 done<`)
-	mustContain(t, body, `>1 claimed<`)
-	mustContain(t, body, `>1 new<`)
-	mustContain(t, body, `>1 blocked<`)
+func fetchHomePanel(t *testing.T, deps handlers.Deps, query string) (int, string) {
+	t.Helper()
+	req := httptest.NewRequest("GET", "/home/panel?"+query, nil)
+	w := httptest.NewRecorder()
+	handlers.HomePanel(deps).ServeHTTP(w, req)
+	return w.Code, w.Body.String()
 }
 
-func TestHome_NewlyBlocked_RendersCountAndProgress(t *testing.T) {
-	db := setupLogTestDB(t)
-	deps := newLogDeps(t, db)
-
-	now := time.Now()
-	aID := homeSeedTask(t, db, "a", "alpha", "available", now.Add(-1*time.Hour))
-	bID := homeSeedTask(t, db, "b", "beta", "available", now.Add(-1*time.Hour))
-	cID := homeSeedTask(t, db, "c", "charlie", "available", now.Add(-1*time.Hour))
-	// Two edges inside the 10m window.
-	homeSeedBlock(t, db, bID, aID, now.Add(-5*time.Minute))
-	homeSeedBlock(t, db, cID, aID, now.Add(-2*time.Minute))
-
-	body := fetchHome(t, deps)
-
-	// The card's value cell carries the count.
-	mustContain(t, body, `class="c-signal-card__value">2<`)
-
-	// --progress: 40% (2/5 threshold).
-	if !strings.Contains(body, `--progress: 40%`) {
-		t.Errorf("expected --progress: 40%% for newly-blocked 2/5\n%s",
-			bodyExcerpt(body, "Newly blocked", 500))
+// rangeTabLabels returns the range selector's tab labels in order, and
+// the one marked current.
+func rangeTabLabels(t *testing.T, body string) (labels []string, active string) {
+	t.Helper()
+	nav := regexp.MustCompile(`(?s)<nav class="c-tabs[^"]*" aria-label="Range">(.*?)</nav>`).FindStringSubmatch(body)
+	if nav == nil {
+		t.Fatalf("no range selector in\n%s", body)
 	}
-
-	// Context line mentions the blocked id + the waiting-on id.
-	mustContain(t, body, `href="/tasks/c"`)
-	mustContain(t, body, `href="/tasks/a"`)
-}
-
-func TestHome_NewlyBlocked_EmptyState(t *testing.T) {
-	db := setupLogTestDB(t)
-	deps := newLogDeps(t, db)
-
-	body := fetchHome(t, deps)
-
-	// Zero count with zero progress.
-	mustContain(t, body, `class="c-signal-card__value">0<`)
-	mustContain(t, body, `--progress: 0%`)
-}
-
-func TestHome_LongestClaim_RendersDurationAndActor(t *testing.T) {
-	db := setupLogTestDB(t)
-	deps := newLogDeps(t, db)
-
-	now := time.Now()
-	tID := homeSeedTask(t, db, "g7h8i", "SSR fragment endpoint", "available", now.Add(-1*time.Hour))
-	homeSeedClaim(t, db, tID, "alice", now.Add(-8*time.Minute-47*time.Second))
-
-	body := fetchHome(t, deps)
-
-	// Duration with minute+second precision, actor name, link to task.
-	mustContain(t, body, `>8m 47s<`)
-	mustContain(t, body, `data-actor="alice"`)
-	mustContain(t, body, `href="/tasks/g7h8i"`)
-
-	// Progress = 8m47s / 30m ≈ 29% → rounds to 29.
-	re := regexp.MustCompile(`--progress: (\d+)%`)
-	found := false
-	for _, m := range re.FindAllStringSubmatch(body, -1) {
-		if m[1] == "29" {
-			found = true
-			break
+	for _, m := range regexp.MustCompile(`<a [^>]*?(aria-current="true")?>([^<]+)</a>`).FindAllStringSubmatch(nav[1], -1) {
+		labels = append(labels, m[2])
+		if m[1] != "" {
+			active = m[2]
 		}
 	}
-	if !found {
-		t.Errorf("expected --progress: 29%% for 8m47s over 30m threshold\n%s",
-			bodyExcerpt(body, "Longest active claim", 500))
+	return labels, active
+}
+
+func TestHome_ChartPanelReplacesTheSignalCards(t *testing.T) {
+	db := setupLogTestDB(t)
+	body := fetchHome(t, newLogDeps(t, db))
+
+	mustContain(t, body, `<chart-panel`)
+	mustContain(t, body, `data-home-panel`)
+	for _, gone := range []string{`c-signal-card`, `c-grid-signals`, `Newly blocked`, `Longest active claim`, `Oldest todo`, `last 60m`} {
+		if strings.Contains(body, gone) {
+			t.Errorf("Home still renders %q", gone)
+		}
 	}
 }
 
-func TestHome_LongestClaim_AbsentRendersEmDash(t *testing.T) {
+func TestHome_ChartPanelOffersSixRangesDefaulting7D(t *testing.T) {
 	db := setupLogTestDB(t)
-	deps := newLogDeps(t, db)
-
-	body := fetchHome(t, deps)
-
-	// When no claims exist, the value cell shows an em dash.
-	idx := strings.Index(body, "Longest active claim")
-	if idx < 0 {
-		t.Fatal("card label not found")
+	labels, active := rangeTabLabels(t, fetchHome(t, newLogDeps(t, db)))
+	if got := strings.Join(labels, " "); got != "1H 1D 7D 14D 30D All" {
+		t.Errorf("range tabs = %q, want 1H 1D 7D 14D 30D All", got)
 	}
-	snippet := body[idx:min(idx+400, len(body))]
-	if !strings.Contains(snippet, `—`) {
-		t.Errorf("expected em dash in absent-claim value\n%s", snippet)
+	if active != "7D" {
+		t.Errorf("active range = %q, want 7D", active)
 	}
 }
 
-func TestHome_OldestTodo_RendersAgeAndLink(t *testing.T) {
+func TestHome_RangeParamSelectsTheTab(t *testing.T) {
 	db := setupLogTestDB(t)
-	deps := newLogDeps(t, db)
-
-	now := time.Now()
-	homeSeedTask(t, db, "mVc43", "Migrate config to sqlite", "available", now.Add(-3*24*time.Hour))
-
-	body := fetchHome(t, deps)
-
-	mustContain(t, body, `href="/tasks/mVc43"`)
-	mustContain(t, body, `Migrate config to sqlite`)
-	// "3d" from RelativeTime, not "72h".
-	mustContain(t, body, `>3d<`)
+	_, active := rangeTabLabels(t, fetchHomeQuery(t, newLogDeps(t, db), "range=1h"))
+	if active != "1H" {
+		t.Errorf("active range = %q, want 1H", active)
+	}
 }
 
-func TestHome_OldestTodo_AbsentRendersEmDash(t *testing.T) {
+// The selector's options are plain links to the Home page itself, so
+// it works with JavaScript off.
+func TestHome_RangeTabsAreLinksToHome(t *testing.T) {
 	db := setupLogTestDB(t)
-	deps := newLogDeps(t, db)
+	body := fetchHome(t, newLogDeps(t, db))
+	mustContain(t, body, `href="/?range=1h"`)
+	mustContain(t, body, `href="/?range=all"`)
+	mustContain(t, body, `href="/" class="c-tab c-tab--active"`)
+}
 
-	body := fetchHome(t, deps)
-
-	idx := strings.Index(body, "Oldest todo")
-	if idx < 0 {
-		t.Fatal("card label not found")
+func TestHomePanel_ReturnsTheFragmentAlone(t *testing.T) {
+	db := setupLogTestDB(t)
+	code, body := fetchHomePanel(t, newLogDeps(t, db), "range=1d")
+	if code != 200 {
+		t.Fatalf("GET /home/panel: status %d\n%s", code, body)
 	}
-	snippet := body[idx:min(idx+400, len(body))]
-	if !strings.Contains(snippet, `—`) {
-		t.Errorf("expected em dash in absent-todo value\n%s", snippet)
+	if !strings.HasPrefix(strings.TrimSpace(body), "<chart-panel") {
+		t.Errorf("fragment does not start with <chart-panel>:\n%s", body)
+	}
+	if strings.Contains(body, "<html") || strings.Contains(body, "c-header") {
+		t.Errorf("fragment carries the page shell:\n%s", body)
+	}
+	if _, active := rangeTabLabels(t, body); active != "1D" {
+		t.Errorf("fragment active range = %q, want 1D", active)
+	}
+	// The tabs link to the page, not back to the fragment endpoint.
+	if strings.Contains(body, `href="/home/panel`) {
+		t.Errorf("fragment tabs link to the fragment endpoint:\n%s", body)
+	}
+}
+
+// Under the scrubber the fragment is asked for at a cursor; its tabs
+// keep ?at= so switching range stays parked in history.
+func TestHomePanel_TabsKeepTheCursor(t *testing.T) {
+	db := setupLogTestDB(t)
+	if _, err := job.RunAdd(db, "", "anchored", "", "", nil, "alice"); err != nil {
+		t.Fatalf("RunAdd: %v", err)
+	}
+	events, err := job.GetEventsForTaskTree(db, "")
+	if err != nil || len(events) == 0 {
+		t.Fatalf("events: %v / %d", err, len(events))
+	}
+	at := events[0].Position().String()
+	code, body := fetchHomePanel(t, newLogDeps(t, db), "range=30d&at="+at)
+	if code != 200 {
+		t.Fatalf("status %d\n%s", code, body)
+	}
+	mustContain(t, body, "at="+at)
+}
+
+func TestHomePanel_RejectsAMalformedCursor(t *testing.T) {
+	db := setupLogTestDB(t)
+	if code, _ := fetchHomePanel(t, newLogDeps(t, db), "at=yesterday"); code != 400 {
+		t.Errorf("GET /home/panel?at=yesterday: status %d, want 400", code)
 	}
 }
 

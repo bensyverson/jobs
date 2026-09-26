@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/bensyverson/jobs/internal/web/assets"
+	"github.com/bensyverson/jobs/internal/web/handlers"
 	"github.com/bensyverson/jobs/internal/web/render"
 	"github.com/bensyverson/jobs/internal/web/templates"
 )
@@ -87,14 +88,13 @@ func TestFooter_ConnectionStatusIsAriaLivePolite(t *testing.T) {
 
 // homeTemplateData mirrors the shape of handlers.HomePageData just
 // closely enough for the home template to render without missing-field
-// errors. Duplicated here rather than imported from handlers because
-// handlers already depends on templates; reversing that would cycle.
+// errors. The panel rows are duplicated here; the chart panel is the
+// real handlers.ChartPanel (an external test package may import
+// handlers without a cycle), since its template reads nested chart
+// types a twin would drift from.
 type homeTemplateData struct {
 	templates.Chrome
-	Activity          homeActivity
-	NewlyBlocked      homeNewlyBlocked
-	LongestClaim      homeLongestClaim
-	OldestTodo        homeOldestTodo
+	Panel             handlers.ChartPanel
 	ActiveClaims      homeActiveClaims
 	RecentCompletions homeRecentCompletions
 	Upcoming          homeUpcoming
@@ -144,40 +144,6 @@ type homeActiveClaims struct {
 type homeActiveClaimRow struct {
 	Actor, ActorURL, TaskShortID, TaskURL, TaskTitle, DurationText string
 	ClaimedAtUnix                                                  int64
-}
-
-type homeActivity struct {
-	Bars                                                        []homeBar
-	TotalDone, TotalClaim, TotalCreate, TotalBlock, TotalEvents int
-}
-
-type homeBar struct {
-	Empty                      bool
-	HeightPercent              int
-	Done, Claim, Create, Block int
-}
-
-type homeNewlyBlocked struct {
-	Count       int
-	ProgressPct int
-	Items       []homeBlockRef
-}
-
-type homeBlockRef struct {
-	BlockedShortID, BlockedURL, WaitingOnShortID, WaitingOnURL string
-}
-
-type homeLongestClaim struct {
-	Present                                          bool
-	Actor, ActorURL, TaskShortID, TaskURL, TaskTitle string
-	DurationText                                     string
-	ProgressPct                                      int
-}
-
-type homeOldestTodo struct {
-	Present                              bool
-	TaskShortID, TaskURL, Title, AgeText string
-	ProgressPct                          int
 }
 
 func renderHome(t *testing.T, e *templates.Engine) string {

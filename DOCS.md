@@ -481,9 +481,11 @@ job serve --bind 127.0.0.1:9090          # loopback, custom port
 job serve --db /path/to/.jobs.db         # custom database
 ```
 
+`job preview` serves the dashboard's component catalog (`/preview`) with no database — every component in its representative states, rendered from real view-models; `job preview --list --format=json` prints the index for an agent.
+
 Views:
 
-- `/` — Home: signal cards (activity histogram + alarm cards), an active-claims table, recent completions, an Upcoming panel, a Blocked strip, and a **dependency-flow mini-graph** rendered as a [subway-system map](project/2026-04-25-graph-clarification.md) — one line per parent whose subtree contains active or imminent work, an LCA fork when two or more lines exist, closure markers (`⊘`) on edges into sequence-blocked lines, in-gap `…` dots between non-adjacent visible windows, and a `(+N)` terminal pill summarizing trailing siblings that fall outside the focal's ±N window.
+- `/` — Home: a progress chart panel (burn-up + activity histogram over a `?range=` of 1H · 1D · 7D · 14D · 30D · All, redrawn in place from `GET /home/panel`), an active-claims table, recent completions, an Upcoming panel, a Blocked strip, and a **dependency-flow mini-graph** rendered as a [subway-system map](project/2026-04-25-graph-clarification.md) — one line per parent whose subtree contains active or imminent work, an LCA fork when two or more lines exist, closure markers (`⊘`) on edges into sequence-blocked lines, in-gap `…` dots between non-adjacent visible windows, and a `(+N)` terminal pill summarizing trailing siblings that fall outside the focal's ±N window.
 - `/log` — event stream with filter chips (actor / event type / label)
 - `/tasks/<id>` — task detail: status, labels, parent, blocked-by, blocks, description, completion note, history
 

@@ -43,6 +43,7 @@ func NewMux(ctx context.Context, cfg Config) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /{$}", handlers.Home(deps))
 	mux.Handle("POST /home/graph", handlers.HomeGraph(deps))
+	mux.Handle("GET /home/panel", handlers.HomePanel(deps))
 	mux.Handle("GET /plan", handlers.Plan(deps))
 	mux.Handle("GET /plan/{id}", handlers.Plan(deps))
 	mux.Handle("GET /issues", handlers.Issues(deps))
@@ -56,11 +57,45 @@ func NewMux(ctx context.Context, cfg Config) http.Handler {
 	mux.Handle("GET /labels/{name}", handlers.LabelRedirect(deps))
 	mux.Handle("GET /search", handlers.Search(deps))
 
+	handlePreview(mux, deps)
+
 	mux.Handle("GET /static/", http.StripPrefix("/static/", manifest.Handler()))
 
 	// Catch-all 404 for unmatched paths. `GET /{$}` (Home) is more
 	// specific than `GET /`, so the root still hits Home.
 	mux.Handle("GET /", handlers.NotFound(deps))
 
+	return mux
+}
+
+// handlePreview mounts the component preview catalog.
+func handlePreview(mux *http.ServeMux, deps handlers.Deps) {
+	preview := handlers.Preview(deps)
+	mux.Handle("GET /preview", preview)
+	mux.Handle("GET /preview/{component}", preview)
+	mux.Handle("GET /preview/{component}/{state}", preview)
+}
+
+// NewPreviewMux serves the preview catalog alone, with no database: the
+// zero-config entry a `job preview` command binds, for reviewing
+// components (and pointing a screenshot tool at them) without a store.
+// Every state renders from constructed view-models; the root redirects
+// to the catalog, and anything else is a 404.
+func NewPreviewMux() http.Handler {
+	manifest, err := assets.BuildManifest()
+	if err != nil {
+		panic(fmt.Errorf("web: build asset manifest: %w", err))
+	}
+	engine, err := templates.New(manifest)
+	if err != nil {
+		panic(fmt.Errorf("web: build template engine: %w", err))
+	}
+	deps := handlers.Deps{Templates: engine}
+
+	mux := http.NewServeMux()
+	handlePreview(mux, deps)
+	mux.Handle("GET /static/", http.StripPrefix("/static/", manifest.Handler()))
+	mux.Handle("GET /{$}", http.RedirectHandler("/preview", http.StatusFound))
+	mux.Handle("GET /", handlers.NotFound(deps))
 	return mux
 }

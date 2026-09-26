@@ -10,26 +10,23 @@
 // order; created_at is unix seconds. Frame from replay.mjs (tasks Map,
 // blocks Map, claims Map). nowSec = cursor event's created_at, frozen.
 //
-// Output bag mirrors handlers.HomePageData (minus Graph): Activity,
-// NewlyBlocked, LongestClaim, OldestTodo, ActiveClaims,
-// RecentCompletions, Upcoming, Blocked.
+// Output bag mirrors handlers.HomePageData's four panels: ActiveClaims,
+// RecentCompletions, Upcoming, Blocked. The chart panel is not rebuilt
+// here — the scrubber fetches it from the server (reporting decision
+// 12), so none of its counting rules have a JS twin.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { initialFrame } from "../assets/js/replay.mjs";
+import * as homeScrubBuild from "../assets/js/home-scrub-build.mjs";
 import {
   buildHomeFrame,
-  buildActivity,
-  buildNewlyBlocked,
-  buildLongestClaim,
-  buildOldestTodo,
   buildActiveClaims,
   buildRecentCompletions,
   buildUpcoming,
   buildBlocked,
   formatClaimDuration,
-  pct,
 } from "../assets/js/home-scrub-build.mjs";
 
 // --- helpers ---
@@ -42,7 +39,7 @@ function frameWith({ tasks = [], blocks = [], claims = [] } = {}) {
   return initialFrame({ headEventId: 0, tasks, blocks, claims });
 }
 
-// --- formatClaimDuration / pct ---
+// --- formatClaimDuration ---
 
 test("formatClaimDuration: matches render.ClaimDuration ladder", () => {
   assert.equal(formatClaimDuration(45), "45s");
@@ -51,228 +48,6 @@ test("formatClaimDuration: matches render.ClaimDuration ladder", () => {
   assert.equal(formatClaimDuration(3700), "1h 1m");
   assert.equal(formatClaimDuration(86400), "1d");
   assert.equal(formatClaimDuration(90000), "1d 1h");
-});
-
-test("pct: clamps progress to [0, 100]", () => {
-  assert.equal(pct(0), 0);
-  assert.equal(pct(0.5), 50);
-  assert.equal(pct(1), 100);
-  assert.equal(pct(-1), 0);
-  assert.equal(pct(2), 100);
-});
-
-// --- buildActivity ---
-
-test("buildActivity: events outside the 60m window are ignored", () => {
-  const events = [
-    evt(1, "alice", "created", "T1", 1700000000 - 7200), // 2h ago
-    evt(2, "alice", "created", "T2", 1700000000 - 1000), // 16m ago
-  ];
-  const a = buildActivity(events, 1700000000);
-  assert.equal(a.TotalCreate, 1);
-  assert.equal(a.TotalEvents, 1);
-});
-
-test("buildActivity: bars[59] is the most recent minute, bars[0] the oldest", () => {
-  const now = 1700000000;
-  const events = [
-    evt(1, "alice", "done", "T1", now - 30), // <1m ago → bars[59]
-    evt(2, "alice", "done", "T1", now - 3540), // 59m ago → bars[0]
-  ];
-  const a = buildActivity(events, now);
-  assert.equal(a.Bars.length, 60);
-  assert.equal(a.Bars[59].Empty, false);
-  assert.equal(a.Bars[59].Done, 1);
-  assert.equal(a.Bars[0].Empty, false);
-  assert.equal(a.Bars[0].Done, 1);
-});
-
-test("buildActivity: stacks types in one bucket; tallest bar peaks at 100%", () => {
-  const now = 1700000000;
-  const events = [
-    // bucket 59: 3 events (2 done + 1 claim)
-    evt(1, "alice", "done", "T1", now - 5),
-    evt(2, "alice", "done", "T2", now - 6),
-    evt(3, "alice", "claimed", "T3", now - 7),
-    // bucket 50: 1 created
-    evt(4, "alice", "created", "T4", now - 540),
-  ];
-  const a = buildActivity(events, now);
-  assert.equal(a.Bars[59].HeightPercent, 100);
-  assert.equal(a.Bars[59].Done, 2);
-  assert.equal(a.Bars[59].Claim, 1);
-  assert.equal(a.TotalDone, 2);
-  assert.equal(a.TotalClaim, 1);
-  assert.equal(a.TotalCreate, 1);
-  assert.equal(a.TotalEvents, 4);
-  assert.ok(a.Bars[50].HeightPercent >= 33 && a.Bars[50].HeightPercent <= 34);
-});
-
-test("buildActivity: only counts {done, claimed, created, blocked} types", () => {
-  const now = 1700000000;
-  const events = [
-    evt(1, "alice", "noted", "T1", now - 5),
-    evt(2, "alice", "labeled", "T1", now - 6),
-    evt(3, "Jobs", "claim_expired", "T1", now - 7),
-    evt(4, "alice", "blocked", "T1", now - 8, { blocked_id: "T1", blocker_id: "T2" }),
-  ];
-  const a = buildActivity(events, now);
-  assert.equal(a.TotalEvents, 1);
-  assert.equal(a.TotalBlock, 1);
-});
-
-test("buildActivity: empty buckets render as Empty:true placeholders", () => {
-  const a = buildActivity([], 1700000000);
-  for (const b of a.Bars) assert.equal(b.Empty, true);
-});
-
-// --- buildNewlyBlocked ---
-
-test("buildNewlyBlocked: counts blocked events in last 10m, items capped at 5", () => {
-  const now = 1700000000;
-  const events = [];
-  for (let i = 1; i <= 7; i++) {
-    events.push(evt(i, "alice", "blocked", "T1", now - i * 10, {
-      blocked_id: "B" + i,
-      blocker_id: "K" + i,
-    }));
-  }
-  // One outside the window:
-  events.push(evt(99, "alice", "blocked", "T1", now - 700, { blocked_id: "Bx", blocker_id: "Kx" }));
-  const nb = buildNewlyBlocked(events, now);
-  assert.equal(nb.Count, 7);
-  assert.equal(nb.Items.length, 5);
-  // Newest first.
-  assert.equal(nb.Items[0].BlockedShortID, "B1");
-  assert.equal(nb.Items[0].BlockedURL, "/tasks/B1");
-  assert.equal(nb.Items[0].WaitingOnShortID, "K1");
-  assert.equal(nb.Items[0].WaitingOnURL, "/tasks/K1");
-});
-
-test("buildNewlyBlocked: ProgressPct saturates at threshold (5)", () => {
-  const now = 1700000000;
-  const events = [];
-  for (let i = 1; i <= 10; i++) {
-    events.push(evt(i, "alice", "blocked", "T1", now - 60, {
-      blocked_id: "B" + i,
-      blocker_id: "K" + i,
-    }));
-  }
-  const nb = buildNewlyBlocked(events, now);
-  assert.equal(nb.Count, 10);
-  assert.equal(nb.ProgressPct, 100);
-});
-
-test("buildNewlyBlocked: empty when no recent blocks", () => {
-  const nb = buildNewlyBlocked([], 1700000000);
-  assert.equal(nb.Count, 0);
-  assert.equal(nb.Items.length, 0);
-  assert.equal(nb.ProgressPct, 0);
-});
-
-// --- buildLongestClaim ---
-
-test("buildLongestClaim: picks claim with earliest start among current holders", () => {
-  const now = 1700001000;
-  const frame = frameWith({
-    tasks: [
-      { shortId: "T1", title: "first", status: "claimed" },
-      { shortId: "T2", title: "second", status: "claimed" },
-    ],
-    claims: [
-      { shortId: "T1", claimedBy: "alice", expiresAt: 0 },
-      { shortId: "T2", claimedBy: "bob", expiresAt: 0 },
-    ],
-  });
-  const events = [
-    evt(1, "alice", "claimed", "T1", now - 600), // 10m ago
-    evt(2, "bob", "claimed", "T2", now - 60), // 1m ago
-  ];
-  const lc = buildLongestClaim(events, frame, now);
-  assert.equal(lc.Present, true);
-  assert.equal(lc.TaskShortID, "T1");
-  assert.equal(lc.Actor, "alice");
-  assert.equal(lc.ActorURL, "/actors/alice");
-  assert.equal(lc.TaskURL, "/tasks/T1");
-  assert.equal(lc.DurationText, "10m 0s");
-});
-
-test("buildLongestClaim: absent when no current claims", () => {
-  const lc = buildLongestClaim([], frameWith(), 1700000000);
-  assert.equal(lc.Present, false);
-});
-
-test("buildLongestClaim: progress saturates at 30m", () => {
-  const now = 1700003600;
-  const frame = frameWith({
-    tasks: [{ shortId: "T1", title: "x", status: "claimed" }],
-    claims: [{ shortId: "T1", claimedBy: "alice", expiresAt: 0 }],
-  });
-  // 60m old claim → progress = 1 → ProgressPct 100
-  const events = [evt(1, "alice", "claimed", "T1", now - 3600)];
-  const lc = buildLongestClaim(events, frame, now);
-  assert.equal(lc.ProgressPct, 100);
-});
-
-// --- buildOldestTodo ---
-
-test("buildOldestTodo: picks oldest available unblocked non-deleted task", () => {
-  const now = 1700001000;
-  const frame = frameWith({
-    tasks: [
-      { shortId: "T1", title: "old", status: "available" },
-      { shortId: "T2", title: "young", status: "available" },
-    ],
-  });
-  const events = [
-    evt(1, "alice", "created", "T1", now - 7200),
-    evt(2, "alice", "created", "T2", now - 600),
-  ];
-  const ot = buildOldestTodo(events, frame, now);
-  assert.equal(ot.Present, true);
-  assert.equal(ot.TaskShortID, "T1");
-  assert.equal(ot.Title, "old");
-  assert.equal(ot.TaskURL, "/tasks/T1");
-});
-
-test("buildOldestTodo: blocked tasks excluded", () => {
-  const now = 1700001000;
-  const frame = frameWith({
-    tasks: [
-      { shortId: "T1", title: "blocked", status: "available" },
-      { shortId: "T2", title: "free", status: "available" },
-    ],
-    blocks: [{ blockedShortId: "T1", blockerShortId: "K1" }],
-  });
-  const events = [
-    evt(1, "alice", "created", "T1", now - 7200),
-    evt(2, "alice", "created", "T2", now - 60),
-  ];
-  const ot = buildOldestTodo(events, frame, now);
-  assert.equal(ot.TaskShortID, "T2");
-});
-
-test("buildOldestTodo: claimed/done/canceled tasks excluded", () => {
-  const now = 1700001000;
-  const frame = frameWith({
-    tasks: [
-      { shortId: "T1", title: "claimed", status: "claimed" },
-      { shortId: "T2", title: "done", status: "done" },
-      { shortId: "T3", title: "free", status: "available" },
-    ],
-  });
-  const events = [
-    evt(1, "alice", "created", "T1", now - 7200),
-    evt(2, "alice", "created", "T2", now - 7000),
-    evt(3, "alice", "created", "T3", now - 60),
-  ];
-  const ot = buildOldestTodo(events, frame, now);
-  assert.equal(ot.TaskShortID, "T3");
-});
-
-test("buildOldestTodo: absent when nothing qualifies", () => {
-  const ot = buildOldestTodo([], frameWith(), 1700000000);
-  assert.equal(ot.Present, false);
 });
 
 // --- buildActiveClaims ---
@@ -435,7 +210,7 @@ test("buildBlocked: excludes done/canceled tasks", () => {
 
 // --- buildHomeFrame: integration ---
 
-test("buildHomeFrame: returns the full bag with all eight sub-results populated", () => {
+test("buildHomeFrame: returns exactly the four panels", () => {
   const now = 1700001000;
   const frame = frameWith({
     tasks: [{ shortId: "T1", title: "x", status: "claimed" }],
@@ -446,14 +221,12 @@ test("buildHomeFrame: returns the full bag with all eight sub-results populated"
     evt(2, "alice", "claimed", "T1", now - 300),
   ];
   const bag = buildHomeFrame(events, frame, now);
-  assert.ok(bag.Activity);
-  assert.ok(bag.NewlyBlocked);
-  assert.ok(bag.LongestClaim);
-  assert.ok(bag.OldestTodo);
-  assert.ok(bag.ActiveClaims);
-  assert.ok(bag.RecentCompletions);
-  assert.ok(bag.Upcoming);
-  assert.ok(bag.Blocked);
-  assert.equal(bag.LongestClaim.Present, true);
+  assert.deepEqual(Object.keys(bag).sort(), ["ActiveClaims", "Blocked", "RecentCompletions", "Upcoming"]);
   assert.equal(bag.ActiveClaims.Count, 1);
+});
+
+test("home-scrub-build: the retired card builders are gone", () => {
+  for (const name of ["buildActivity", "buildNewlyBlocked", "buildLongestClaim", "buildOldestTodo", "pct"]) {
+    assert.equal(homeScrubBuild[name], undefined, `${name} is still exported`);
+  }
 });

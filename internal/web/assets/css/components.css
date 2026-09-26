@@ -196,168 +196,6 @@ a.c-id-pill:hover {
   color: var(--color-primary);
 }
 
-/* ---------- Signal card ---------- */
-
-.c-signal-card {
-  position: relative;
-  background: var(--color-surface);
-  border: 1px solid var(--color-outline);
-  border-radius: var(--radius-lg);
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-  overflow: hidden;
-  min-width: 0;
-  /* --signal-color is provided per-card to colorize the icon and underline. */
-  --signal-color: var(--color-on-surface-dim);
-}
-
-.c-signal-card__header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  color: var(--color-on-surface-muted);
-}
-
-.c-signal-card__icon {
-  width: 14px;
-  height: 14px;
-  color: var(--signal-color);
-  flex: none;
-}
-
-.c-signal-card__label {
-  font-size: var(--font-label-caps-size);
-  font-weight: var(--font-label-caps-weight);
-  letter-spacing: var(--font-label-caps-letter-spacing);
-  text-transform: uppercase;
-  color: var(--color-on-surface-muted);
-}
-
-.c-signal-card__value {
-  font-size: var(--font-display-size);
-  font-weight: var(--font-display-weight);
-  line-height: var(--font-display-line-height);
-  letter-spacing: var(--font-display-letter-spacing);
-  color: var(--color-on-surface);
-}
-
-.c-signal-card__context {
-  font-size: var(--font-body-sm-size);
-  color: var(--color-on-surface-muted);
-  margin-top: auto;
-}
-
-.c-signal-card__underline {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  background: var(--color-outline);
-  border-radius: var(--radius-full);
-  overflow: hidden;
-}
-
-.c-signal-card__underline::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  width: var(--progress, 0%);
-  background: var(--signal-color);
-  border-radius: inherit;
-  transition: width var(--motion-duration-slow) var(--motion-ease-out);
-}
-
-.c-signal-card--warn {
-  --signal-color: var(--color-signal-warn);
-}
-
-.c-signal-card--alert {
-  --signal-color: var(--color-signal-alert);
-}
-
-.c-signal-card--primary {
-  --signal-color: var(--color-primary);
-}
-
-/* ---------- Activity histogram ----------
-   Activity Monitor-style bar chart inside a signal card. 60 bars
-   (one per minute over the last hour), each stacked by event type
-   using the status palette. Heights are driven by inline --h on each
-   bar (percent of the card's vertical budget). Segments inside each
-   bar use flex:N where N is the event count for that type. */
-
-.c-histogram {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  gap: 1px;
-  width: 100%;
-  min-width: 0;
-  height: 40px;
-  padding: 0;
-}
-
-.c-histogram__bar {
-  flex: 1 1 0;
-  min-width: 0;
-  height: var(--h, 0%);
-  display: flex;
-  flex-direction: column-reverse;
-  border-radius: 1px 1px 0 0;
-  overflow: hidden;
-  min-height: 1px;
-}
-
-.c-histogram__bar--empty {
-  background: var(--color-outline);
-  border-radius: var(--radius-full);
-}
-
-.c-histogram__seg {
-  display: block;
-  width: 100%;
-  flex-grow: var(--f, 1);
-  flex-shrink: 1;
-  flex-basis: 0;
-}
-
-.c-histogram__seg--done { background: var(--color-status-done); }
-.c-histogram__seg--claim { background: var(--color-status-active); }
-.c-histogram__seg--create { background: var(--color-primary); }
-.c-histogram__seg--block { background: var(--color-status-blocked); }
-
-/* Legend row — each swatch+label is a no-wrap unit so items never break
-   mid-phrase. Items wrap as whole units when the card is narrow. */
-.c-hist-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 10px;
-  align-items: center;
-}
-
-.c-hist-legend__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-}
-
-.c-hist-swatch {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  flex: none;
-}
-
-.c-hist-swatch--done { background: var(--color-status-done); }
-.c-hist-swatch--claim { background: var(--color-status-active); }
-.c-hist-swatch--create { background: var(--color-primary); }
-.c-hist-swatch--block { background: var(--color-status-blocked); }
-
 /* ---------- Filter bar ---------- */
 
 .c-filter-bar {
@@ -2506,12 +2344,6 @@ a.c-graph-node__bug:focus-visible {
 
 /* ---------- Grids used on Home ---------- */
 
-.c-grid-signals {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-lg);
-}
-
 .c-grid-cols-2 {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
@@ -2914,7 +2746,6 @@ a.c-graph-node__bug:focus-visible {
    mini-graph (won't read at this width), and let the header wrap so
    the tabs and search stack instead of overflowing horizontally. */
 @media (max-width: 720px) {
-  .c-grid-signals,
   .c-grid-cols-2,
   .c-grid-cols-4 {
     grid-template-columns: minmax(0, 1fr);
@@ -3116,3 +2947,328 @@ a.c-graph-node__bug:focus-visible {
 }
 
 /* ===== END log chip overflow (7QB2y) ===== */
+
+/* =====================================================
+   Chart panel — Home's burn-up and activity histogram over one range
+   (partials/chart_panel.html.tmpl, DESIGN.md § Chart panel). The plots
+   stretch to the panel: each draws in a fixed viewBox with
+   preserveAspectRatio="none" and non-scaling strokes, while labels sit
+   in pixel space at percent positions. Every color is a token, so the
+   panel follows the theme. Kept as one trailing block so parallel
+   patches to this file merge cleanly.
+   ===================================================== */
+
+.c-chart-panel {
+  display: block;
+  --burnup-h: 200px;
+  --activity-h: 40px;
+  --ends-w: 112px;
+}
+
+.c-chart-panel__header {
+  flex-wrap: wrap;
+}
+
+.c-chart-panel__meta {
+  margin-left: auto;
+  color: var(--color-on-surface-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.c-chart-panel__ranges .c-tab {
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.c-chart-panel__ranges .c-tab--active::after {
+  left: var(--space-sm);
+  right: var(--space-sm);
+}
+
+.c-chart-panel__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--ends-w);
+  grid-template-areas:
+    "burnup ends"
+    "activity legend"
+    "axis .";
+  column-gap: var(--space-lg);
+  row-gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg) var(--space-md);
+  transition: opacity var(--motion-duration-base) var(--motion-ease-out);
+}
+
+/* A fetch is in flight (chart-panel.mjs sets aria-busy): dim, don't blank. */
+.c-chart-panel[aria-busy="true"] .c-chart-panel__body {
+  opacity: 0.45;
+}
+
+.c-chart-panel__message {
+  padding: var(--space-lg) var(--space-lg) var(--space-xl);
+  color: var(--color-on-surface-dim);
+  font-size: var(--font-body-sm-size);
+}
+
+.c-chart-panel__message--error {
+  color: var(--color-on-surface-muted);
+}
+
+/* --- Burn-up --- */
+
+.c-burnup {
+  grid-area: burnup;
+  display: block;
+  width: 100%;
+  height: var(--burnup-h);
+  overflow: visible;
+}
+
+.c-burnup__grid {
+  stroke: var(--color-outline);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+
+.c-burnup__baseline {
+  stroke: var(--color-outline-strong);
+  stroke-width: 1;
+}
+
+.c-burnup__grid-label {
+  fill: var(--color-on-surface-dim);
+  font-family: var(--font-mono);
+  font-size: var(--font-data-id-size);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The open-work gap, and its blocked share drawn denser inside it. */
+.c-burnup__gap {
+  fill: color-mix(in srgb, var(--color-on-surface-muted) 9%, transparent);
+}
+
+.c-burnup__blocked {
+  fill: color-mix(in srgb, var(--color-on-surface-muted) 24%, transparent);
+}
+
+.c-burnup__scope,
+.c-burnup__done {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.c-burnup__scope {
+  stroke: var(--color-on-surface-muted);
+  stroke-width: 1.5;
+}
+
+.c-burnup__done {
+  stroke: var(--color-primary);
+  stroke-width: 2;
+}
+
+.c-burnup__dot--scope {
+  fill: var(--color-on-surface-muted);
+}
+
+.c-burnup__dot--done {
+  fill: var(--color-primary);
+}
+
+/* End labels: the two final values, large, with the word beneath. */
+.c-burnup-ends {
+  grid-area: ends;
+  display: block;
+  width: 100%;
+  height: var(--burnup-h);
+  overflow: visible;
+}
+
+.c-burnup-ends__value {
+  font-size: var(--font-heading-lg-size);
+  font-weight: var(--font-display-weight);
+  letter-spacing: var(--font-display-letter-spacing);
+  font-variant-numeric: tabular-nums;
+}
+
+.c-burnup-ends__value--scope {
+  fill: var(--color-on-surface);
+}
+
+.c-burnup-ends__value--done {
+  fill: var(--color-primary);
+}
+
+.c-burnup-ends__word {
+  fill: var(--color-on-surface-dim);
+  font-size: var(--font-label-caps-size);
+  font-weight: var(--font-label-caps-weight);
+  letter-spacing: var(--font-label-caps-letter-spacing);
+  font-variant: all-small-caps;
+}
+
+/* --- Activity histogram --- */
+
+.c-activity {
+  grid-area: activity;
+  display: block;
+  width: 100%;
+  height: var(--activity-h);
+}
+
+.c-activity--empty {
+  display: flex;
+  align-items: flex-end;
+  margin: 0;
+  border-bottom: 1px solid var(--color-outline);
+  color: var(--color-on-surface-dim);
+  font-size: var(--font-body-sm-size);
+}
+
+.c-activity__seg--done { fill: var(--color-status-done); }
+.c-activity__seg--claimed { fill: var(--color-status-active); }
+.c-activity__seg--created { fill: var(--color-primary-dim); }
+.c-activity__seg--blocked { fill: var(--color-status-blocked); }
+
+.c-activity-legend {
+  grid-area: legend;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-on-surface-dim);
+  font-size: var(--font-data-id-size);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+
+.c-activity-legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  white-space: nowrap;
+}
+
+.c-activity__swatch {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.c-activity__swatch--done { background: var(--color-status-done); }
+.c-activity__swatch--claimed { background: var(--color-status-active); }
+.c-activity__swatch--created { background: var(--color-primary-dim); }
+.c-activity__swatch--blocked { background: var(--color-status-blocked); }
+
+/* The import marker's key: the same quiet tick the axis draws. */
+.c-activity-legend__imports {
+  margin-top: var(--space-xs);
+}
+
+.c-activity__swatch--import {
+  width: 1.5px;
+  height: 8px;
+  margin: 0 3px 0 2px;
+  border-radius: 1px;
+  background: var(--color-on-surface-muted);
+}
+
+/* --- Shared time axis --- */
+
+.c-chart-axis {
+  grid-area: axis;
+  display: block;
+  width: 100%;
+  height: 26px;
+  overflow: visible;
+}
+
+.c-chart-axis__label {
+  fill: var(--color-on-surface-dim);
+  font-family: var(--font-mono);
+  font-size: var(--font-data-id-size);
+}
+
+/* Import markers: quiet ticks, the chart's only annotations. */
+.c-chart-axis__import {
+  stroke: var(--color-on-surface-muted);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+@media (max-width: 720px) {
+  .c-chart-panel {
+    --burnup-h: 150px;
+    --ends-w: 72px;
+  }
+
+  .c-chart-panel__body {
+    column-gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md) var(--space-md);
+  }
+
+  .c-chart-panel__meta {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .c-burnup-ends__value {
+    font-size: var(--font-heading-md-size);
+  }
+}
+
+/* =====================================================
+   Preview catalog (/preview) — each component's states stacked under
+   their notes. Plain reading chrome; the components bring their own.
+   ===================================================== */
+
+.c-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  max-width: 1200px;
+}
+
+.c-preview__title {
+  font-size: var(--font-heading-lg-size);
+  font-weight: var(--font-heading-lg-weight);
+  letter-spacing: var(--font-heading-lg-letter-spacing);
+}
+
+.c-preview__lede,
+.c-preview__crumbs,
+.c-preview__note {
+  color: var(--color-on-surface-muted);
+  font-size: var(--font-body-sm-size);
+}
+
+.c-preview__source {
+  overflow-wrap: anywhere;
+  color: var(--color-on-surface-dim);
+  font-family: var(--font-mono);
+  font-size: var(--font-data-sm-size);
+}
+
+.c-preview__name {
+  font-size: var(--font-heading-md-size);
+  font-weight: var(--font-heading-md-weight);
+}
+
+.c-preview__states {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding-left: var(--space-lg);
+}
+
+.c-preview__state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--color-outline);
+}

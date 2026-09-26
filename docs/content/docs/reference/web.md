@@ -3,7 +3,7 @@ title: Web
 weight: 5
 ---
 
-One verb: `serve`. It starts the read-only browser dashboard described in [Web dashboard](../../web-dashboard/).
+Two verbs: `serve` starts the read-only browser dashboard described in [Web dashboard](../../web-dashboard/), and `preview` serves its component catalog with no store at all.
 
 ## `serve`
 
@@ -19,5 +19,17 @@ What's worth knowing that the help text only hints at:
 - **Quiet port walk on the default.** When `7823` is busy and you didn't pass `--bind`, `serve` walks the next 20 ports upward and binds the first free one, then prints the chosen URL. This is the convenience case for "I already have an instance running and I just want a second window."
 - **Loud failure on an explicit bind.** When you pass `--bind` and the port is busy, `serve` fails immediately. You asked for that port specifically; silently binding a different one would be wrong.
 - **Read-only.** No write paths exist on the HTTP surface. Closing a task from the dashboard isn't possible — that's deliberate; the CLI is the only writer. Stopping the server is `Ctrl-C`.
+
+## `preview`
+
+```sh
+job preview                                # serve the catalog at /preview
+job preview --list                         # print components, states and their URLs
+job preview --list --format=json           # the same, for an agent walking it
+```
+
+- **Zero-config.** No `.jobs.db`, no credentials, no network; it writes nothing. Each state is rendered from a constructed production view-model — a `job.Report` for the chart panel — through the real page shell and stylesheet, so it cannot drift into a second renderer.
+- **Three levels of URL.** `/preview` lists components, `/preview/<component>` stacks every state under its reviewer note, and `/preview/<component>/<state>` is one state whole — the page to screenshot. `scripts/preview-shots.sh` shoots every state into a contact sheet.
+- **Binds like `serve`**: loopback by default, walking up from `7823` when it's taken, `--bind` to choose.
 
 The dashboard's own contents — what each view shows, who it's for — live on [Web dashboard](../../web-dashboard/). For the JSON-lines event stream that powers it (and that you can consume directly), see the [Machine interface](../../machine-interface/) section.

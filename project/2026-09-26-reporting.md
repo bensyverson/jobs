@@ -27,6 +27,8 @@ Meanwhile the Home view's top bentos (newly blocked, longest active claim, oldes
 11. **The range vocabulary and the bucket choice move into `internal/job`.** The web handlers hold the selector today (`internal/web/handlers/range.go`), but `job stats --since 7d` must produce the same buckets, and an adapter that holds a decision is a bug. Each window gets its natural calendar unit: 1H → 1 minute, 1D → 1 hour, 7D → 6 hours, 14D and 30D → 1 day, All → 1 day up to 90 days of history, else 1 week. `--by` overrides it on the CLI.
 
     > **Correction (2026-09-26, at integration of `taIJ3r`):** this first said buckets "aim for roughly 24–60 per window". The per-key rules don't — 14D gives 14 daily samples and All gives up to 90 — and the rules, not the target, are what we want: a day is the unit people read a two-week burn-up in.
+
+    > **Correction (2026-09-26, at integration of `AyXolS`):** "All → 1 day up to 90 days" drew a single point for a store less than a day old — exactly what a new user sees first. All now buckets by its history's span with the same bands as any window (≤2h minute, ≤2d hour, ≤10d 6h, ≤90d day, else week; `BucketForSpan`), so it still reads daily or weekly for an established store.
 12. **Under the scrubber, the charts are a server fragment, not a JS twin.** The Home scrubber rebuilds its cards client-side (`home-scrub-build.mjs`); a JS port of the burn-up would be a second definition of the counting rules — the exact failure this work exists to prevent. The scrubbed view fetches the chart panel for `(range, at)` from the server instead.
 13. **Days are local.** Bucket boundaries use the local time zone with weeks starting Monday, matching timetattle so the two tools' days line up; `--timezone` overrides.
 

@@ -15,7 +15,7 @@ The dashboard is for the human watching agents work. The CLI remains the surface
 
 | View       | URL          | What it shows                                                                                  |
 |------------|--------------|------------------------------------------------------------------------------------------------|
-| Home       | `/`          | Activity histogram (last 60m), three alarm cards, active claims, recent completions.           |
+| Home       | `/`          | A progress chart (burn-up and activity over a range), the task map, recent completions, active claims, available and blocked work. |
 | Plan       | `/plan`      | The task tree, scoped (`/plan/{id}`) or filtered by label (`?label=<name>`; `/labels/{name}` redirects there). Issue trees are not here. |
 | Issues     | `/issues`    | The same tree view over your [issue trees](../concepts/tree-kinds/), scoped at `/issues/{root-id}`. |
 | Actors     | `/actors`    | Column-per-actor board — one stack of cards per identity, freshest at the bottom, bounded by a range selector. Click through to `/actors/{name}` for a single actor's stream. |
@@ -34,9 +34,21 @@ Number keys jump between the tabs in header order (`1` Home, `2` Plan, `3` Issue
 
 Two auxiliary pages — `/tasks/{id}` (single task with peek view at `/tasks/{id}/peek`) and `/search` — round out the click paths but aren't usually entry points. The task page also carries the [found-in](../concepts/found-in/) reference in both directions: `Found in` links the task that surfaced this one, and `Surfaced` lists the issues this task produced; the peek sheet shows `Found in` only.
 
+### Home's progress chart
+
+Home opens with a **Progress** panel: how the work has gone over a range, rather than what happened in the last few minutes.
+
+- **The burn-up** draws two lines. *Scope* is the leaf tasks that exist and aren't canceled; *done* is the ones finished. The shaded gap between them is the open work, and the darker band inside it, sitting on the done line, is the part of that work that is blocked. The two end values are printed large beside the lines, and the header says it in words: `75 open · 12 blocked · 4 canceled`. Each point is the store's state *as of that moment* — so if a task is reopened, the done line dips, and it rises again when the task closes for good. Canceled work leaves scope instead of drawing a line of its own; its count is in the header.
+- **The activity histogram** underneath shares the burn-up's time axis: one bar per bucket, stacked by tasks created, claimed, done and blocked.
+- **Import ticks.** Each plan brought in with `job import` is a small tick on the time axis (hover it for the plan and its file) — the chart's only annotation. Stores from before import events existed simply show none.
+
+The counting rules — leaves only, state as of each moment — belong to the core and are shared with `job stats`, so the chart and the CLI never disagree.
+
+The panel has its own `1H · 1D · 7D · 14D · 30D · All` selector (`?range=`, default `7D`). Each range picks its natural bucket: a minute for 1H, an hour for 1D, six hours for 7D, a day for 14D and 30D, and for All whichever of those fits the store's history — so a day-old store draws hourly points, and one past 90 days draws weekly ones. `1H` is the old one-minute live view. Like every range selector here, the options are plain links, so the chart works with JavaScript off; with it, switching range redraws only the panel, in place, and keeps the URL in step.
+
 ### The range selector
 
-The Actors board and the Log both open on the **last 7 days**. A `7D · 14D · 30D · All` control sits at the top of the view; picking one sets `?range=7d|14d|30d|all` and the page reloads — they are ordinary links, so the control works with JavaScript off and each range is a bookmarkable URL. An unrecognized value falls back to `7d` rather than erroring, and `7D` itself is the bare `/actors` or `/log`.
+The Actors board and the Log both open on the **last 7 days**. A `7D · 14D · 30D · All` control sits at the top of the view; picking one sets `?range=7d|14d|30d|all` and the page reloads — they are ordinary links, so the control works with JavaScript off and each range is a bookmarkable URL. An unrecognized value falls back to `7d` rather than erroring, and `7D` itself is the bare `/actors` or `/log`. Home's chart offers the same control with two shorter spans in front, `1H` and `1D` (see above).
 
 On **Actors** the range decides two things at once: an actor only gets a column when they have an event inside the window, and a column only carries the cards its in-window events produced. On a long-lived store that is the difference between a readable board and several hundred columns of agents who last ran in March.
 
@@ -45,7 +57,7 @@ On the **Log** it bounds the event list — "load older" pages back to the cutof
 Two details worth knowing:
 
 - **A new actor still appears live.** An event from someone with no column or no chip adds one, whatever the range — the event just arrived, so it is inside every window.
-- **The scrubber moves the window with it.** Parked in history (`?at=<position>`), the range is measured back from the moment you are parked at, not from now — so a 7-day view scrubbed to last month shows the week before *then*. The `?at=` value is a **log position** (`<ts>-<replica>-<seq>`), the cursor the whole event log agrees on, so a bookmarked or shared history URL still lands on the same event after a `git pull` rebuilds the local cache.
+- **The scrubber moves the window with it.** Parked in history (`?at=<position>`), the range is measured back from the moment you are parked at, not from now — so a 7-day view scrubbed to last month shows the week before *then*. On Home the chart is redrawn by the server for each position you scrub to, so the burn-up in history is exactly what the dashboard would have shown then. The `?at=` value is a **log position** (`<ts>-<replica>-<seq>`), the cursor the whole event log agrees on, so a bookmarked or shared history URL still lands on the same event after a `git pull` rebuilds the local cache.
 
 ### Capped chip strips
 

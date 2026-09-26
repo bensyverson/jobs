@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"database/sql"
-	"math"
 	"net/http"
 	"time"
 
@@ -13,81 +12,16 @@ import (
 )
 
 // HomePageData is the template payload for the landing view. Each
-// signal card's data is pre-shaped here so the template stays simple —
-// formatting (durations, percentages) happens in Go, not in Go
-// templates.
+// section's data is pre-shaped here so the template stays simple —
+// formatting (durations, counts) happens in Go, not in Go templates.
 type HomePageData struct {
 	templates.Chrome
-	Activity          ActivityCard
-	NewlyBlocked      NewlyBlockedCard
-	LongestClaim      LongestClaimCard
-	OldestTodo        OldestTodoCard
+	Panel             ChartPanel
 	ActiveClaims      ActiveClaimsPanel
 	RecentCompletions RecentCompletionsPanel
 	Upcoming          UpcomingPanel
 	Blocked           BlockedStripPanel
 	Graph             render.SubwayView
-}
-
-// ActivityCard carries the 60-bucket histogram and the per-type
-// legend totals for the activity signal card.
-type ActivityCard struct {
-	Bars        []ActivityBar
-	TotalDone   int
-	TotalClaim  int
-	TotalCreate int
-	TotalBlock  int
-	TotalEvents int
-}
-
-// ActivityBar is one minute's worth of stacked events. When Empty is
-// true the bar renders as a thin placeholder pill and segment fields
-// go unused. Otherwise HeightPercent drives the bar's height and the
-// four segment flex values drive the stack proportions.
-type ActivityBar struct {
-	Empty         bool
-	HeightPercent int
-	Done          int
-	Claim         int
-	Create        int
-	Block         int
-}
-
-// NewlyBlockedCard is the "newly blocked in last 10m" alarm card.
-type NewlyBlockedCard struct {
-	Count       int
-	ProgressPct int
-	Items       []BlockRefView
-}
-
-// BlockRefView is one (blocked → waiting-on) row in the context line.
-type BlockRefView struct {
-	BlockedShortID   string
-	BlockedURL       string
-	WaitingOnShortID string
-	WaitingOnURL     string
-}
-
-// LongestClaimCard is the "longest active claim" alarm card.
-type LongestClaimCard struct {
-	Present      bool
-	Actor        string
-	ActorURL     string
-	TaskShortID  string
-	TaskURL      string
-	TaskTitle    string
-	DurationText string
-	ProgressPct  int
-}
-
-// OldestTodoCard is the "oldest todo" alarm card.
-type OldestTodoCard struct {
-	Present     bool
-	TaskShortID string
-	TaskURL     string
-	Title       string
-	AgeText     string
-	ProgressPct int
 }
 
 // ActiveClaimsPanel is the "Active claims" list on Home: one row per
@@ -183,15 +117,21 @@ type UpcomingRow struct {
 // UpcomingLimit caps the panel at the same depth as other Home panels.
 const UpcomingLimit = 25
 
-// Home renders the landing "Now" view: four signal cards on top,
-// other Home-view sections (claims table, recent completions, blocked
-// strip, mini-graph) layered in by later Phase 5 tasks.
+// Home renders the landing "Now" view: the chart panel on top (its
+// range from `?range=`, its window ending at the `?at=` cursor when
+// parked in history), then the task map and the four panels.
 func Home(deps Deps) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, invalid := parseAtParam(r.URL.Query()); invalid {
+			RenderError(deps, w, http.StatusBadRequest,
+				"Bad request",
+				"?at must be a log position, as the scrubber writes it (<ts>-<replica>-<seq>).")
+			return
+		}
 		now := time.Now()
-		sig, err := signals.Compute(r.Context(), deps.DB, now)
+		panel, err := loadChartPanel(r.Context(), deps, r.URL.Query(), now)
 		if err != nil {
-			InternalError(deps, w, "home signals", err)
+			InternalError(deps, w, "home chart panel", err)
 			return
 		}
 
@@ -233,10 +173,7 @@ func Home(deps Deps) http.Handler {
 
 		data := HomePageData{
 			Chrome:            chrome,
-			Activity:          buildActivityCard(sig.Activity),
-			NewlyBlocked:      buildNewlyBlockedCard(sig.NewlyBlocked),
-			LongestClaim:      buildLongestClaimCard(sig.LongestClaim),
-			OldestTodo:        buildOldestTodoCard(sig.OldestTodo),
+			Panel:             panel,
 			ActiveClaims:      claims,
 			RecentCompletions: recent,
 			Upcoming:          upcoming,
@@ -476,106 +413,4 @@ func loadActiveClaims(ctx context.Context, db *sql.DB, now time.Time) (ActiveCla
 	}
 	panel.Count = len(panel.Rows)
 	return panel, nil
-}
-
-// buildActivityCard scales buckets against the busiest minute so the
-// tallest bar peaks at 100% regardless of absolute volume. Minutes
-// with no events collapse to the --empty placeholder.
-func buildActivityCard(a signals.Activity) ActivityCard {
-	out := ActivityCard{
-		Bars:        make([]ActivityBar, 0, len(a.Buckets)),
-		TotalDone:   a.TotalDone,
-		TotalClaim:  a.TotalClaim,
-		TotalCreate: a.TotalCreate,
-		TotalBlock:  a.TotalBlock,
-		TotalEvents: a.TotalEvents(),
-	}
-
-	max := 0
-	for _, b := range a.Buckets {
-		if t := b.Total(); t > max {
-			max = t
-		}
-	}
-
-	for _, b := range a.Buckets {
-		total := b.Total()
-		if total == 0 || max == 0 {
-			out.Bars = append(out.Bars, ActivityBar{Empty: true})
-			continue
-		}
-		pct := int(math.Round(float64(total) / float64(max) * 100))
-		if pct < 1 {
-			pct = 1
-		}
-		out.Bars = append(out.Bars, ActivityBar{
-			HeightPercent: pct,
-			Done:          b.Done,
-			Claim:         b.Claim,
-			Create:        b.Create,
-			Block:         b.Block,
-		})
-	}
-	return out
-}
-
-func buildNewlyBlockedCard(nb signals.NewlyBlocked) NewlyBlockedCard {
-	items := make([]BlockRefView, 0, len(nb.Items))
-	for _, r := range nb.Items {
-		items = append(items, BlockRefView{
-			BlockedShortID:   r.BlockedShortID,
-			BlockedURL:       "/tasks/" + r.BlockedShortID,
-			WaitingOnShortID: r.WaitingOnShortID,
-			WaitingOnURL:     "/tasks/" + r.WaitingOnShortID,
-		})
-	}
-	return NewlyBlockedCard{
-		Count:       nb.Count,
-		ProgressPct: pct(nb.Progress),
-		Items:       items,
-	}
-}
-
-func buildLongestClaimCard(lc signals.LongestClaim) LongestClaimCard {
-	if !lc.Present {
-		return LongestClaimCard{}
-	}
-	return LongestClaimCard{
-		Present:      true,
-		Actor:        lc.Actor,
-		ActorURL:     "/actors/" + lc.Actor,
-		TaskShortID:  lc.TaskShortID,
-		TaskURL:      "/tasks/" + lc.TaskShortID,
-		TaskTitle:    lc.TaskTitle,
-		DurationText: render.ClaimDuration(time.Duration(lc.DurationSeconds) * time.Second),
-		ProgressPct:  pct(lc.Progress),
-	}
-}
-
-func buildOldestTodoCard(ot signals.OldestTodo) OldestTodoCard {
-	if !ot.Present {
-		return OldestTodoCard{}
-	}
-	now := time.Time{}
-	then := now.Add(-time.Duration(ot.AgeSeconds) * time.Second)
-	return OldestTodoCard{
-		Present:     true,
-		TaskShortID: ot.TaskShortID,
-		TaskURL:     "/tasks/" + ot.TaskShortID,
-		Title:       ot.Title,
-		AgeText:     render.RelativeTime(now, then),
-		ProgressPct: pct(ot.Progress),
-	}
-}
-
-// pct converts a 0..1 progress into a rounded integer percentage
-// suitable for a CSS --progress custom property.
-func pct(p float64) int {
-	if p <= 0 {
-		return 0
-	}
-	if p >= 1 {
-		return 100
-	}
-	return int(math.Round(p * 100))
 }

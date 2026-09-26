@@ -70,6 +70,8 @@ Also: sleepy renders offscreen with `document.visibilityState === "hidden"`, so 
 
 **Headless Chrome for Testing (`--headless=new --screenshot=…`) writes the PNG and then hangs in this harness**, so a foreground call times out with no output and looks like a failure. macOS has no `timeout`, and `--timeout=` does not make it quit. Run it detached or in the background, wait for the PNG to appear, then `pkill -f "Chrome for Testing"`, and read the PNG. `job serve` needs `--bind 127.0.0.1:<port>` for a fixed port and must be started detached (`nohup … & disown`) unsandboxed; kill it by port afterwards.
 
+It can also **never write the PNG at all** for one URL while writing it for the next (seen 2026-09-26: `/preview/chart-panel/*` and `/` failed four times running, then succeeded unchanged; `/log` and `/plan` never failed). The cause was not established — don't read a missing PNG as a page bug. Retry, and if it persists, bisect with `--enable-logging=stderr` (page console lines show as `INFO:CONSOLE`). Kill it by the pids of your own `--user-data-dir`, not `pkill -f "Chrome for Testing"`, which takes down every other agent's Chrome too.
+
 ## 2026-09-02 — `$` in a template partial is the partial's argument, not the page
 
 **`{{template "row" .}}` rebinds `$` to the row**, so `{{prose .Text $.Links}}` inside a partial reads a field off the row, not the page, and a recursive partial (`plan-node`) never sees the page at all. Page-wide values a partial needs (the prose link resolver) are copied onto each row struct as the same shared map — see `TaskProgressNote.Links` and `PlanNode.Links`.

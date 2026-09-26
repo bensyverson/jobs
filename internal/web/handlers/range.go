@@ -35,6 +35,17 @@ var boundedViewRanges = []rangeOption{
 	{job.RangeAll, "All"},
 }
 
+// homeRanges is what Home's chart panel offers: every key. 1H keeps the
+// one-minute live histogram reachable (reporting decision 10).
+var homeRanges = []rangeOption{
+	{job.RangeHour, "1H"},
+	{job.RangeDay, "1D"},
+	{job.Range7D, "7D"},
+	{job.Range14D, "14D"},
+	{job.Range30D, "30D"},
+	{job.RangeAll, "All"},
+}
+
 // RangeTab is one option in the range selector: a plain link, marked
 // active when it names the current selection. Rendered with the
 // existing `c-tabs` / `c-tab` link group.

@@ -51,7 +51,7 @@ func BuildReport(db *sql.DB, q ReportQuery) (Report, error) {
 	since = since.In(loc)
 	bucket := q.Bucket
 	if bucket == "" {
-		bucket = autoBucket(!q.Since.IsZero(), until.Sub(since))
+		bucket = autoBucket(until.Sub(since))
 	}
 	w, err := resolveBuckets(since, until, bucket)
 	if err != nil {

@@ -39,6 +39,34 @@ func ParseBucket(raw string) (b Bucket, ok bool) {
 // buckets by week instead of by day.
 const AllRangeWeeklyAfter = 90 * 24 * time.Hour
 
+// Span bands for BucketForSpan. Each named range key's span falls in the
+// band whose unit BucketFor gives it — 1h in the minute band, 1d in the hour
+// band, 7d in the six-hour band, 14d and 30d in the day band — and the edges
+// sit between those keys, so a span near one buckets like it.
+const (
+	spanMinuteUpTo   = 2 * time.Hour
+	spanHourUpTo     = 2 * 24 * time.Hour
+	spanSixHoursUpTo = 10 * 24 * time.Hour
+	spanDayUpTo      = AllRangeWeeklyAfter
+)
+
+// BucketForSpan is the bucket for a window of arbitrary span: the unit that
+// keeps it between about a dozen and a hundred samples.
+func BucketForSpan(span time.Duration) Bucket {
+	switch {
+	case span <= spanMinuteUpTo:
+		return BucketMinute
+	case span <= spanHourUpTo:
+		return BucketHour
+	case span <= spanSixHoursUpTo:
+		return BucketSixHours
+	case span <= spanDayUpTo:
+		return BucketDay
+	default:
+		return BucketWeek
+	}
+}
+
 // BucketFor returns the bucket a series over key uses: the natural
 // calendar unit for the window, which lands between about a dozen and
 // ninety samples. history is the span of events
@@ -55,10 +83,7 @@ func BucketFor(key RangeKey, history time.Duration) Bucket {
 	case Range14D, Range30D:
 		return BucketDay
 	case RangeAll:
-		if history > AllRangeWeeklyAfter {
-			return BucketWeek
-		}
-		return BucketDay
+		return BucketForSpan(history)
 	default:
 		return BucketFor(DefaultRangeKey, history)
 	}

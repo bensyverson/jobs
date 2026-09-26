@@ -257,6 +257,30 @@ func TestMux_FullRoutingMatrix(t *testing.T) {
 			containsAny: []string{"c-filter-bar", `class="c-log"`},
 		},
 		{
+			name:        "home panel fragment renders",
+			method:      "GET",
+			path:        "/home/panel?range=1d",
+			wantStatus:  200,
+			wantHTML:    true,
+			containsAny: []string{"<chart-panel"},
+		},
+		{
+			name:        "preview catalog renders",
+			method:      "GET",
+			path:        "/preview",
+			wantStatus:  200,
+			wantHTML:    true,
+			containsAny: []string{"Chart panel"},
+		},
+		{
+			name:        "preview state renders",
+			method:      "GET",
+			path:        "/preview/chart-panel/crowded",
+			wantStatus:  200,
+			wantHTML:    true,
+			containsAny: []string{"<chart-panel"},
+		},
+		{
 			name:        "unknown path returns templated 404",
 			method:      "GET",
 			path:        "/nope",
@@ -339,5 +363,25 @@ func TestDefaultAddr_IsLoopback(t *testing.T) {
 	ip := net.ParseIP(host)
 	if ip == nil || !ip.IsLoopback() {
 		t.Errorf("DefaultAddr host = %q, want a loopback IP", host)
+	}
+}
+
+// The preview mux is the zero-config entry: no database at all, the
+// catalog and its assets only, and the root sends you to the catalog.
+func TestPreviewMux_ServesTheCatalogWithoutADatabase(t *testing.T) {
+	mux := server.NewPreviewMux()
+
+	req := httptest.NewRequest("GET", "/preview/chart-panel", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "<chart-panel") {
+		t.Fatalf("GET /preview/chart-panel: status %d\n%s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest("GET", "/", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 302 || w.Header().Get("Location") != "/preview" {
+		t.Errorf("GET /: status %d Location %q, want a redirect to /preview", w.Code, w.Header().Get("Location"))
 	}
 }

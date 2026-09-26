@@ -1,7 +1,6 @@
 package job
 
 import (
-	"errors"
 	"time"
 )
 
@@ -153,9 +152,3 @@ type ImportMarker struct {
 	Title  string    `json:"title"`
 	Source string    `json:"source"`
 }
-
-// ErrReportNotImplemented was BuildReport's placeholder error while the
-// CLI and the dashboard were built against the signature in parallel.
-// BuildReport (report.go) no longer returns it; it stays only so code
-// written against the stub still compiles, and goes once nothing names it.
-var ErrReportNotImplemented = errors.New("job: BuildReport is not implemented yet")

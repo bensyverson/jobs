@@ -137,14 +137,13 @@ components:
     padding: 4px 10px
     typography: '{typography.label-caps}'
 
-  # Signal card — home page; thin colored progress underline
-  signal-card:
+  # Chart panel — Home's burn-up + activity histogram over one range
+  chart-panel:
     backgroundColor: '{colors.surface}'
     rounded: '{rounded.lg}'
-    padding: 20px
-  signal-card-underline:
-    height: 2px
-    rounded: '{rounded.full}'
+    burnupHeight: 200px
+    activityHeight: 40px
+    endLabelColumn: 112px
 
   # Graph node — 32px avatar disk, ring = status
   graph-node:
@@ -236,7 +235,7 @@ Three color axes are kept independent and must not be confused:
 
 A **signal palette** separates aging / stuck warnings from the formal blocked state:
 
-- `signal-warn` (warm orange) — idle actors, oldest todos, longest claims, and any ambient progress bar approaching a threshold.
+- `signal-warn` (warm orange) — idle actors, the history banner and scrubber cursor, and any ambient progress bar approaching a threshold.
 - `signal-alert` (red) — reserved for extreme cases; should appear rarely. If `signal-alert` is filling the screen, something is genuinely wrong.
 
 **Surface tiers** are tonal, not shadowed:
@@ -271,7 +270,7 @@ The dashboard follows a **top-navigation-only** model. No sidebars. The structur
 
 - Container padding: 24px.
 - Gutter between major blocks: 16px.
-- Internal padding within dense components (table rows, signal card internals): 8–12px.
+- Internal padding within dense components (table rows, chart panel internals): 8–12px.
 
 Information density is **dense but breathable**: tight internal padding within components, generous margins between blocks. Row heights hold to 32px or 36px depending on metadata weight. Wide viewports are the primary target; mobile degrades to a single-column status view.
 
@@ -292,7 +291,7 @@ The shape language is **soft-technical**: rounded enough to feel calm, sharp eno
 
 - `sm` (3px) — inline pills, chips, ID pills.
 - `md` (6px) — buttons, inputs, most cards.
-- `lg` (10px) — signal cards, major panels.
+- `lg` (10px) — the chart panel, major panels.
 - `xl` (16px) — reserved for prominent feature containers; used sparingly.
 - `full` — avatars at every size, the collapsed scrubber pill, status pills, and the selected-tab underline cap.
 
@@ -312,9 +311,14 @@ Never render an actor as a naked name; always include at least the dot form.
 
 **Status pills.** Icon (inline SVG) + short text ("Active", "Blocked", "Done", "Todo") + a 10%-opacity fill tinted by the status color and a 1px border of the same color at full opacity. Typography is `label-caps`. Used on every task row, task card, and task detail.
 
-**Signal card.** The four home-page cards (activity histogram, newly-blocked, longest-claim, oldest-todo). Internal layout: icon + uppercase label + `display` value + `body-sm` context line, with the context line pinned to the bottom so cards align flush across the grid regardless of value height. A 2px colored underline (`signal-card-underline`) sits at the bottom of the card, tinted by the card's signal color (`signal-warn`, `signal-alert`, or `primary`). The underline is also a progress bar: it fills as the metric approaches its threshold. Ambient — you don't notice it on first read — but it adds a second dimension of information without chrome.
+**Chart panel.** The top of Home: how the work has gone over a range — the burn-up and the activity histogram, sharing one time axis and one range selector (project/2026-09-26-reporting.md). It replaced four signal cards (activity, newly blocked, longest claim, oldest todo) that were about the last few minutes and said nothing about progress. A `c-panel` (`surface`, `lg` radius) whose header carries the `Progress` title, a one-line caption in `on-surface-dim` (`75 open · 12 blocked · 4 canceled` — canceled only when non-zero), and the range selector at the right. The body is a two-column grid: plots on the left, a narrow label column (112px; 72px on a phone) on the right.
 
-**Activity histogram.** Occupies the first signal card (replaced "Idle actors" — idleness isn't meaningful when agents come and go). 60 bars, one per minute over the last hour, each stacked by event type (`created` / `claimed` / `done` / `blocked`) using the status palette. Bar height is the minute's total event count normalized to the max minute in the window; segments within each bar are `flex: N` weighted by per-type count. The card's context line carries a swatch-keyed legend, each legend item a no-wrap unit so swatch and label never break mid-phrase. Empty state: a single flat 1px rule and "No events in the last hour."
+- **Burn-up.** Two lines: *scope* (leaves that exist and are not canceled) in `on-surface-muted` at 1.5px, and *done* in `primary` at 2px — the panel's one accent. The gap between them is the open work, a 9% `on-surface-muted` wash; the blocked share of it sits directly on the done line in a denser 24% wash of the same hue, so the chart stays two-toned and the caption names the number. Each line ends in a small dot. Beside the ends, in the label column, the final values are large (`heading-lg` weight 600, tabular; scope in `on-surface`, done in `primary`) with the words *scope* and *done* beneath in small caps, `on-surface-dim`; when the lines end close together the labels are pushed apart rather than overlapped. Two to four dotted `outline` gridlines at round values carry `data-id` mono labels at the left; the baseline is `outline-strong`. No legend box, no markers on every point, no chart junk.
+- **Activity histogram.** Directly beneath, 40px tall, on the burn-up's time scale so each bar sits under the samples it explains: one bar per bucket, stacked from the baseline as done (`status-done`), claimed (`status-active`), created (`primary-dim`), blocked (`status-blocked`), scaled to the busiest bucket. An empty bucket draws nothing; a range with no events says so in a line. Its legend sits in the label column: a swatch, a count and the word for each kind, `data-id` size.
+- **Time axis.** Shared by both plots: at most five `data-id` mono labels on calendar boundaries — clock times inside a day (local midnight reads as the date), dates beyond, months past a quarter. Each `imported` event in the range is a quiet 7px `on-surface-muted` tick on the axis — the chart's only annotation — titled with the plan and its source; the legend adds `N imported` when there are any.
+- **States.** Empty (nothing in scope in the range) and error (the report could not be built, and why) replace the body with one `body-sm` line and keep the selector usable. While a new range or scrubber position is fetched the element carries `aria-busy="true"` and the body dims to 45% rather than blanking.
+- **Mechanics.** Server-rendered inline SVG from a `job.Report`. Each plot draws in a fixed viewBox with `preserveAspectRatio="none"` and `vector-effect: non-scaling-stroke`, so it stretches to any width without distorting strokes; every label is placed in percent on an outer SVG with no viewBox, so glyphs never stretch. No inline styles — every color is a token. Accessible: the burn-up is `role="img"` with a `<title>` and a `<desc>` stating the end values, and two visually hidden tables carry the series and the per-bucket activity.
+- **Behavior.** The `<chart-panel>` element (the panel's one script) swaps its contents with the server fragment `GET /home/panel?range=&at=` when a range tab is clicked (and pushes the URL), when back/forward changes the range, when the history scrubber moves (debounced), and on live events. It holds no counting rules: under the scrubber the panel is recomputed by the server at the cursor, never in JS.
 
 **Graph node.** The 32px avatar disk reused as a graph node. Two independent axes:
 
@@ -356,7 +360,7 @@ No tertiary, no destructive, no large/small variants unless a view genuinely nee
 
 **Label/tag pill.** Same shape as the ID pill but with `body-sm` typography. Deterministically colored per the label-identity rule in §Colors: a 15%-opacity fill and a full-chroma 1px outline in the label's hashed hue. Lower saturation than actor avatars so labels read as supporting metadata, not identity.
 
-**Footer metric strip.** Thin horizontal bar (36px tall), persistent across every view. Left: metric cluster (active actors, WIP, events/min, throughput). Center: the scrubber pill. Right: heartbeat (small pulse dot + "last event Ns ago") + connection status (SSE connected / reconnecting / offline). The metric strip is the single place raw counts live — home-page cards carry signals, not restatements of these numbers.
+**Footer metric strip.** Thin horizontal bar (36px tall), persistent across every view. Left: metric cluster (active actors, WIP, events/min, throughput). Center: the scrubber pill. Right: heartbeat (small pulse dot + "last event Ns ago") + connection status (SSE connected / reconnecting / offline). The metric strip is the single place live rates live — the chart panel carries history, not restatements of these numbers.
 
 **Notification bell.** Icon button in the header. On a task's peek sheet or detail page, the bell toggles a per-tab browser-notification subscription for that task's completion. Toggled state uses `primary` fill.
 
@@ -372,7 +376,7 @@ Each column is the actor's own little world — the same task can appear in two 
 
 **Tabs (`c-tabs` / `c-tab`).** `label-caps` typography. Active tab shows a 2px `primary` underline with a `full`-radius cap. Inactive tabs use `on-surface-muted` text; hover brings them to `on-surface`. **This is the project's one segmented control** — there is no second boxed/pill variant. It appears three times over: the top nav, the Plan and Issues views' Active/Archived/All show tabs, and the range selector below. Every instance is a group of plain `<a>` links inside a labelled `<nav>`, so it works with JavaScript off; the active option carries `c-tab--active` *and* `aria-current`. Reach for a new component only when the options are not navigations. The show tabs partition at a different level in each view: Plan moves a whole root between Active and Archived, while Issues — whose roots never close — moves each issue under the root and keeps the root's row visible on every tab. The issue root row also omits the branch rollup progress bar, since a pile has no denominator.
 
-**Range selector.** The `c-tabs` link group in a view header, offering `7D · 14D · 30D · All` — how far back the view looks, carried as `?range=`. `7D` is the default and is expressed by *omitting* the parameter, so the canonical URL of a view stays clean; an unrecognized value falls back to it rather than erroring. Sits at the left of the `c-view-header` row, in the slot Plan gives its show tabs, with `c-view-meta` opposite when a view has one. `aria-current="true"` marks the active option: the top nav already spends `aria-current="page"` on the current view, and a second "page" in the same document would be a lie. Distinct from the history scrubber — the scrubber moves *when* you are looking from, the range sets *how much* you see from there, and under `?at=` the window is measured back from the cursor.
+**Range selector.** The `c-tabs` link group in a view header, offering `7D · 14D · 30D · All` — how far back the view looks, carried as `?range=`. Home's chart panel offers the full vocabulary, `1H · 1D · 7D · 14D · 30D · All`, in its own header with tighter tab padding; 1H is the old one-minute live histogram. `7D` is the default and is expressed by *omitting* the parameter, so the canonical URL of a view stays clean; an unrecognized value falls back to it rather than erroring. Sits at the left of the `c-view-header` row, in the slot Plan gives its show tabs, with `c-view-meta` opposite when a view has one. `aria-current="true"` marks the active option: the top nav already spends `aria-current="page"` on the current view, and a second "page" in the same document would be a lie. Distinct from the history scrubber — the scrubber moves *when* you are looking from, the range sets *how much* you see from there, and under `?at=` the window is measured back from the cursor.
 
 **Tab count suffix (`c-tab__count`).** A number trailing a top-nav tab's label — today only Issues, carrying the open-issue count. Deliberately *not* a badge: no fill, no pill, no alert color. It is `on-surface-dim` and tabular-figured, lifting to `on-surface-muted` on the active or hovered tab, so it reads as the label continuing in a quieter voice. **Zero renders nothing at all** — a standing "0" is the always-on scoreboard the Don'ts warn against. Only a count that a reader would act on earns a suffix.
 
@@ -397,5 +401,5 @@ Each column is the actor's own little world — the same task can appear in two 
 - **Don't** use decorative motion. Transitions exist to confirm state changes — fast, ease-out, never longer than `duration-slow`.
 - **Don't** use shadows to layer Level 1 or 2 surfaces.
 - **Don't** default headings to full uppercase. `label-caps` is letter-spaced sentence case; reserve full uppercase for single-word anchors.
-- **Don't** duplicate raw metrics between the header and the footer. Home-page cards show *signals*; the footer strip owns the counts.
+- **Don't** duplicate raw metrics between the header and the footer. Home's chart panel shows *how the work has gone*; the footer strip owns the live counts.
 - **Don't** version the UI with "v2.4.0-stable" chrome or label the dashboard with "SYSTEM OK" status. This is not a monitoring console.

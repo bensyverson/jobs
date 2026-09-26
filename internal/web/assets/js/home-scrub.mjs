@@ -7,25 +7,28 @@
     jobs:scrubber-frame: cursor moved to a non-live point.
       1. Mark the dependency-flow graph as pending (.is-pending → CSS
          dims + blurs with a 300ms transition).
-      2. Immediately rebuild the four signal cards + four panels from
-         the in-memory event log + frame and swap them in. The cards
-         and panels are cheap to derive and read better with no
-         intermediate "loading" state.
+      2. Immediately rebuild the four panels from the in-memory event
+         log + frame and swap them in. The panels are cheap to derive
+         and read better with no intermediate "loading" state.
       3. Debounce 300ms, then POST the frame's tasks/blocks to
          /home/graph (the server runs the same Subway core /home runs).
          Swap the returned fragment into [data-home-graph] .c-mini-graph
          and drop .is-pending — CSS transitions back to crisp.
 
     jobs:scrubber-live: pill returned to live.
-      Refetch /home and swap the four signal cards, four panels, and
-      the graph back to live state. Drops .is-pending defensively in
+      Refetch /home and swap the four panels and the graph back to
+      live state. Drops .is-pending defensively in
       case a previous fetch was still in flight.
 
-  Why the cards/panels are JS-rebuilt while the graph is server-
-  rendered: the card aggregations are pure functions of the event log
-  + frame and the JS reducer already has both. The graph layout is a
+  Why the panels are JS-rebuilt while the graph is server-rendered:
+  the panel aggregations are pure functions of the event log + frame
+  and the JS reducer already has both. The graph layout is a
   thousand-LOC pipeline (signals.subway + render.subway_layout); we
   send the frame back to the server rather than port that pipeline.
+
+  The chart panel is neither: <chart-panel> (chart-panel.mjs) listens
+  for the same scrubber events and fetches its server fragment for the
+  cursor, so the burn-up's counting rules live only in internal/job.
 
   Self-guarded: bails when no [data-home-claims] is present so the
   same module can ride the shared layout without per-page wiring.
@@ -33,7 +36,6 @@
 
 import { buildHomeFrame } from "./home-scrub-build.mjs";
 import {
-  renderSignals,
   renderActiveClaims,
   renderRecentCompletions,
   renderUpcoming,
@@ -43,7 +45,6 @@ import {
 const GRAPH_DEBOUNCE_MS = 300;
 
 const SECTION_RENDERERS = [
-  { selector: "main .c-grid-signals", render: (bag) => renderSignals(bag) },
   { selector: "[data-home-claims]", render: (bag) => renderActiveClaims(bag.ActiveClaims) },
   { selector: "[data-home-recent]", render: (bag) => renderRecentCompletions(bag.RecentCompletions) },
   { selector: "[data-home-upcoming]", render: (bag) => renderUpcoming(bag.Upcoming) },

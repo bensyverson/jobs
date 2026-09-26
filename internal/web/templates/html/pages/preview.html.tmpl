@@ -1,0 +1,37 @@
+{{- /* Preview catalog (handlers/preview.go). One page, three modes:
+     the component index, one component with every state stacked under
+     its note, and one state alone. The states' markup comes from the
+     components' own templates, rendered with production view-models. */ -}}
+{{define "title"}}{{if eq .Mode "index"}}Preview{{else}}{{.Component.Title}} · Preview{{end}} · Jobs{{end}}
+{{define "content"}}
+{{- if eq .Mode "index"}}
+<section class="c-preview" aria-labelledby="preview-title">
+  <h1 id="preview-title" class="c-preview__title">Preview catalog</h1>
+  <p class="c-preview__lede">Each dashboard component in its representative states, rendered by its production template.</p>
+  {{- range .Components}}
+  <div class="c-preview__entry">
+    <h2 class="c-preview__name"><a href="{{.URL}}">{{.Title}}</a></h2>
+    <p class="c-preview__source">{{.Source}}</p>
+    <ul class="c-preview__states">
+      {{- range .States}}
+      <li><a href="{{.URL}}">{{.Name}}</a> <span class="c-preview__note">{{.Note}}</span></li>
+      {{- end}}
+    </ul>
+  </div>
+  {{- end}}
+</section>
+{{- else}}
+<section class="c-preview" aria-labelledby="preview-title">
+  <p class="c-preview__crumbs"><a href="/preview">Preview</a> / {{if eq .Mode "state"}}<a href="{{.Component.URL}}">{{.Component.Title}}</a>{{else}}{{.Component.Title}}{{end}}</p>
+  <h1 id="preview-title" class="c-preview__title">{{.Component.Title}}</h1>
+  <p class="c-preview__source">{{.Component.Source}}</p>
+  {{- range .Rendered}}
+  <div class="c-preview__state" id="state-{{.Slug}}">
+    <h2 class="c-preview__name">{{if eq $.Mode "component"}}<a href="{{.URL}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</h2>
+    <p class="c-preview__note">{{.Note}}</p>
+    {{.HTML}}
+  </div>
+  {{- end}}
+</section>
+{{- end}}
+{{end}}

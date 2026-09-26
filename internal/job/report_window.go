@@ -8,43 +8,13 @@ import (
 	"time"
 )
 
-// Automatic bucket thresholds for a bounded window of arbitrary span. Each
-// named range key's span falls in the band whose unit BucketFor gives it —
-// 1h in the minute band, 1d in the hour band, 7d in the six-hour band, 14d
-// and 30d in the day band — and the band edges sit between those keys so a
-// span near one buckets like it: never fewer than about a dozen samples nor
-// more than about a hundred.
-const (
-	autoMinuteUpTo   = 2 * time.Hour
-	autoHourUpTo     = 2 * 24 * time.Hour
-	autoSixHoursUpTo = 10 * 24 * time.Hour
-	autoDayUpTo      = AllRangeWeeklyAfter
-)
-
 // knownBuckets is every Bucket that Floor and Next understand. An unknown one
 // would never advance, so it is refused rather than looped on.
 var knownBuckets = []Bucket{BucketMinute, BucketHour, BucketSixHours, BucketDay, BucketWeek}
 
-// autoBucket chooses the sample width for a window. An unbounded window (no
-// Since) is RangeAll, which BucketFor decides from the history's span; a
-// bounded one buckets by its span.
-func autoBucket(bounded bool, span time.Duration) Bucket {
-	if !bounded {
-		return BucketFor(RangeAll, span)
-	}
-	switch {
-	case span <= autoMinuteUpTo:
-		return BucketMinute
-	case span <= autoHourUpTo:
-		return BucketHour
-	case span <= autoSixHoursUpTo:
-		return BucketSixHours
-	case span <= autoDayUpTo:
-		return BucketDay
-	default:
-		return BucketWeek
-	}
-}
+// autoBucket chooses the sample width for a window from its span. An
+// unbounded window (no Since) is RangeAll, whose span is the history's.
+func autoBucket(span time.Duration) Bucket { return BucketForSpan(span) }
 
 // reportWindow is a resolved window: its bounds and its buckets. Bucket i
 // covers [starts[i], ends[i]); the first start is Since, clipped from the

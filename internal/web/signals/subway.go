@@ -1,3 +1,6 @@
+// Package signals builds the Home view's task map: the subway graph of
+// what is claimed now and what comes next. (The Home charts are built
+// from job.BuildReport in internal/web/chart.)
 package signals
 
 import (

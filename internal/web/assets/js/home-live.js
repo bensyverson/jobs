@@ -7,12 +7,11 @@
        server doesn't have to push a frame for each second to pass.
 
     2. On any incoming live event, debounce and refetch the current
-       /home URL, then swap the signal section + claims panel in
-       place. Mirrors plan-live.js: the view is too structurally
-       varied (histogram buckets shift bar-by-bar on every event, the
-       oldest-todo card flips presence, rows come and go) to mutate
-       inline, and the refetch is a few orders of magnitude less code
-       than the surgical alternative.
+       /home URL, then swap the four panels and the task map in
+       place. Mirrors plan-live.js: rows come and go too freely to
+       mutate inline, and the refetch is a few orders of magnitude
+       less code than the surgical alternative. The chart panel
+       refreshes itself (chart-panel.mjs).
 
   Self-guarded: if the page has no data-home-claims panel, both
   features are no-ops. Safe to load from the shared layout.
@@ -84,7 +83,6 @@
     var oldClaims = document.querySelector("[data-home-claims]");
     var oldRecent = document.querySelector("[data-home-recent]");
     var oldBlocked = document.querySelector("[data-home-blocked]");
-    var oldSignals = document.querySelector("main .c-grid-signals");
     var oldGraph = document.querySelector("[data-home-graph] .c-mini-graph");
     if (!oldClaims) return;
     try {
@@ -98,12 +96,10 @@
       var freshClaims = doc.querySelector("[data-home-claims]");
       var freshRecent = doc.querySelector("[data-home-recent]");
       var freshBlocked = doc.querySelector("[data-home-blocked]");
-      var freshSignals = doc.querySelector("main .c-grid-signals");
       var freshGraph = doc.querySelector("[data-home-graph] .c-mini-graph");
       if (freshClaims) oldClaims.replaceWith(freshClaims);
       if (freshRecent && oldRecent) oldRecent.replaceWith(freshRecent);
       if (freshBlocked && oldBlocked) oldBlocked.replaceWith(freshBlocked);
-      if (freshSignals && oldSignals) oldSignals.replaceWith(freshSignals);
       if (freshGraph && oldGraph) oldGraph.replaceWith(freshGraph);
 
       // Idempotent re-paint so new rows get their actor colors.
