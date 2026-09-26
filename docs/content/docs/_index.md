@@ -16,6 +16,6 @@ The site is organized as a depth source for `job --help`. If you've already run 
   {{< card link="plan-grammar" title="Plan grammar" subtitle="The YAML import format and the live `job schema`." >}}
   {{< card link="machine-interface" title="Machine interface" subtitle="JSON output, JSON-lines streams, and the `/events` HTTP API." >}}
   {{< card link="web-dashboard" title="Web dashboard" subtitle="What `job serve` shows, and who it's for." >}}
-  {{< card link="recipes" title="Recipes" subtitle="Patterns that don't fit in `--help` — great plans, criteria as tests, multi-agent." >}}
+  {{< card link="recipes" title="Recipes" subtitle="Patterns that don't fit in `--help` — great plans, criteria as tests, multi-agent, recovery." >}}
   {{< card link="contributing" title="Contributing" subtitle="Package layout, migrations, test helpers, hooks." >}}
 {{< /cards >}}
