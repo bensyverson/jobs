@@ -1,7 +1,6 @@
 package job
 
 import (
-	"database/sql"
 	"errors"
 	"time"
 )
@@ -25,7 +24,13 @@ type ReportQuery struct {
 	Until time.Time
 	// Bucket overrides the sample width; empty means the automatic choice
 	// for the window's span, which agrees with BucketFor for every named
-	// range key.
+	// range key. A zero Since is RangeAll (day, or week past 90 days of
+	// history); a bounded window buckets by its span (see report_window.go
+	// for the band edges).
+	//
+	// Subtree membership for Scope is decided as of Until: a task moved
+	// into the subtree counts over its whole history, one moved out counts
+	// nowhere.
 	Bucket Bucket
 	// Location is the calendar that buckets align to; nil means time.Local.
 	Location *time.Location
@@ -55,15 +60,23 @@ type Report struct {
 
 // ReportWindow echoes what the report covers, after defaults resolved.
 type ReportWindow struct {
-	Scope    string    `json:"scope,omitempty"`
-	Since    time.Time `json:"since"`
-	Until    time.Time `json:"until"`
-	Bucket   Bucket    `json:"bucket"`
-	Timezone string    `json:"timezone"`
+	Scope  string    `json:"scope,omitempty"`
+	Since  time.Time `json:"since"`
+	Until  time.Time `json:"until"`
+	Bucket Bucket    `json:"bucket"`
+	// Timezone is the IANA name of the calendar buckets align to.
+	Timezone string `json:"timezone"`
 }
 
 // LeafFigures counts leaves (decision 1). Created, Done and Canceled are
 // transitions inside the window; Open and Blocked are the state at Until.
+//
+// Each transition is judged by its final occurrence as of Until, over tasks
+// that are leaves at Until. Created is leaves created in the window (a leaf
+// split since is a parent and not counted; its children are). Done is leaves
+// done at Until whose last close fell in the window, so a reopen→close cycle
+// is one close and a close undone before Until is none; Canceled likewise.
+// Pace, DoneByActor and PlanFigures.Closed read the same closes.
 type LeafFigures struct {
 	Created  int `json:"created"`
 	Done     int `json:"done"`
@@ -78,6 +91,10 @@ type PlanFigures struct {
 	// Imported is imported events in the window. Stores from before the
 	// event existed have none; the figure does not guess.
 	Imported int `json:"imported"`
+	// FirstImportAt is the earliest imported event in scope anywhere in
+	// the store up to Until, not just in the window; nil when there is
+	// none. It tells "no imports ever recorded" from "none in this window".
+	FirstImportAt *time.Time `json:"first_import_at"`
 	// Closed is plans closed in the window; Open is plans open at Until.
 	Closed int `json:"closed"`
 	Open   int `json:"open"`
@@ -117,7 +134,9 @@ type Sample struct {
 }
 
 // ActivityCount is the events of the histogram's four kinds that fell in
-// one bucket [Start, End).
+// one bucket [Start, End). The first bucket starts at Window.Since rather
+// than its calendar floor, and the last is closed at Window.Until, so the
+// histogram counts exactly the window's events.
 type ActivityCount struct {
 	Start   time.Time `json:"start"`
 	End     time.Time `json:"end"`
@@ -135,12 +154,8 @@ type ImportMarker struct {
 	Source string    `json:"source"`
 }
 
-// ErrReportNotImplemented is returned by BuildReport until the series
-// lands (leaf 6cNafI). It exists so the CLI and the dashboard can be
-// built against the signature in parallel.
+// ErrReportNotImplemented was BuildReport's placeholder error while the
+// CLI and the dashboard were built against the signature in parallel.
+// BuildReport (report.go) no longer returns it; it stays only so code
+// written against the stub still compiles, and goes once nothing names it.
 var ErrReportNotImplemented = errors.New("job: BuildReport is not implemented yet")
-
-// BuildReport computes the report q selects by replaying the event log.
-func BuildReport(db *sql.DB, q ReportQuery) (Report, error) {
-	return Report{Schema: ReportSchema}, ErrReportNotImplemented
-}
