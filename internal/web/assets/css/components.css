@@ -560,6 +560,7 @@ a.c-log-row__actor {
 }
 
 .c-log-row__verb--created { color: var(--color-primary); }
+.c-log-row__verb--imported { color: var(--color-primary); }
 .c-log-row__verb--claimed { color: var(--color-status-active); }
 .c-log-row__verb--done { color: var(--color-on-surface-muted); }
 .c-log-row__verb--blocked { color: var(--color-status-blocked); }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -584,6 +585,22 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 				result.Tasks[i].FoundIn = source.ShortID
 			}
 		}
+
+		// One imported event per top-level task, after everything the plan
+		// wrote, so it marks the import as a whole — and in the same batch, so
+		// a plan is never in the log without it.
+		source := filepath.Base(filePath)
+		for _, root := range tree {
+			tasks, leaves := subtreeCounts(root)
+			if err := b.emit(tx, EventImported, shortIDByParsed[root], actor, ImportedPayload{
+				Source:   source,
+				ParentID: rootParentShort,
+				Tasks:    tasks,
+				Leaves:   leaves,
+			}); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -773,6 +790,21 @@ func validateRefs(flat []*parsedTask) error {
 		seen[p.Ref] = p
 	}
 	return nil
+}
+
+// subtreeCounts returns how many tasks the parsed subtree rooted at node
+// holds, node included, and how many of them are leaves.
+func subtreeCounts(node *parsedTask) (tasks, leaves int) {
+	tasks = 1
+	if len(node.Children) == 0 {
+		return tasks, 1
+	}
+	for _, c := range node.Children {
+		t, l := subtreeCounts(c)
+		tasks += t
+		leaves += l
+	}
+	return tasks, leaves
 }
 
 func isRoot(flat []*parsedTask, tree []*parsedTask, p *parsedTask) bool {

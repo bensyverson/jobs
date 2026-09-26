@@ -25,7 +25,7 @@ import { escapeHTML, relativeTime } from "./scrub-util.mjs";
 // the JS tests can walk the server's vocabulary; a Go test reads this
 // array back out of the file and fails if the two lists drift.
 export const KNOWN_EVENT_TYPES = [
-  "created", "claimed", "done", "blocked", "unblocked",
+  "created", "imported", "claimed", "done", "blocked", "unblocked",
   "noted", "criteria_added", "criterion_state",
   "found_in_set", "found_in_cleared", "kind_changed",
   "released", "canceled",
@@ -128,6 +128,8 @@ export function metadataFor(eventType, detail) {
       return typeof d.source_id === "string" && d.source_id !== ""
         ? meta({ pillId: d.source_id, prefix: "cleared, was" })
         : meta();
+    case "imported":
+      return meta({ text: importedText(d) });
     case "kind_changed": {
       // Mirrors `job log`: "kind task-tree → issue-tree".
       const from = typeof d.from === "string" ? d.from : "";
@@ -137,6 +139,17 @@ export function metadataFor(eventType, detail) {
     default:
       return meta();
   }
+}
+
+// importedText mirrors job.ImportedDetailText (internal/job/format.go): "from plan.md under AbC12
+// (4 tasks, 2 leaves)", the "under" clause only when nested.
+function importedText(d) {
+  if (typeof d.source !== "string" || d.source === "") return "";
+  const under = typeof d.parent_id === "string" && d.parent_id !== "" ? ` under ${d.parent_id}` : "";
+  const tasks = Number.isInteger(d.tasks) ? d.tasks : 0;
+  const leaves = Number.isInteger(d.leaves) ? d.leaves : 0;
+  const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  return `from ${d.source}${under} (${count(tasks, "task", "tasks")}, ${count(leaves, "leaf", "leaves")})`;
 }
 
 function parseDetail(detail) {

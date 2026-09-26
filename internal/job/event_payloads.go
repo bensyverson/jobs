@@ -37,6 +37,7 @@ const (
 	EventRekeyed        EventType = "rekeyed"
 	EventSnapshot       EventType = "snapshot"
 	EventReplica        EventType = "replica"
+	EventImported       EventType = "imported"
 )
 
 // StoreFormatVersion is the version of the log's *semantics* — the vocabulary
@@ -54,7 +55,7 @@ type StoreFormatVersion int
 // bump, an old binary renders the record incompletely and then appends events
 // computed from that incomplete state. Adding a type therefore means two
 // edits in one diff: a new entry in storeFormatAdded, and this constant.
-const StoreFormat StoreFormatVersion = 1
+const StoreFormat StoreFormatVersion = 2
 
 // storeFormatAdded is the event vocabulary, by the format that introduced it.
 // A format that changed only apply's semantics has an entry with no types.
@@ -91,6 +92,7 @@ var storeFormatAdded = map[StoreFormatVersion][]EventType{
 		EventSnapshot,
 		EventReplica,
 	},
+	2: {EventImported},
 }
 
 // ReleaseReason names why a claim ended when the holder did not ask. It is a
@@ -297,6 +299,20 @@ type FoundInSetPayload struct {
 type FoundInClearedPayload struct {
 	TaskID   string `json:"task_id"`
 	SourceID string `json:"source_id"`
+}
+
+// ImportedPayload is recorded by RunImport on each top-level task the import
+// creates — at the forest root or under --parent, never on the --parent target
+// itself — because the imported plan is what later closes, so import→close
+// time is measured from here. Source is the plan file's base name only: a
+// directory is local to one machine, and the log is shared. ParentID is the
+// --parent target's short id when nested. Tasks and Leaves count the imported
+// subtree rooted at this task, itself included.
+type ImportedPayload struct {
+	Source   string `json:"source"`
+	ParentID string `json:"parent_id,omitempty"`
+	Tasks    int    `json:"tasks"`
+	Leaves   int    `json:"leaves"`
 }
 
 // KindChangedPayload is recorded by RunSetKind.

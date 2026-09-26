@@ -478,6 +478,11 @@ const REVERSE = {
     return true;
   },
 
+  imported(_frame, _event) {
+    // A record of the import, with no state of its own: nothing to undo.
+    return true;
+  },
+
   noted(_frame, _event) {
     // noted carries description_after but no description_before.
     // Reverse-fold isn't exact for the description field. Caller

@@ -389,6 +389,8 @@ job --as alice import plan.md
 
 Every task inside the first fenced YAML block whose top-level key is `tasks:` is created in a single transaction. If anything in the plan is invalid — a missing `title`, a duplicate `ref`, an unresolvable `blockedBy` — nothing is written.
 
+The same transaction records an `imported` event on each top-level task it created (never on the `--parent` target), carrying the plan file's base name, the parent when nested, and the subtree's task and leaf counts: `job log` reads `imported from plan.md (4 tasks, 2 leaves)`. It changes no state; it marks when a plan arrived.
+
 | Command | Description |
 |---------|-------------|
 | `job import <file.md>` | Import tasks from a Markdown plan. Roots may declare `kind: issue`, and any task may declare `foundIn:`. |

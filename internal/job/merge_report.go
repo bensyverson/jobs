@@ -309,8 +309,11 @@ func plural(n int, noun string) string {
 	if n == 1 {
 		return fmt.Sprintf("%d %s", n, noun)
 	}
-	if noun == "criterion" {
+	switch noun {
+	case "criterion":
 		return fmt.Sprintf("%d criteria", n)
+	case "leaf":
+		return fmt.Sprintf("%d leaves", n)
 	}
 	return fmt.Sprintf("%d %ss", n, noun)
 }

@@ -94,6 +94,7 @@
     "found_in_set",
     "found_in_cleared",
     "kind_changed",
+    "imported",
     "purged",
     "heartbeat",
     "replica",

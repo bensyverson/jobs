@@ -163,7 +163,7 @@ than the database. Rebuild it (make install) or upgrade job.
 
 It is a refusal rather than a warning because an older binary that carried on would append events and rewrite the cache under a schema it cannot read — and the log is the record. The fix is to catch the binary up: `make install` in a checkout, or upgrade whichever `job` is on your `PATH`. Nothing is wrong with the database.
 
-The same rule covers the log, which the schema check cannot: a fresh clone builds its cache at whatever schema the binary ships, so an old `job` can meet a newer `.jobs/log` with nothing recorded to notice. Each log file therefore declares a **store format** in the `replica` event that opens it — the version of the event vocabulary and of what applying each type means. Today's format is `1`, and a file written before the field existed reads as `1`.
+The same rule covers the log, which the schema check cannot: a fresh clone builds its cache at whatever schema the binary ships, so an old `job` can meet a newer `.jobs/log` with nothing recorded to notice. Each log file therefore declares a **store format** in the `replica` event that opens it — the version of the event vocabulary and of what applying each type means. Today's format is `2` — format 2 added the `imported` event — and a file written before the field existed reads as `1`.
 
 A file declaring a format this binary does not know stops the rebuild:
 

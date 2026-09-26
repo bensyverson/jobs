@@ -745,6 +745,8 @@ func FormatEventDescription(eventType, detailJSON string) string {
 			base = fmt.Sprintf("%s (%s %s)", base, direction, relativeTo)
 		}
 		return base
+	case string(EventImported):
+		return formatImported(detail)
 	case string(EventKindChanged):
 		from, _ := detail["from"].(string)
 		to, _ := detail["to"].(string)
@@ -795,6 +797,35 @@ func FormatEventDescription(eventType, detailJSON string) string {
 	default:
 		return eventType
 	}
+}
+
+// formatImported renders an imported event: "imported from plan.md under
+// AbC12 (4 tasks, 2 leaves)", the "under" clause only when nested.
+func formatImported(detail map[string]any) string {
+	if text := ImportedDetailText(detail); text != "" {
+		return "imported " + text
+	}
+	return "imported"
+}
+
+// ImportedDetailText is an imported event's detail without its verb:
+// "from plan.md under AbC12 (4 tasks, 2 leaves)", the "under" clause only
+// when nested, and empty when the payload names no source. The dashboard's
+// log row shows the verb separately and renders this beside it.
+func ImportedDetailText(detail map[string]any) string {
+	source, _ := detail["source"].(string)
+	if source == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("from " + source)
+	if parent, _ := detail["parent_id"].(string); parent != "" {
+		b.WriteString(" under " + parent)
+	}
+	tasks, _ := detail["tasks"].(float64)
+	leaves, _ := detail["leaves"].(float64)
+	fmt.Fprintf(&b, " (%s, %s)", plural(int(tasks), "task"), plural(int(leaves), "leaf"))
+	return b.String()
 }
 
 func stringListFromDetail(detail map[string]any, key string) []string {

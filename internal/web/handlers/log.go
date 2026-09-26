@@ -158,7 +158,7 @@ const defaultLogLimit = 200
 // state transitions like done/canceled), so they sit alongside noted
 // rather than at the lifecycle end of the row.
 var knownEventTypes = []string{
-	"created", "claimed", "done", "blocked", "unblocked",
+	"created", "imported", "claimed", "done", "blocked", "unblocked",
 	"noted", "criteria_added", "criterion_state",
 	"found_in_set", "found_in_cleared", "kind_changed",
 	"released", "canceled",
@@ -558,6 +558,8 @@ func buildLogRowMetadata(eventType, detailJSON string) LogRowMetadata {
 		if v, ok := detail["source_id"].(string); ok && v != "" {
 			return LogRowMetadata{PillID: v, Prefix: "cleared, was"}
 		}
+	case "imported":
+		return LogRowMetadata{Text: job.ImportedDetailText(detail)}
 	case "kind_changed":
 		// Mirrors `job log`: "kind task-tree → issue-tree".
 		from, _ := detail["from"].(string)

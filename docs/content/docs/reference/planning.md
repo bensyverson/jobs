@@ -76,6 +76,7 @@ job import plan.md --format=json                   # JSON ack with the new ids
 What to remember:
 
 - The whole import is atomic. A typo in row 47 reverts rows 1–46. The `--dry-run` ack tells you what *would* be created without touching the database.
+- Each top-level task the import creates gets an `imported` event — `job log` shows `imported from plan.md (4 tasks, 2 leaves)`, with `under <id>` when `--parent` was given. The event goes on the imported task, not on the `--parent` target, and it records the file's base name only. See [events](../../concepts/events/#event-types).
 - `--parent <id>` lets one plan import as a subtree of another. Useful when an agent wants to pull a phase plan into the parent it was scoped from.
 - **Block selection is observable.** Import picks the *first* `tasks:` block, but it warns on stderr when the choice is ambiguous (more than one candidate block — naming the one used by line) or lossy (the chosen block carries keys outside the grammar, which are silently dropped). A Markdown file that merely *illustrates* output YAML can otherwise hijack the import; the warnings make that visible. They never block an otherwise valid import, and they fire under `--dry-run` too.
 - **A bare `tasks:` file needs no fence.** Hand `import` a plain `.yaml` whose top level is `tasks:` and it's parsed directly — the Markdown fence is only required when the `tasks:` block is embedded in prose. A file with neither a fenced block nor a bare `tasks:` document fails with a message naming both accepted forms.

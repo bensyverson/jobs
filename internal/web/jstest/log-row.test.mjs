@@ -23,6 +23,7 @@ import {
 // KNOWN_EVENT_TYPES must appear here or the walk below fails.
 const DETAILS = {
   created: '{"title":"Root task"}',
+  imported: '{"source":"plan.md","tasks":4,"leaves":2}',
   claimed: '{"duration":"30m"}',
   done: '{"note":"shipped it"}',
   blocked: '{"blocker_id":"AbC12"}',
@@ -39,7 +40,7 @@ const DETAILS = {
 
 test("KNOWN_EVENT_TYPES matches the server's ordered filter-chip set", () => {
   assert.deepEqual(KNOWN_EVENT_TYPES, [
-    "created", "claimed", "done", "blocked", "unblocked",
+    "created", "imported", "claimed", "done", "blocked", "unblocked",
     "noted", "criteria_added", "criterion_state",
     "found_in_set", "found_in_cleared", "kind_changed",
     "released", "canceled",
@@ -126,6 +127,15 @@ test("metadataFor: kind_changed reads as a tree-kind transition", () => {
   assert.equal(metadataFor("kind_changed", '{"from":"task"}').text, "");
 });
 
+test("metadataFor: imported names the source and the plan's size", () => {
+  assert.equal(metadataFor("imported", DETAILS.imported).text, "from plan.md (4 tasks, 2 leaves)");
+  assert.equal(
+    metadataFor("imported", '{"source":"plan.md","parent_id":"AbC12","tasks":1,"leaves":1}').text,
+    "from plan.md under AbC12 (1 task, 1 leaf)",
+  );
+  assert.equal(metadataFor("imported", '{"tasks":1,"leaves":1}').text, "");
+});
+
 test("metadataFor: absent or malformed detail is an empty cell", () => {
   for (const bad of ["", null, undefined, "not json", "[]"]) {
     assert.deepEqual(metadataFor("noted", bad), { text: "", pillId: "", state: "", prefix: "" });
@@ -148,7 +158,7 @@ test("every KNOWN_EVENT_TYPE renders a verb, a meta cell and a peek link", () =>
 });
 
 test("renderLogRow: metadata-bearing types are not empty cells", () => {
-  const withPayload = ["claimed", "done", "blocked", "unblocked", "noted",
+  const withPayload = ["imported", "claimed", "done", "blocked", "unblocked", "noted",
     "criteria_added", "criterion_state", "found_in_set", "found_in_cleared",
     "kind_changed", "canceled"];
   for (const t of withPayload) {

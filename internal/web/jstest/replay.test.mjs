@@ -1964,3 +1964,30 @@ test("applyEvent kind_changed / found_in_set: unknown task is a no-op, not a thr
   });
   assert.equal(afterEdge.tasks.size, 0);
 });
+
+test("imported has no state effect, and reverses exactly", () => {
+  const frame = initialFrame({
+    headPosition: POS(46),
+    eventCount: 46,
+    tasks: [{ shortId: "ABC12", title: "Imported plan", status: "available", sortKey: "000000" }],
+    blocks: [],
+    claims: [],
+  });
+  const ev = {
+    id: 47,
+    position: POS(47),
+    task_id: "ABC12",
+    actor: "alice",
+    event_type: "imported",
+    detail: { source: "plan.md", tasks: 3, leaves: 2 },
+  };
+  const after = applyEvent(frame, ev);
+  assert.deepEqual(after.tasks, frame.tasks);
+  assert.equal(after.ordinal, frame.ordinal + 1);
+
+  // A no-op reverses without a fallback to forward replay: null would
+  // send every backward scrub across an import through a full re-fold.
+  const back = reverseEvent(after, ev);
+  assert.notEqual(back, null);
+  assert.deepEqual(back.tasks, frame.tasks);
+});

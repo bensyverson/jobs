@@ -34,6 +34,7 @@ Treat `detail`'s unknown keys as forward-compatible.
 State changes:
 
 - `created` — task added.
+- `imported` — a plan landed through `job import`. Recorded once on each top-level task the import created — at the forest root or under `--parent`, never on the `--parent` target itself — after that plan's `created` events, in the same atomic write. `detail` carries `source` (the plan file's base name, no directories), `parent_id` (the `--parent` target, only when nested), and `tasks` / `leaves` (the size of the imported subtree, the top-level task included). It changes no state; it is what counts imported plans and what import→close time is measured from. Imports made before the event existed have none, and none is synthesised for them.
 - `claimed` — claim acquired.
 - `released` — claim relinquished or auto-released when an open child was added.
 - `claim_expired` — claim TTL elapsed without renewal.

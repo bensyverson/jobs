@@ -49,6 +49,8 @@ type parityFixture struct {
 // fails if a knownEventTypes entry is missing here.
 var parityFixtures = []parityFixture{
 	{"created", "alice", `{"title":"Root task"}`, ""},
+	{"imported", "alice", `{"source":"plan.md","tasks":4,"leaves":2}`, ""},
+	{"imported", "alice", `{"source":"plan.md","parent_id":"AbC12","tasks":1,"leaves":1}`, ""},
 	{"claimed", "alice", `{"duration":"30m"}`, ""},
 	{"done", "alice", `{"note":"shipped it"}`, ""},
 	{"done", "alice", `{"note":""}`, ""},
