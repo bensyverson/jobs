@@ -1,6 +1,10 @@
 package job
 
-import "time"
+import (
+	"slices"
+	"strings"
+	"time"
+)
 
 // Bucket is the width of one sample in a time series over a range. It
 // is a calendar unit rather than a time.Duration because the larger
@@ -16,6 +20,20 @@ const (
 	BucketDay      Bucket = "day"
 	BucketWeek     Bucket = "week"
 )
+
+// buckets is every bucket, narrowest first.
+var buckets = []Bucket{BucketMinute, BucketHour, BucketSixHours, BucketDay, BucketWeek}
+
+// Buckets returns every bucket, narrowest first.
+func Buckets() []Bucket { return slices.Clone(buckets) }
+
+// ParseBucket normalizes a raw bucket name (trimmed, case-insensitive),
+// as `job stats --by` takes it. ok is false for anything unknown,
+// including empty.
+func ParseBucket(raw string) (b Bucket, ok bool) {
+	b = Bucket(strings.ToLower(strings.TrimSpace(raw)))
+	return b, slices.Contains(buckets, b)
+}
 
 // AllRangeWeeklyAfter is the span of history past which RangeAll
 // buckets by week instead of by day.

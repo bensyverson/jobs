@@ -212,6 +212,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newReplicaCmd())
 	cmd.AddCommand(newSchemaCmd())
 	cmd.AddCommand(newStatusCmd())
+	cmd.AddCommand(newStatsCmd())
 	cmd.AddCommand(newOrientCmd())
 	cmd.AddCommand(newFocusCmd())
 	cmd.AddCommand(newServeCmd())

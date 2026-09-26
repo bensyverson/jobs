@@ -34,12 +34,15 @@ vet:
 clean:
 	rm -f $(BINARY)
 
-# Regenerate the plan-grammar JSON Schema from the live `job schema`
-# output. Committed alongside hand-written prose so GitHub renders the
-# schema page without a build step. Run after any change to the
-# import grammar.
+# Regenerate the published JSON Schemas from the live `job schema`
+# output: the plan grammar, and the `job stats --format=json` report.
+# Committed alongside hand-written prose so GitHub renders the schema
+# pages without a build step. Run after any change to the import
+# grammar or the Report struct; a test fails while the stats copy is
+# stale.
 docs-schema:
-	go run $(PKG) schema > docs/content/docs/plan-grammar/_schema.json
+	go run $(PKG) schema plan > docs/content/docs/plan-grammar/_schema.json
+	go run $(PKG) schema stats > docs/content/docs/machine-interface/_stats_schema.json
 
 # Serve the documentation site locally on http://localhost:1313/.
 # Requires `hugo` (extended). `brew install hugo` if missing.
@@ -65,4 +68,4 @@ help:
 	@echo "  clean    - remove the local binary"
 	@echo "  docs        - serve docs/ on localhost:1313 (requires hugo)"
 	@echo "  docs-build  - build docs/ to docs/public/"
-	@echo "  docs-schema - regenerate docs/content/docs/plan-grammar/_schema.json from \`job schema\`"
+	@echo "  docs-schema - regenerate the plan-grammar and stats JSON Schemas from \`job schema\`"
