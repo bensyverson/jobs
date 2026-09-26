@@ -1098,15 +1098,14 @@ func RenderCancelJSON(w io.Writer, canceled []*CanceledResult, alreadyCanceled [
 }
 
 func RenderHeartbeatAck(w io.Writer, results []*HeartbeatResult) {
-	now := CurrentNowFunc().Unix()
 	if len(results) == 1 {
 		r := results[0]
-		fmt.Fprintf(w, "Heartbeat: %s (expires in %s)\n", r.ShortID, FormatDuration(r.ExpiresAt-now))
+		fmt.Fprintf(w, "Heartbeat: %s (expires in %s)\n", r.ShortID, FormatDuration(r.ExpiresAt-r.Now))
 		return
 	}
 	fmt.Fprintf(w, "Heartbeat %d tasks:\n", len(results))
 	for _, r := range results {
-		fmt.Fprintf(w, "- %s (expires in %s)\n", r.ShortID, FormatDuration(r.ExpiresAt-now))
+		fmt.Fprintf(w, "- %s (expires in %s)\n", r.ShortID, FormatDuration(r.ExpiresAt-r.Now))
 	}
 }
 
@@ -1121,13 +1120,12 @@ type heartbeatJSON struct {
 }
 
 func RenderHeartbeatJSON(w io.Writer, results []*HeartbeatResult) error {
-	now := CurrentNowFunc().Unix()
 	out := heartbeatJSON{Heartbeat: make([]heartbeatJSONEntry, 0, len(results))}
 	for _, r := range results {
 		out.Heartbeat = append(out.Heartbeat, heartbeatJSONEntry{
 			ID:               r.ShortID,
 			ExpiresAt:        r.ExpiresAt,
-			ExpiresInSeconds: r.ExpiresAt - now,
+			ExpiresInSeconds: r.ExpiresAt - r.Now,
 		})
 	}
 	b, err := json.MarshalIndent(out, "", "  ")

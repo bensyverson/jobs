@@ -55,9 +55,9 @@ const DefaultClaimTTLSeconds int64 = 1800
 // claim already has. A claim taken for two hours therefore keeps its two
 // hours when it is heartbeated early; one with less than the default left is
 // pushed out to the default window. current is 0 when the task carries no
-// deadline.
-func extendedClaimExpiry(current int64) int64 {
-	return max(CurrentNowFunc().Unix()+DefaultClaimTTLSeconds, current)
+// deadline. now is passed in so the caller can report against the same read.
+func extendedClaimExpiry(now, current int64) int64 {
+	return max(now+DefaultClaimTTLSeconds, current)
 }
 
 func ParseDuration(s string) (int64, error) {
@@ -168,7 +168,7 @@ func maybeExtendClaim(tx dbtx, b *eventBatch, shortID, actor string) error {
 	if !claimedBy.Valid || claimedBy.String != actor || !claimExpiresAt.Valid {
 		return nil
 	}
-	newExpiry := extendedClaimExpiry(claimExpiresAt.Int64)
+	newExpiry := extendedClaimExpiry(CurrentNowFunc().Unix(), claimExpiresAt.Int64)
 	if newExpiry <= claimExpiresAt.Int64 {
 		return nil
 	}

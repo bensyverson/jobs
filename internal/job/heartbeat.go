@@ -8,6 +8,10 @@ import (
 type HeartbeatResult struct {
 	ShortID   string
 	ExpiresAt int64
+	// Now is the clock read ExpiresAt was stamped against. Renderers derive
+	// the time remaining from it: a fresh read can straddle a second
+	// boundary and report 1799 of a 1800-second claim.
+	Now int64
 }
 
 // RunHeartbeat extends the caller's live claims on each id to at least
@@ -111,15 +115,18 @@ func heartbeatInTx(tx dbtx, b *eventBatch, ids []string, actor string, out *[]*H
 	}
 
 	// Each deadline is resolved here and carried absolute in the payload —
-	// apply never turns a TTL into a time. It is per task rather than one
-	// for the batch because extendedClaimExpiry reads the claim's current
-	// deadline, and a batch can mix a two-hour claim with a short one.
+	// apply never turns a TTL into a time. The deadline is per task (because
+	// extendedClaimExpiry reads the claim's current deadline, and a batch can
+	// mix a two-hour claim with a short one), but the clock read is one for
+	// the whole call so every result in a batch reports against the same
+	// instant.
+	now := CurrentNowFunc().Unix()
 	for _, tg := range targets {
 		var current int64
 		if tg.task.ClaimExpiresAt != nil {
 			current = *tg.task.ClaimExpiresAt
 		}
-		newExpiresAt := extendedClaimExpiry(current)
+		newExpiresAt := extendedClaimExpiry(now, current)
 		if err := b.emit(tx, EventHeartbeat, tg.shortID, actor, HeartbeatPayload{
 			NewExpiresAt: newExpiresAt,
 		}); err != nil {
@@ -128,6 +135,7 @@ func heartbeatInTx(tx dbtx, b *eventBatch, ids []string, actor string, out *[]*H
 		*out = append(*out, &HeartbeatResult{
 			ShortID:   tg.shortID,
 			ExpiresAt: newExpiresAt,
+			Now:       now,
 		})
 	}
 	return nil
