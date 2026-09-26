@@ -34,7 +34,7 @@ type LogChipStrip struct {
 // never silently resets the window or re-collapses an opened strip.
 type logChipCtx struct {
 	f        LogFilters
-	rangeKey RangeKey
+	rangeKey job.RangeKey
 	chipsAll bool
 }
 
@@ -56,7 +56,7 @@ func (c logChipCtx) url(setKey, setValue string) string {
 	}
 	// The default range is expressed by omitting the parameter, so the
 	// canonical /log URL stays clean.
-	if c.rangeKey != DefaultRangeKey {
+	if c.rangeKey != job.DefaultRangeKey {
 		q.Set("range", string(c.rangeKey))
 	}
 	if c.chipsAll {
@@ -229,7 +229,7 @@ func (c logChipCtx) strip(lead LogChip, entity []LogChip) LogChipStrip {
 //
 // at is the time-travel upper bound (0 when live), so under ?at= the
 // strip reflects who was active as of that moment.
-func actorsInRange(ctx context.Context, db *sql.DB, at eventlog.Position, rg Range) ([]string, error) {
+func actorsInRange(ctx context.Context, db *sql.DB, at eventlog.Position, rg job.Range) ([]string, error) {
 	query := `
 		SELECT e.actor, MAX(e.created_at) AS last_at, MAX(e.ts) AS last_ts
 		FROM events e
@@ -253,7 +253,7 @@ func actorsInRange(ctx context.Context, db *sql.DB, at eventlog.Position, rg Ran
 // event inside the window, ordered by that most recent event. Same
 // argument as actorsInRange: the strip should offer the filters this
 // window can actually produce rows for.
-func labelsInRange(ctx context.Context, db *sql.DB, at eventlog.Position, rg Range) ([]string, error) {
+func labelsInRange(ctx context.Context, db *sql.DB, at eventlog.Position, rg job.Range) ([]string, error) {
 	query := `
 		SELECT tl.name, MAX(e.created_at) AS last_at, MAX(e.ts) AS last_ts
 		FROM task_labels tl
@@ -302,11 +302,11 @@ func queryNames(ctx context.Context, db *sql.DB, query string, args ...any) ([]s
 // "nothing here" reads as "nothing lately" when the range could be
 // the reason. With a filter in force the filters are the likelier
 // cause, and the wording says so.
-func logEmptyText(f LogFilters, rg Range) string {
+func logEmptyText(f LogFilters, rg job.Range) string {
 	if f.Actor != "" || f.Task != "" || f.Label != "" || f.Type != "" || !f.Since.IsZero() {
 		return "No events match the current filters."
 	}
-	if rg.Key == RangeAll {
+	if rg.Key == job.RangeAll {
 		return "No events recorded in this store yet."
 	}
 	return "No events in the last " + rangeSpanWords(rg.Key) + "."
@@ -332,7 +332,7 @@ func moreURL(c logChipCtx, oldest eventlog.Position) string {
 	if c.f.Limit > 0 {
 		q.Set("limit", strconv.Itoa(c.f.Limit))
 	}
-	if c.rangeKey != DefaultRangeKey {
+	if c.rangeKey != job.DefaultRangeKey {
 		q.Set("range", string(c.rangeKey))
 	}
 	if c.chipsAll {

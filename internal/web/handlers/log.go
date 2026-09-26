@@ -182,7 +182,7 @@ func Log(deps Deps) http.Handler {
 			InternalError(deps, w, "log range anchor", err)
 			return
 		}
-		rg := parseRange(r.URL.Query(), anchor)
+		rg := parseRange(r.URL.Query(), anchor, boundedViewRanges)
 		chips := logChipCtx{
 			f:        filters,
 			rangeKey: rg.Key,
@@ -222,7 +222,7 @@ func Log(deps Deps) http.Handler {
 			TotalEvents: totalEvents,
 			EventsURL:   eventsURL(filters),
 			HasMore:     hasMore,
-			RangeTabs:   buildRangeTabs("/log", r.URL.Query(), rg.Key),
+			RangeTabs:   buildRangeTabs("/log", r.URL.Query(), rg.Key, boundedViewRanges),
 			EmptyText:   logEmptyText(filters, rg),
 		}
 		if hasMore && len(events) > 0 {
@@ -294,7 +294,7 @@ func parseAtParam(q url.Values) (at eventlog.Position, invalid bool) {
 // table grows beyond "fits in RAM."
 // hasMore reports whether there are older events beyond what we
 // returned, so the template can render the "Load older" affordance.
-func loadLogEvents(db *sql.DB, f LogFilters, rg Range) (rows []LogEventRow, total int, hasMore bool, err error) {
+func loadLogEvents(db *sql.DB, f LogFilters, rg job.Range) (rows []LogEventRow, total int, hasMore bool, err error) {
 	raw, err := job.GetEventsForTaskTree(db, f.Task)
 	if err != nil {
 		return nil, 0, false, err

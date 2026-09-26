@@ -24,7 +24,7 @@
 
 import { buildActorColumns } from "./actors-scrub-build.mjs";
 import { renderActorsBoard } from "./actors-scrub-render.mjs";
-import { rangeFromSearch } from "./range.mjs";
+import { BOUNDED_VIEW_RANGES, rangeFromSearch } from "./range.mjs";
 
 function findBoard(doc) {
   return doc.querySelector("[data-actors-board]");
@@ -57,7 +57,7 @@ async function applyFrameToDOM(frame, event) {
   // The ?range= window is measured back from the cursor, not from
   // wall-clock now — scrubbing to last month shows the week before
   // *then*. Mirrors rangeAnchor + parseRange in handlers/range.go.
-  const { cutoff } = rangeFromSearch(window.location.search, nowSec);
+  const { cutoff } = rangeFromSearch(window.location.search, nowSec, BOUNDED_VIEW_RANGES);
   const cols = buildActorColumns(events, frame, nowSec, cutoff);
   swapHTMLInto(renderActorsBoard(cols), findBoard(doc));
   rehydrate(doc);

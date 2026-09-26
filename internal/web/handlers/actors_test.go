@@ -665,6 +665,28 @@ func TestActors_InvalidRangeFallsBackToSevenDays(t *testing.T) {
 	mustContain(t, body, `<a href="/actors" class="c-tab c-tab--active" aria-current="true">7D</a>`)
 }
 
+// The core range vocabulary knows 1h and 1d (for Home and `job
+// stats`), but the Actors board does not offer them: they fall back to
+// 7D like any unknown key, and no 1H/1D tab appears.
+func TestActors_HourAndDayRangesAreNotOffered(t *testing.T) {
+	db := setupLogTestDB(t)
+	mustAdd(t, db, "fresh", "fresh-task", nil, nil)
+	mustAdd(t, db, "stale", "stale-task", nil, nil)
+	backdateActorEvents(t, db, "stale", 3*24*time.Hour)
+
+	deps := newLogDeps(t, db)
+	for _, key := range []string{"1h", "1d"} {
+		body := fetchActorsRange(t, deps, "range="+key)
+		if n := countActorColumns(body); n != 2 {
+			t.Errorf("range=%s column count: got %d, want 2 (fall back to 7d)", key, n)
+		}
+		mustContain(t, body, `<a href="/actors" class="c-tab c-tab--active" aria-current="true">7D</a>`)
+		if strings.Contains(body, `>1H</a>`) || strings.Contains(body, `>1D</a>`) {
+			t.Errorf("range=%s: the Actors board should not render 1H/1D tabs", key)
+		}
+	}
+}
+
 func TestActors_CardsAreLimitedToTheRange(t *testing.T) {
 	db := setupLogTestDB(t)
 	mustAdd(t, db, "alice", "recent-task", nil, nil)

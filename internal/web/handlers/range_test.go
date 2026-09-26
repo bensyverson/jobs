@@ -14,87 +14,75 @@ import (
 // anchor is a fixed wall-clock moment so cutoff arithmetic is exact.
 var rangeAnchorFixture = time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
 
-func TestParseRange_NormalizesKey(t *testing.T) {
+// The Actors board and the Log offer 7D · 14D · 30D · All. The core
+// vocabulary also knows 1h and 1d, but a view that does not offer a
+// key treats it as unknown and falls back to the default.
+func TestParseRange_BoundedViewsNormalizeTheirOwnKeys(t *testing.T) {
 	cases := []struct {
 		raw  string
-		want RangeKey
+		want job.RangeKey
 	}{
-		{"", Range7D},
-		{"7d", Range7D},
-		{"14d", Range14D},
-		{"30d", Range30D},
-		{"all", RangeAll},
-		{"  30d  ", Range30D},
-		{"30D", Range30D},
-		{"ALL", RangeAll},
-		{"90d", Range7D},
-		{"nonsense", Range7D},
-		{"0", Range7D},
+		{"", job.Range7D},
+		{"7d", job.Range7D},
+		{"14d", job.Range14D},
+		{"30d", job.Range30D},
+		{"all", job.RangeAll},
+		{"  30d  ", job.Range30D},
+		{"30D", job.Range30D},
+		{"ALL", job.RangeAll},
+		{"90d", job.Range7D},
+		{"nonsense", job.Range7D},
+		{"0", job.Range7D},
+		{"1h", job.Range7D},
+		{"1d", job.Range7D},
+		{"1H", job.Range7D},
 	}
 	for _, c := range cases {
 		q := url.Values{}
 		if c.raw != "" {
 			q.Set("range", c.raw)
 		}
-		got := parseRange(q, rangeAnchorFixture)
+		got := parseRange(q, rangeAnchorFixture, boundedViewRanges)
 		if got.Key != c.want {
 			t.Errorf("parseRange(range=%q).Key = %q, want %q", c.raw, got.Key, c.want)
 		}
 	}
 }
 
-func TestParseRange_CutoffIsAnchorMinusDuration(t *testing.T) {
-	cases := []struct {
-		raw      string
-		wantDur  time.Duration
-		wantCut  int64
-		hasBound bool
-	}{
-		{"", 7 * 24 * time.Hour, rangeAnchorFixture.Add(-7 * 24 * time.Hour).Unix(), true},
-		{"14d", 14 * 24 * time.Hour, rangeAnchorFixture.Add(-14 * 24 * time.Hour).Unix(), true},
-		{"30d", 30 * 24 * time.Hour, rangeAnchorFixture.Add(-30 * 24 * time.Hour).Unix(), true},
-		{"all", 0, 0, false},
+// A view that does offer 1h gets it, measured back from the anchor.
+func TestParseRange_OfferedKeysAnchorTheWindow(t *testing.T) {
+	offered := []rangeOption{{job.RangeHour, "1H"}, {job.Range7D, "7D"}}
+	got := parseRange(url.Values{"range": {"1h"}}, rangeAnchorFixture, offered)
+	if got.Key != job.RangeHour {
+		t.Fatalf("parseRange(range=1h).Key = %q, want 1h", got.Key)
 	}
-	for _, c := range cases {
-		q := url.Values{}
-		if c.raw != "" {
-			q.Set("range", c.raw)
-		}
-		got := parseRange(q, rangeAnchorFixture)
-		if got.Duration != c.wantDur {
-			t.Errorf("parseRange(range=%q).Duration = %v, want %v", c.raw, got.Duration, c.wantDur)
-		}
-		if got.Cutoff != c.wantCut {
-			t.Errorf("parseRange(range=%q).Cutoff = %d, want %d", c.raw, got.Cutoff, c.wantCut)
-		}
-		if got.Bounded() != c.hasBound {
-			t.Errorf("parseRange(range=%q).Bounded() = %v, want %v", c.raw, got.Bounded(), c.hasBound)
-		}
+	if want := rangeAnchorFixture.Add(-time.Hour).Unix(); got.Cutoff != want {
+		t.Errorf("parseRange(range=1h).Cutoff = %d, want %d", got.Cutoff, want)
+	}
+	if def := parseRange(url.Values{}, rangeAnchorFixture, offered); def.Key != job.DefaultRangeKey {
+		t.Errorf("parseRange(no range).Key = %q, want the default", def.Key)
 	}
 }
 
-func TestRange_IncludesRespectsCutoff(t *testing.T) {
-	rg := parseRange(url.Values{"range": {"7d"}}, rangeAnchorFixture)
-	inside := rangeAnchorFixture.Add(-6 * 24 * time.Hour).Unix()
-	outside := rangeAnchorFixture.Add(-8 * 24 * time.Hour).Unix()
-	if !rg.Includes(inside) {
-		t.Errorf("Includes(%d) = false, want true (6 days back in a 7d window)", inside)
+// The bounded views' list is exactly the four tabs they have always
+// shown, and every offered key is a real core key.
+func TestBoundedViewRanges_AreTheFourTabs(t *testing.T) {
+	want := []job.RangeKey{job.Range7D, job.Range14D, job.Range30D, job.RangeAll}
+	if len(boundedViewRanges) != len(want) {
+		t.Fatalf("boundedViewRanges has %d options, want %d", len(boundedViewRanges), len(want))
 	}
-	if rg.Includes(outside) {
-		t.Errorf("Includes(%d) = true, want false (8 days back in a 7d window)", outside)
-	}
-	if !rg.Includes(rg.Cutoff) {
-		t.Errorf("Includes(cutoff) = false, want true — the cutoff second is inside the window")
-	}
-
-	all := parseRange(url.Values{"range": {"all"}}, rangeAnchorFixture)
-	if !all.Includes(0) {
-		t.Errorf("all.Includes(0) = false, want true — 'all' has no lower bound")
+	for i, opt := range boundedViewRanges {
+		if opt.Key != want[i] {
+			t.Errorf("option %d = %q, want %q", i, opt.Key, want[i])
+		}
+		if _, ok := job.ParseRangeKey(string(opt.Key)); !ok {
+			t.Errorf("option %q is not a core range key", opt.Key)
+		}
 	}
 }
 
 func TestBuildRangeTabs_LabelsActiveAndURLs(t *testing.T) {
-	tabs := buildRangeTabs("/actors", url.Values{}, Range7D)
+	tabs := buildRangeTabs("/actors", url.Values{}, job.Range7D, boundedViewRanges)
 	if len(tabs) != 4 {
 		t.Fatalf("buildRangeTabs: got %d tabs, want 4", len(tabs))
 	}
@@ -119,7 +107,7 @@ func TestBuildRangeTabs_LabelsActiveAndURLs(t *testing.T) {
 }
 
 func TestBuildRangeTabs_MarksTheSelectedRange(t *testing.T) {
-	tabs := buildRangeTabs("/actors", url.Values{"range": {"all"}}, RangeAll)
+	tabs := buildRangeTabs("/actors", url.Values{"range": {"all"}}, job.RangeAll, boundedViewRanges)
 	active := ""
 	for _, tab := range tabs {
 		if tab.Active {
@@ -136,7 +124,7 @@ func TestBuildRangeTabs_MarksTheSelectedRange(t *testing.T) {
 
 func TestBuildRangeTabs_PreservesOtherQueryParams(t *testing.T) {
 	q := url.Values{"at": {"42"}, "range": {"30d"}}
-	tabs := buildRangeTabs("/log", q, Range30D)
+	tabs := buildRangeTabs("/log", q, job.Range30D, boundedViewRanges)
 	for _, tab := range tabs {
 		u, err := url.Parse(tab.URL)
 		if err != nil {

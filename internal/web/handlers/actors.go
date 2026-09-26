@@ -110,7 +110,7 @@ func Actors(deps Deps) http.Handler {
 			InternalError(deps, w, "actors range anchor", err)
 			return
 		}
-		rg := parseRange(r.URL.Query(), anchor)
+		rg := parseRange(r.URL.Query(), anchor, boundedViewRanges)
 		cols, err := loadActorColumns(r.Context(), deps.DB, now, at, rg)
 		if err != nil {
 			InternalError(deps, w, "actors columns", err)
@@ -124,7 +124,7 @@ func Actors(deps Deps) http.Handler {
 		data := ActorsPageData{
 			Chrome:         chrome,
 			Columns:        cols,
-			RangeTabs:      buildRangeTabs("/actors", r.URL.Query(), rg.Key),
+			RangeTabs:      buildRangeTabs("/actors", r.URL.Query(), rg.Key, boundedViewRanges),
 			RangeEmptyText: actorsEmptyText(rg),
 		}
 		renderPage(deps, w, "actors", data)
@@ -156,7 +156,7 @@ func Actors(deps Deps) http.Handler {
 // internally consistent (a column never claims a claim it cannot
 // show) at the cost of hiding a claim older than the window; claims
 // expire in minutes, so in practice nothing survives that long.
-func loadActorColumns(ctx context.Context, db *sql.DB, now time.Time, atUpperBound eventlog.Position, rg Range) ([]ActorColumn, error) {
+func loadActorColumns(ctx context.Context, db *sql.DB, now time.Time, atUpperBound eventlog.Position, rg job.Range) ([]ActorColumn, error) {
 	query := `
 		SELECT e.id, e.actor, e.event_type, e.created_at,
 		       t.id, t.short_id, t.title, t.description
@@ -327,9 +327,9 @@ func loadActorColumns(ctx context.Context, db *sql.DB, now time.Time, atUpperBou
 // actorsEmptyText words the board's empty state for the current
 // window, so "nothing here" reads as "nothing lately" rather than
 // "nothing ever" whenever the range could be the reason.
-func actorsEmptyText(rg Range) string {
+func actorsEmptyText(rg job.Range) string {
 	switch rg.Key {
-	case RangeAll:
+	case job.RangeAll:
 		return "No actors have touched this store yet."
 	default:
 		return "No actor activity in the last " + rangeSpanWords(rg.Key) + "."
@@ -337,11 +337,11 @@ func actorsEmptyText(rg Range) string {
 }
 
 // rangeSpanWords renders a bounded range key as prose.
-func rangeSpanWords(key RangeKey) string {
+func rangeSpanWords(key job.RangeKey) string {
 	switch key {
-	case Range14D:
+	case job.Range14D:
 		return "14 days"
-	case Range30D:
+	case job.Range30D:
 		return "30 days"
 	default:
 		return "7 days"

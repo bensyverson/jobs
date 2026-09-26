@@ -115,6 +115,10 @@ func TestLog_EmptyDatabase_RendersPlaceholder(t *testing.T) {
 	mustContain(t, fetchLog(t, deps, "range=30d"), `No events in the last 30 days.`)
 	mustContain(t, fetchLog(t, deps, "range=all"), `No events recorded in this store yet.`)
 	mustContain(t, fetchLog(t, deps, "actor=nobody"), `No events match the current filters.`)
+	// The Log does not offer the core's 1h and 1d keys: they fall back
+	// to the 7-day default like any unknown key.
+	mustContain(t, fetchLog(t, deps, "range=1h"), `No events in the last 7 days.`)
+	mustContain(t, fetchLog(t, deps, "range=1d"), `No events in the last 7 days.`)
 }
 
 func TestLog_LiveRegionSrc_ReflectsFilters(t *testing.T) {
