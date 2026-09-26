@@ -5,9 +5,9 @@
 ## Context — why
 
 Two related problems surfaced dogfooding `job` on a large external project
-(~/git/hirewell, 90-task root, weeks of history):
+(a client repo, 90-task root, weeks of history):
 
-1. **`job orient` output grows monotonically with history.** On hirewell it
+1. **`job orient` output grows monotonically with history.** On a client repo it
    emits ~231KB — far past the tool-output threshold, so agents get a
    dumped-to-file path instead of in-context orientation. Measured breakdown:
    **91% (217KB) is `done` subtrees** carrying full descriptions, progress
@@ -42,7 +42,7 @@ Two related problems surfaced dogfooding `job` on a large external project
 - **`--full` flag** restores today's full-fidelity output.
 - Elision happens at **OrientView assembly**, not in the renderer, so the
   planned markdown renderer inherits it through the same seam.
-- Budget check (hirewell): ~15–20KB live tree + 7KB done skeleton + 6KB
+- Budget check (client repo): ~15–20KB live tree + 7KB done skeleton + 6KB
   container descs ≈ **28KB vs 231KB today**.
 
 ### Active root ("focus")
@@ -51,7 +51,7 @@ Two related problems surfaced dogfooding `job` on a large external project
   keep their own lane.
 - **Event-sourced**: `focus_set` / `focus_released` events; current focus is
   materialized by scanning latest focus events per actor (event volumes are
-  tiny — hirewell has 2,173 events total). No schema migration expected
+  tiny — the client repo has 2,173 events total). No schema migration expected
   (events table is generic — verify).
 - **Set by claiming, last-claim-wins**: any successful claim whose root
   differs from the current focus flips focus to that root. No ceremony.
@@ -78,7 +78,7 @@ tasks:
     desc: |
       Cut orient output ~10x by eliding done-task history at OrientView
       assembly time, while preserving the plan narrative agents used to get
-      from reading the full project doc. Target: hirewell orient ~28KB
+      from reading the full project doc. Target: a client repo's orient ~28KB
       (from 231KB). Done leaves keep title/id/status/closed only; done
       containers also keep desc; notes and criteria are dropped from all
       done nodes; the single most recently closed task in the rendered tree

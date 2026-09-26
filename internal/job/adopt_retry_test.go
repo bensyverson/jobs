@@ -12,7 +12,7 @@ import (
 // The diff file is the memory of the refusal: while it exists the next open
 // says so in one line and leaves the cache alone, and deleting it is how a
 // person asks for another attempt. Nothing about a retry lives in local.json,
-// where a hand edit once corrupted the file (Hirewell, 2026-09-02).
+// where a hand edit once corrupted the file (a client store, 2026-09-02).
 
 // refusedAdoption builds a legacy cache whose first open refuses, because the
 // snapshot seam drops a task, and returns the path and the notices printed.

@@ -75,7 +75,7 @@ func adoptedThenMerged(t *testing.T) (merged string, localPath, otherPath string
 	return merged, localPath, otherPath
 }
 
-// The Hirewell case, 2026-09-02: the reopen after the merge must adopt the
+// The client-store case, 2026-09-02: the reopen after the merge must adopt the
 // merged tail, and the cache it leaves behind is the merged one.
 func TestAdopt_MergeIntoAnAdoptedCacheAdoptsTheTail(t *testing.T) {
 	merged, localPath, _ := adoptedThenMerged(t)

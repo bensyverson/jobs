@@ -30,8 +30,11 @@ scripts/screenshots/
 # Local-only project files
 .timetattle-project.json 
 
-# Agent worktrees
+# Claude Code: per-machine state. Shared config (settings.json, skills,
+# agents, commands) stays tracked.
 .claude/worktrees/
+.claude/settings.local.json
+.claude/.cc-writes/
 
 # job
 # Jobs cache and its sidecars — disposable, rebuilt from .jobs/log

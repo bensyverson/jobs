@@ -10,7 +10,7 @@ import (
 // The summary line's "N tasks reconciled" is the count of the "Touched on
 // both sides" section, and a row identical on both sides is not touched — not
 // even a closed one still carrying an expired claim, which the merge used to
-// normalise on every shared task and then count (Hirewell, 2026-09-02: 195
+// normalise on every shared task and then count (a client store, 2026-09-02: 195
 // reconciled against three listed).
 
 func TestMerge_IdenticalRowsWithExpiredClaimsAreNotReconciled(t *testing.T) {

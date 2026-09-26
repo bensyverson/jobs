@@ -15,11 +15,11 @@
 
 ## Context — why
 
-The shared house rules (the `agents` repo) were reviewed on 2026-08-28 against four managed repos. The same `rule:` entry appeared independently in three of them (Hirewell 2026-08-17, Nobedan 2026-08-24, Organizize 2026-08-26): **`job note` has no `-F`.** The Git rule teaches `git commit -F <file>` because the shell interprets `-m` bodies first, and says the same hazard "applies to any `-m` flag, `job note -m` included" — so every agent infers `-F` exists here too, tries it, and fails once. Organizize also found that `job done` takes no stdin body, so the stdin workaround the gotchas prescribe for `note` doesn't transfer to `done`.
+The shared house rules (the `agents` repo) were reviewed on 2026-08-28 against four managed repos. The same `rule:` entry appeared independently in three of them (a client repo 2026-08-17, Nobedan 2026-08-24, Organizize 2026-08-26): **`job note` has no `-F`.** The Git rule teaches `git commit -F <file>` because the shell interprets `-m` bodies first, and says the same hazard "applies to any `-m` flag, `job note -m` included" — so every agent infers `-F` exists here too, tries it, and fails once. Organizize also found that `job done` takes no stdin body, so the stdin workaround the gotchas prescribe for `note` doesn't transfer to `done`.
 
 One habit should cover both tools: write the body to a file, pass `-F`. Stdin `-` stays for pipelines.
 
-A second, unrelated report (Hirewell; reproduced in the `agents` repo the same day): the house rule says "open every session with `job orient`", and `orient` exits non-zero with `No available tasks. Run 'list all' …` when the focused root (or the whole repo) has nothing claimable. A session's first command failing reads as a broken tool, and the rule gets a `rule:` complaint it doesn't deserve. Orienting is a read; an empty tree is a valid answer, not an error.
+A second, unrelated report (a client repo; reproduced in the `agents` repo the same day): the house rule says "open every session with `job orient`", and `orient` exits non-zero with `No available tasks. Run 'list all' …` when the focused root (or the whole repo) has nothing claimable. A session's first command failing reads as a broken tool, and the rule gets a `rule:` complaint it doesn't deserve. Orienting is a read; an empty tree is a valid answer, not an error.
 
 ## Decisions
 
@@ -85,7 +85,7 @@ tasks:
       - title: "Retire the `-F` gotchas and reword the shared Git rule"
         blockedBy: [note-f, done-f, add-f]
         desc: >-
-          Once installed: delete the `job note has no -F` entries in hirewell, nobedan and
+          Once installed: delete the `job note has no -F` entries in the client repo, nobedan and
           organizize project/gotchas.md, and in the agents repo change core's "-m hazard" line to
           teach `-F <file>` for git and job alike. Done from the agents repo, not here.
         criteria:
