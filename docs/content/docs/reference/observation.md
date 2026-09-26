@@ -3,7 +3,7 @@ title: Observation
 weight: 4
 ---
 
-The reads. Seven verbs — `ls`, `show`, `log`, `status`, `next`, `orient`, `tail` — and none of them write. None require `--as`, and every one offers machine-readable output: `--format=json` on all but `orient`, which is YAML-native (it emits a structured plan dump for a fresh agent).
+The reads. Eight verbs — `ls`, `show`, `log`, `status`, `stats`, `next`, `orient`, `tail` — and none of them write. None require `--as`, and every one offers machine-readable output: `--format=json` on all but `orient`, which is YAML-native (it emits a structured plan dump for a fresh agent).
 
 ## `ls`
 
@@ -93,36 +93,84 @@ Store: replica 6oDqmc "ben-mbp:~/src/healthz" · 2 log files, 10 events · cache
 
 `summary` is a deprecated alias and emits a stderr notice on every call.
 
-### `--usage`
+For how the work has *gone* rather than what is happening now, use [`stats`](#stats).
 
-`--usage` switches `status` into an **activity report** mode. The briefing and rollup are replaced by a compact report — for a human glancing at a repo's amount of activity, not for orchestrating the next claim. Read-only and fast; reuses the same indexes as `log`.
+## `stats`
+
+How the work has gone: headline figures for a window of time and a burn-up of scope against done. `status` answers "what's happening now"; `stats` answers "how has it gone". It replays the event log, writes nothing, and needs no `--as`.
 
 ```sh
-job status --usage                         # all-time activity report
-job status --usage --since 7d              # last 7 days
-job status --usage --since 30d            # last 30 days
-job status --usage abc12                  # scoped to a subtree
-job status --usage --format=json          # machine-parsable form
+job stats                                  # all time, the whole forest
+job stats --since 7d                       # the last week
+job stats abc12 --since 30d                # one plan's subtree, last 30 days
+job stats --since 14d --until 7d           # the week before last
+job stats --since 2026-09-01T00:00:00Z --until 2026-09-15T00:00:00Z
+job stats --since 30d --by week            # override the automatic bucket
+job stats --timezone Europe/Berlin         # align days to another calendar
+job stats --format=json                    # the versioned report, with the full series
+job stats --format=csv                     # the series, one row per bucket
 ```
 
-The md report (omitting any status whose count is zero) looks like:
+On this repository's own store, all time, at 80 columns:
 
+```text
+Stats  Apr 21 2026 → Sep 26 2026 · by week · America/Chicago
+
+Leaves   created 420 · done 392 · canceled 17 · open 11 · blocked 0
+Plans    imported 0 · closed 35 · open 2 · median import→close —
+         no imports recorded — job import records them from 2026-09-26
+Pace     17.4 done/week · median created→done 41m · claimed→done 3m
+Done by  claude 342 · ben 50
+         identities that ran `done`, not who did the work
+
+Burn-up  █ done  ▒ blocked  ░ open
+403 ┤                                                         ████████████
+    │                                                      ███████████████
+    │   ██████████████████████████████████████████████████████████████████
+    │   ██████████████████████████████████████████████████████████████████
+    │█████████████████████████████████████████████████████████████████████
+    │█████████████████████████████████████████████████████████████████████
+    │█████████████████████████████████████████████████████████████████████
+    │█████████████████████████████████████████████████████████████████████
+  0 └─────────────────────────────────────────────────────────────────────
+     Apr 27                                                         Sep 26
 ```
-Usage (all-time)
-  open 5 · done 378 · canceled 17 · blocked 2
-  completion 95% · cancellation 4%
 
-Activity
-  events 1,204 · first 2026-04-29 · last 17d ago
-  velocity 3.2/day (over 118d)
-  db 412 KB
-```
+### Flags
 
-- **Default window is all-time.** Any `--since <duration>` enters windowed mode and the header becomes `Usage (last 7d)` (or whatever duration). `--since` accepts the same RFC3339 or relative-duration grammar as `job log` (`5m`, `2h`, `7d`, `30d`, or `2026-04-28T10:00:00Z`).
-- `--since` without `--usage` is a no-op on the default briefing and errors with a pointer to add `--usage`.
-- **Status taxonomy** matches the data model: open (= `available`), claimed, done, canceled, and a separate `blocked` count derived from the `blocks` table (an available task with ≥1 non-done blocker). Zero counts are suppressed in the md output but kept in JSON.
-- **Velocity is `done events / calendar days`** — the numerator counts every `done` event in scope (a task done → reopened → re-done counts each completion), and the denominator is the calendar span from the first event to now (all-time) or the window length (windowed: literal days, e.g. `--since 30d` → divide by 30). Idle days are not excluded; calendar span is the honest, simple metric. We do not average per-day rates then mean them — that collapses to the same number as `total / N`.
-- **JSON shape** carries every status count (zeros preserved), completion/cancellation rates as percentages, the event span as both unix timestamps and ISO strings, and a `velocity` object with `{rate, denominator_days, window, window_days}`. Forest scope omits `scope_task_id`; subtree scope sets it.
+- **`[id]`** scopes the report to that task's subtree. Without it, the report covers the whole forest.
+- **`--since`** is the window's start: a range key (`1h`, `1d`, `7d`, `14d`, `30d`, `all`), a relative duration measured back from now (`90m`, `3d`), or an RFC3339 timestamp. The default, like `all`, is the first event in scope.
+- **`--until`** is the window's end: a relative duration (`7d` means a week ago) or an RFC3339 timestamp. The default is now; `all` is refused, since it names no end.
+- **`--by`** sets the bucket width — `minute`, `hour`, `6h`, `day` or `week` — overriding the automatic choice below.
+- **`--timezone`** is the IANA zone buckets align to (`America/Chicago`, `Europe/Berlin`); the default is the machine's local zone. Days start at local midnight and weeks on Monday, in that zone.
+- **`--format`** is `md` (the default — plain text, despite the name, to match the other verbs), `json`, or `csv`. See [`job stats` JSON](../../machine-interface/stats-json/) for both machine shapes.
+
+**Buckets are chosen by the window's span** unless `--by` says otherwise: up to 2 hours by the minute, up to 2 days by the hour, up to 10 days by 6 hours, up to 90 days by the day, and weekly beyond that. So each range key gets its natural unit — `1h` by the minute, `1d` by the hour, `7d` by 6 hours, `14d` and `30d` by the day — and `all` buckets by the span of the store's history, so a day-old store still draws hourly points and an established one reads daily or weekly. The dashboard's range tabs make the same choice. Buckets sit on calendar boundaries in `--timezone`; the first is clipped to `--since` and the last ends exactly at `--until`, so either can be partial.
+
+The burn-up is one column per sample, eight rows tall, from zero up to the window's largest scope: done from the floor, the blocked share above it, open up to scope. It fits `$COLUMNS` when set, else the terminal's width, else 80 columns; when there are more samples than columns, each column shows the last sample it covers.
+
+### What the numbers count
+
+A reader will trust these figures, so here is exactly what they count. The rules live in one place in the core, and the dashboard's [Home chart panel](../../web-dashboard/) reads the same report, so the CLI and the chart cannot disagree.
+
+- **The unit is a leaf.** A task counts while it has no children — [issue](../../concepts/tree-kinds/) leaves included. Parents never count: they are bookkeeping that closes when their last child does, and counting them would inflate every figure after a plan import. Issue roots never count, even while empty.
+- **Leaf-ness is judged at each instant.** A leaf that is [split](../planning/#split) or given children stops counting at that moment, and its children count from it.
+- **Every sample is the store's state as of that instant**, replayed from the log — what `job status` would have said then. A reopened task leaves the done line and rejoins it when it closes again, so the done line can dip, and no task is ever counted done twice.
+- **Canceled leaves leave scope.** Scope is leaves that exist and are not canceled; a canceled leaf drops out of it and is counted separately as `canceled`. Purged tasks count at no instant at all.
+- **Blocked is open leaves with an unfinished blocker** — a [blocker](../../concepts/blockers/) that is not done, as of that instant.
+- **Plans are non-issue roots.** With an id, the scoped task is the only plan.
+- **Imports are counted from [`imported` events](../../concepts/events/#event-types)**, which `job import` began recording on 2026-09-26. There is no backfill: a plan imported before then has no event, so it is not counted as imported and has no import→close time. The text report says `no imports recorded` when the store has none at all, and `no imports in this window` when it has some but not in the window. Every import counts, including one nested under `--parent`; import→close is measured on the task the import created.
+- **Subtree membership is fixed at `--until`.** With an id, the report counts the tasks under it as of the window's end, over their whole history: a task moved into the subtree counts from its creation, and one moved out counts nowhere. Otherwise a move would read as work appearing on one side and vanishing on the other.
+- **Done-by-actor counts the identity that ran `done`**, not who did the work. Nearly every close is run by an agent, some under a human's identity, so this measures identity hygiene as much as authorship.
+
+The headline figures, line by line:
+
+- **Leaves** — `created`, `done` and `canceled` are transitions inside the window; `open` and `blocked` are the state at `--until`. A leaf counts once, by where it stands at `--until`: closed, reopened and closed again is one close, at the last one, and a leaf closed in the window but reopened before its end was not closed in it.
+- **Plans** — `imported` is `imported` events in the window; `closed` is plans done at `--until` whose last close fell in the window; `open` is plans open at `--until`; and the median import→close is over imported tasks closed in the window.
+- **Pace** — leaves done per week (done ÷ the window's length in weeks, so a window of a few hours extrapolates wildly), and the median created→done and claimed→done over leaves closed in the window. Claimed→done runs from the last claim before the final close; a leaf closed without a claim is left out of it. Spans under a minute print as `<1m`, and a median with nothing to measure prints `—`.
+- **Done by** — leaves closed in the window by the identity that ran the final `done`, most first; past five identities the rest fold into one count.
+
+The JSON and CSV also carry an **activity** count per bucket — events, not leaves: every `created`, `claimed`, `done` and `blocked` event on any task in scope, parents included. A leaf closed twice is two `done` events there and one done leaf everywhere else.
 
 ## `next`
 

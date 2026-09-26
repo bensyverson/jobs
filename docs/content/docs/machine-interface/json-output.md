@@ -13,6 +13,7 @@ weight: 1
 | `show`            | Array of task records (one per id). Includes `description`, `labels`, `notes`, criteria, claim info, `created_at`. |
 | `log`             | Array of event objects with `id`, `task_id`, `short_id`, `event_type`, `actor`, `detail`, `created_at`. `detail` is a typed object whose shape varies per event type. |
 | `next`            | Single task object (or array, with `next ... all`).                                   |
+| `stats`           | The progress report: `schema` version, `window`, `leaves`, `plans`, `pace`, `done_by_actor`, and the `series`, `activity` and `imports` arrays. Versioned, with a published JSON Schema — see [`job stats` JSON](../stats-json/). |
 | `tail`            | One event object per line (newline-delimited, **not** a JSON array). See below.        |
 | `import`          | Object with the new ids assigned by the importer.                                      |
 | `claim`           | Single task object including `claimed_by` and `claim_expires_at`.                     |

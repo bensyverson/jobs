@@ -11,7 +11,7 @@ This is a reference, not a tutorial. For the walk-through path see [Getting star
   {{< card link="setup" title="Setup" subtitle="`init`, `gitignore`, `identity`, `schema`, `merge`, `rebuild`, `rekey` — bring a store into existence, decide who writes to it, and put one back together." >}}
   {{< card link="planning" title="Planning" subtitle="`add`, `import`, `edit`, `block`, `move`, `label`, `split` — shape the tree before work begins." >}}
   {{< card link="execution" title="Execution" subtitle="`claim`, `release`, `note`, `done`, `reopen`, `cancel`, `heartbeat` — the active-work loop." >}}
-  {{< card link="observation" title="Observation" subtitle="`ls`, `show`, `log`, `status`, `next`, `tail` — read the tree without writing to it." >}}
+  {{< card link="observation" title="Observation" subtitle="`ls`, `show`, `log`, `status`, `stats`, `next`, `orient`, `tail` — read the tree without writing to it." >}}
   {{< card link="web" title="Web" subtitle="`serve` — the read-only browser dashboard." >}}
 {{< /cards >}}
 

@@ -23,9 +23,8 @@ type ReportQuery struct {
 	Until time.Time
 	// Bucket overrides the sample width; empty means the automatic choice
 	// for the window's span, which agrees with BucketFor for every named
-	// range key. A zero Since is RangeAll (day, or week past 90 days of
-	// history); a bounded window buckets by its span (see report_window.go
-	// for the band edges).
+	// range key. A zero Since is RangeAll, which buckets by the history's
+	// span; every window uses the same bands (BucketForSpan in bucket.go).
 	//
 	// Subtree membership for Scope is decided as of Until: a task moved
 	// into the subtree counts over its whole history, one moved out counts

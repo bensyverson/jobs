@@ -90,14 +90,15 @@ The rename is an *append*: a fresh `replica` event whose label every reader take
 
 ## `schema`
 
-Prints the live JSON Schema that `job import` validates against — the canonical answer to "what can a plan file contain?"
+Prints a live JSON Schema. `plan`, the default, is the grammar `job import` validates against — the canonical answer to "what can a plan file contain?" `stats` is the shape [`job stats --format=json`](../../machine-interface/stats-json/) emits, versioned by its `schema` field.
 
 ```sh
 job schema | less
 job schema > schema.json                  # pin a copy for editor tooling
+job schema stats                          # the job stats report's shape
 ```
 
-The schema is generated from the same Go types that drive the importer, so it's never stale. When the [Plan grammar](../../plan-grammar/) page disagrees with `job schema`, trust the schema. Pipe it through `jq` to extract a single keyword or property.
+Each schema is generated from the same Go types that drive the importer or the report, so it's never stale. When the [Plan grammar](../../plan-grammar/) page disagrees with `job schema`, trust the schema. Pipe it through `jq` to extract a single keyword or property.
 
 `schema` is a read; no `--as` required, no events emitted.
 

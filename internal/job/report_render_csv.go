@@ -17,20 +17,21 @@ var reportCSVHeader = []string{
 }
 
 // writeReportCSV writes one row per sample, oldest first, with that
-// bucket's activity counts joined on the bucket end (zeros when a
-// bucket has none). Times are RFC3339 in the report's zone.
+// bucket's activity counts beside it (zeros when a bucket has none).
+// Activity pairs with Series by position, as the Report promises; ends
+// cannot be the key, because a last bucket shorter than a second shares
+// its second with the one before. Times are RFC3339 in the report's zone.
 func writeReportCSV(w io.Writer, r Report) error {
 	loc := reportLocation(r.Window)
-	activity := make(map[int64]ActivityCount, len(r.Activity))
-	for _, a := range r.Activity {
-		activity[a.End.Unix()] = a
-	}
 	cw := csv.NewWriter(w)
 	if err := cw.Write(reportCSVHeader); err != nil {
 		return err
 	}
-	for _, s := range r.Series {
-		a := activity[s.End.Unix()]
+	for i, s := range r.Series {
+		var a ActivityCount
+		if i < len(r.Activity) {
+			a = r.Activity[i]
+		}
 		row := []string{s.End.In(loc).Format(time.RFC3339)}
 		for _, n := range []int{s.Scope, s.Done, s.Open, s.Blocked, s.Canceled, s.PlansDone, a.Created, a.Claimed, a.Done, a.Blocked} {
 			row = append(row, strconv.Itoa(n))

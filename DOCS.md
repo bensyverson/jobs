@@ -128,7 +128,7 @@ Every command stats each log file against a watermark the cache records; if one 
 | `job rekey <replica>:<id>` | Give one replica's task a fresh six-character short id after two replicas minted the same one while apart. The rebuild fails on such a collision and prints this exact command; the earlier replica keeps the id that notes and commit messages already cite. Records a `rekeyed` event in this replica's log, so every machine that pulls it applies the same rename without deciding again, then rebuilds. Reads `.jobs/log` directly rather than the cache, which is what refused to build. Requires `--as`. |
 | `job identity set <name>` | Change the default writer identity. Requires `--as <name>` on the call (bootstrap discipline — the change itself is attributed). |
 | `job identity strict on\|off` | Toggle strict mode. Requires `--as`. |
-| `job schema` | Print the JSON Schema for the `job import` grammar. Useful for feeding an agent the exact shape it should produce. |
+| `job schema [plan\|stats]` | Print a JSON Schema: `plan` (the default) is the `job import` grammar — useful for feeding an agent the exact shape it should produce; `stats` is the shape `job stats --format=json` emits, versioned by its `schema` field. |
 | `job version` | Print the module version and the commit this binary was built from, e.g. `job v0.0.0-20260902142258-9b888be508f9 (commit 9b888be, 2026-09-02T14:22:58Z)`; `modified` is appended when the checkout had uncommitted changes. `job --version` prints the same line. The fastest way to confirm a `make install` on another machine took. No database, no `--as`. |
 
 Every command accepts `--db <path>` to use a different database file. You can also set `JOBS_DB`.
@@ -163,7 +163,7 @@ All writes additionally require `--as <name>` (see [Identity](#identity)).
 | `job status` | Session briefing: claimed / open / done tally, identity line and a `Store:` line (`replica <id> "<label>" · N log files, M events · cache in sync|cache rebuilt on open`, where the label is this checkout's [replica name](#database); `--format=json` adds `store: {replica, label, files, events, cache}`), then a per-root rollup of the top-level forest — task-tree roots only; issue-trees are demoted to one summary line below the rollup. When the database has at least one issue-tree root, that line reads `Issues: <N> open (<M> claimed) · next <id>` — `N` is every non-closed task under an issue root, `M` the claimed subset (with `--as`, scoped to the caller the same way the preamble's own claimed count is), and the `· next <id>` tail names the leaf `job next --issues` would hand out, omitted when nothing is claimable. The line itself is omitted with no issue-tree roots. Ends with a `Next:` hint naming the globally-next claimable leaf (issue-trees excluded, matching `next`), `Stale:` lines for any claims past their TTL, and `Decision:` lines for any open tasks labeled `decision` (human-decision pending). With `--as`, the claimed count is scoped to the caller; without, it counts all live claims. `--format=json` adds an `issues` object (`{open, claimed, next}`, `next` shaped like the top-level `next` field) — `null` when there are no issue-tree roots. |
 | `job status <id>` | Two-level rollup of a task and its direct children: headline counts (`<done> of <total> done · <N> blocked · <N> available · <N> in flight`, with zero-count tokens suppressed) plus one rollup line per direct child. When every direct child is a leaf, the per-child block collapses — the headline already says everything worth saying — and only claimed rows surface (the "who's working on what" signal). Fully-complete subtrees append `closed <timestamp>`. Ends with `Next:` / `Stale:` / `Decision:` trailers scoped to the subtree, followed by the actionable task list (identical to `job ls <id>`). `job summary [id]` is a deprecated alias. |
 
-All support `--format=json` (except `status`, which is always plain text).
+All support `--format=json` except `orient`, which is YAML.
 
 List output is GitHub-Flavored Markdown with checkbox items, so pasting `job ls --all` into a PR or issue renders as a task list:
 
@@ -428,6 +428,28 @@ Every event includes the actor who performed it.
 **Cursors.** Every event carries a `position`, `<ts>-<replica>-<seq>` — its place in the log, and the one identifier every replica agrees on. That is what `tail`, `/events?since=` and the dashboard's `?at=` take. The `id` field is the local cache's row id and is renumbered by any rebuild, so never resume from it. A position with an empty replica (`<ts>--<n>`) addresses a row carried over from a pre-store database and is meaningful only inside one cache.
 
 **Event types written by the store, not by a verb.** `replica` names the checkout that owns a log file — label, host, path and OS user — and is the first line every replica appends; `job replica rename` appends another, and the latest one wins. It applies no state. `snapshot` carries full state at one point in the log, and adoption writes one. `rekeyed` records `job rekey` renaming one replica's task. Adoption also carries every pre-store event row across as a **legacy** line — a `legacy: true` flag on the envelope rather than a type, so each keeps the `event_type` it always had; legacy lines render in `log`, `show`, `tail` and the scrubber exactly as before and touch no state table. Reconcile's repairs are ordinary `done`, `purged` and `released` events attributed to the actor `reconcile`.
+
+### Reporting
+
+| Command | Description |
+|---------|-------------|
+| `job stats [id]` | How the work has gone over a window: leaves created, done, canceled, open and blocked; plans imported, closed and open with the median import→close time; pace (leaves done per week, median created→done and claimed→done); done by identity; and a text burn-up of scope against done that fits the terminal (`$COLUMNS`, else the terminal's width, else 80). With an id, the report covers that subtree. Read-only; no `--as`. |
+| | `--since <key\|duration\|rfc3339>` Window start: a range key (`1h`, `1d`, `7d`, `14d`, `30d`, `all`), a relative duration (`90m`, `3d`) or a timestamp. Default: the first event in scope. |
+| | `--until <duration\|rfc3339>` Window end; default now. `all` is refused. |
+| | `--by minute\|hour\|6h\|day\|week` Override the bucket. By default the window's span picks it: ≤2h minute, ≤2d hour, ≤10d 6h, ≤90d day, else week — so `7d` reads in 6-hour samples and `all` buckets by the store's history. |
+| | `--timezone <IANA zone>` Calendar the buckets align to; default local. Days start at local midnight, weeks on Monday. |
+| | `--format md\|json\|csv` `md` is plain text. `json` is the report with a `schema` version (`job schema stats` prints its JSON Schema; refuse a version you don't know); `csv` is the series in long form, one row per bucket. |
+
+The counting rules, which the dashboard's Home chart shares:
+
+- **The unit is a leaf** — a task with no children at that instant, issue leaves included. Parents and issue roots never count; splitting a leaf retires it and its children count from the split.
+- **Every burn-up sample is the store's state as of that instant**, replayed from the log. A reopen dips the done line until the task closes again; nothing is counted done twice. The headline `done` counts each leaf once, at its last close in the window.
+- **Scope is leaves that exist and are not canceled.** Canceled leaves leave scope and are counted separately; purged tasks count nowhere.
+- **Blocked** is open leaves with a blocker that is not done.
+- **Plans are non-issue roots** (with an id, the scoped task is the only plan). Imports are counted from `imported` events, which began on 2026-09-26 with no backfill, so earlier imports are not counted.
+- **Subtree membership is fixed at `--until`**: a task moved into the subtree counts over its whole history, one moved out counts nowhere.
+- **Done by** is the identity that ran `done`, not who did the work.
+- **Activity** (JSON and CSV only) counts events per bucket on every task in scope, parents included — events, not leaves.
 
 ### Orchestration
 

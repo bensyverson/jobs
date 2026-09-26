@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func renderFormat(t *testing.T, r Report, f ReportFormat) string {
@@ -101,5 +102,27 @@ func TestReportJSON_EmptyListsAreArraysNotNull(t *testing.T) {
 	}
 	if raw["schema"] != float64(ReportSchema) {
 		t.Errorf("schema = %v, want %d", raw["schema"], ReportSchema)
+	}
+}
+
+// A window whose Until lands just past a bucket boundary ends in a bucket
+// shorter than a second. Its End shares a second with the bucket before it,
+// so a join on End.Unix() let the short bucket's zeros overwrite the
+// earlier bucket's activity. Rows pair with activity by position.
+func TestReportCSV_SubSecondLastBucketKeepsTheActivityBeforeIt(t *testing.T) {
+	boundary := reportDay0.Add(18 * time.Hour)
+	until := boundary.Add(76 * time.Millisecond)
+	r := Report{
+		Schema: ReportSchema,
+		Window: ReportWindow{Since: reportDay0, Until: until, Bucket: BucketDay, Timezone: "UTC"},
+		Series: []Sample{{End: boundary, Scope: 4, Done: 3}, {End: until, Scope: 4, Done: 3}},
+		Activity: []ActivityCount{
+			{Start: reportDay0, End: boundary, Claimed: 1, Done: 3},
+			{Start: boundary, End: until},
+		},
+	}
+	rows := readCSV(t, renderFormat(t, r, ReportFormatCSV))
+	if got := rows[1][7:]; !reflect.DeepEqual(got, []string{"0", "1", "3", "0"}) {
+		t.Errorf("first bucket's activity = %v, want [0 1 3 0]", got)
 	}
 }
