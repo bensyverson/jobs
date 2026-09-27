@@ -271,7 +271,7 @@ The dashboard follows a **top-navigation-only** model. No sidebars. The structur
 - Gutter between major blocks: 16px.
 - Internal padding within dense components (table rows, chart panel internals): 8–12px.
 
-Information density is **dense but breathable**: tight internal padding within components, generous margins between blocks. Row heights hold to 32px or 36px depending on metadata weight. Wide viewports are the primary target; mobile degrades to a single-column status view.
+Information density is **dense but breathable**: tight internal padding within components, generous margins between blocks. Row heights hold to 32px or 36px depending on metadata weight. Wide viewports are the primary target; mobile degrades to a single-column status view. The narrowest supported viewport is **390px**; width-sensitive geometry (the chart axis's `axisPlotFloorPx`) is checked there.
 
 ## Elevation & Depth
 
