@@ -131,10 +131,10 @@ Brings a closed task back to `available` and, by default, claims it for the call
 ```sh
 job reopen abc12                                    # auto-claim after reopen
 job reopen abc12 --no-claim                         # leave it unclaimed
-job reopen abc12 --cascade                          # also reopen done descendants
+job reopen abc12 --cascade                          # also reopen what its cascade closed
 ```
 
-The auto-claim default exists because reopening usually means "I'm picking this back up." `--no-claim` is the "I'm just resurrecting it for someone else" form. `--cascade` brings the whole subtree back; without it, the task's closed descendants stay closed.
+The auto-claim default exists because reopening usually means "I'm picking this back up." `--no-claim` is the "I'm just resurrecting it for someone else" form. `--cascade` undoes the task's own cascading close: it reopens exactly the subtasks that `done --cascade` or `cancel --cascade` closed along with the task, grandchildren included, as that close recorded them. A subtask closed separately — finished before the cascade, or reopened or closed again by hand since — stays closed, and the ack names the ones it left alone (`Left alone: ...`). If the task's last close cascaded to nothing — it had no open subtasks, or it auto-closed behind its last child — `--cascade` reopens only the task and the ack says so. Without `--cascade`, the task's closed descendants stay closed. `--cascade` also skips the auto-claim.
 
 Reopening reverses what the close did on its own, as well as the close itself:
 

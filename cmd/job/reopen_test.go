@@ -36,7 +36,7 @@ func TestReopen_Plain_DoesNotTouchDescendants(t *testing.T) {
 	}
 }
 
-func TestReopen_Cascade_ReopensAllDone(t *testing.T) {
+func TestReopen_Cascade_ReopensWhatTheCascadeClosed(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
 	p := job.MustAdd(t, db, "", "P")
@@ -254,5 +254,54 @@ func TestReopen_Ack_NamesReopenedAncestorsAndRestoredBlocks(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("ack missing %q:\n%s", want, stdout)
 		}
+	}
+}
+
+// --cascade on a task whose last close cascaded to nothing reopens only the
+// task, and the ack says why no subtask came back.
+func TestReopen_Cascade_AckSaysTheCloseClosedNoSubtasks(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	p := job.MustAdd(t, db, "", "Parent")
+	c := job.MustAdd(t, db, p, "Child")
+	job.MustDone(t, db, c)
+	db.Close()
+
+	stdout, _, err := runCLI(t, dbFile, "--as", "alice", "reopen", p, "--cascade")
+	if err != nil {
+		t.Fatalf("reopen --cascade: %v", err)
+	}
+	if want := "closed no subtasks"; !strings.Contains(stdout, want) {
+		t.Errorf("ack missing %q:\n%s", want, stdout)
+	}
+	db = openTestDB(t, dbFile)
+	if task := job.MustGet(t, db, c); task.Status != "done" {
+		t.Errorf("child: status=%q, want done", task.Status)
+	}
+}
+
+// A cascaded subtask someone reopened or closed again since is named in the
+// ack as left alone.
+func TestReopen_Cascade_AckNamesSubtasksLeftAlone(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	p := job.MustAdd(t, db, "", "Parent")
+	c := job.MustAdd(t, db, p, "Redone by hand")
+	job.MustAdd(t, db, p, "Other")
+	if _, _, err := job.RunDone(db, []string{p}, true, "", nil, job.TestActor, false, ""); err != nil {
+		t.Fatalf("done: %v", err)
+	}
+	if _, err := job.RunReopen(db, c, false, job.TestActor); err != nil {
+		t.Fatalf("reopen child: %v", err)
+	}
+	job.MustDone(t, db, c)
+	db.Close()
+
+	stdout, _, err := runCLI(t, dbFile, "--as", "alice", "reopen", p, "--cascade")
+	if err != nil {
+		t.Fatalf("reopen --cascade: %v", err)
+	}
+	if want := "Left alone: " + c; !strings.Contains(stdout, want) {
+		t.Errorf("ack missing %q:\n%s", want, stdout)
 	}
 }

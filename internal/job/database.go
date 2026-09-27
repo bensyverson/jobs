@@ -396,37 +396,6 @@ func GetLatestEventDetail(tx dbtx, taskID int64, eventType string) (map[string]a
 	return result, nil
 }
 
-// findClosedDescendants returns every descendant whose status is either
-// "done" or "canceled". Used by `reopen --cascade` to revive a closed subtree.
-func findClosedDescendants(tx dbtx, taskID int64) ([]*Task, error) {
-	rows, err := tx.Query(`
-		SELECT id, short_id, parent_id, title, description, status, sort_key,
-		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
-		FROM tasks WHERE parent_id = ? AND deleted_at IS NULL
-	`, taskID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var result []*Task
-	for rows.Next() {
-		t, err := scanTask(rows)
-		if err != nil {
-			return nil, err
-		}
-		if t.Status == "done" || t.Status == "canceled" {
-			result = append(result, t)
-		}
-		desc, err := findClosedDescendants(tx, t.ID)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, desc...)
-	}
-	return result, rows.Err()
-}
-
 func findDoneDescendants(tx dbtx, taskID int64) ([]*Task, error) {
 	rows, err := tx.Query(`
 		SELECT id, short_id, parent_id, title, description, status, sort_key,

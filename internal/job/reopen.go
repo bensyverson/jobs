@@ -24,11 +24,27 @@ import (
 // while the most recent block/unblock on it is still the automatic unblock,
 // the dependent is still open and present, and putting it back closes no
 // cycle.
+//
+// `--cascade` applies the same rule downward. It undoes the target's own
+// cascading close (`done --cascade` or `cancel --cascade`) and nothing else:
+// the descendants it reopens are the ones that close listed in
+// cascade_closed, which names every descendant it reached (grandchildren
+// included), and only those whose most recent close is still the one the
+// target's cascade gave them. A descendant closed separately, before or
+// since, stays closed. When the target's last close cascaded to nothing,
+// --cascade reopens nothing extra and the result says so.
 
 // ReopenResult is what one `reopen` changed besides the named task.
 type ReopenResult struct {
-	// ReopenedChildren are the closed descendants `--cascade` reopened.
+	// ReopenedChildren are the descendants `--cascade` reopened.
 	ReopenedChildren []string
+	// CascadeClosed is what the target's most recent close closed along with
+	// it, as that close recorded it; empty when the close cascaded to nothing.
+	// Set only with `--cascade`.
+	CascadeClosed []string
+	// CascadeLeftAlone are the CascadeClosed entries `--cascade` did not
+	// reopen because a person reopened or closed them since.
+	CascadeLeftAlone []string
 	// ReopenedAncestors were closed by the cascade, nearest parent first.
 	ReopenedAncestors []ReopenedAncestor
 	// RestoredBlocks are the edges put back, grouped by blocker in the order
@@ -49,9 +65,10 @@ type RestoredBlock struct {
 	BlockerID    string
 }
 
-// RunReopen returns a closed task to available. With cascade, every closed
-// descendant is reopened too. Either way, the ancestors the cascade closed
-// and the block edges the closes removed are restored.
+// RunReopen returns a closed task to available. With cascade, the
+// descendants the task's own cascading close closed are reopened too. Either
+// way, the ancestors the cascade closed and the block edges the closes
+// removed are restored.
 func RunReopen(db *sql.DB, shortID string, cascade bool, actor string) (*ReopenResult, error) {
 	var res *ReopenResult
 	err := commit(db, func(tx dbtx, b *eventBatch) error {
@@ -80,10 +97,12 @@ func RunReopen(db *sql.DB, shortID string, cascade bool, actor string) (*ReopenR
 		var reopened []*Task
 
 		if cascade {
-			descendants, err := findClosedDescendants(tx, task.ID)
+			recorded, descendants, leftAlone, err := cascadeClosedDescendants(tx, task)
 			if err != nil {
 				return err
 			}
+			res.CascadeClosed = recorded
+			res.CascadeLeftAlone = leftAlone
 			for _, d := range descendants {
 				if err := emitReopened(tx, b, d, actor); err != nil {
 					return err
@@ -158,11 +177,11 @@ func autoClosedAncestors(tx dbtx, t *Task) ([]*Task, error) {
 		if parent.Status != "done" && parent.Status != "canceled" {
 			return out, nil
 		}
-		auto, err := lastCloseWasAutomatic(tx, parent.ID)
+		rec, err := lastClose(tx, parent.ID)
 		if err != nil {
 			return nil, err
 		}
-		if !auto {
+		if !rec.AutoClosed {
 			return out, nil
 		}
 		out = append(out, parent)
@@ -171,9 +190,19 @@ func autoClosedAncestors(tx dbtx, t *Task) ([]*Task, error) {
 	return out, nil
 }
 
-// lastCloseWasAutomatic reports whether the task's most recent done or
-// canceled event was the leaf-frontier cascade's rather than a person's.
-func lastCloseWasAutomatic(tx dbtx, taskID int64) (bool, error) {
+// closeRecord is what a task's most recent done or canceled event says about
+// how it closed. The zero value is a task that never closed.
+type closeRecord struct {
+	// AutoClosed: the leaf-frontier cascade closed it, not a person.
+	AutoClosed bool
+	// CascadeClosed: the descendants this close closed along with it.
+	CascadeClosed []string
+	// ClosedByParent: the explicit target whose cascade closed this task.
+	ClosedByParent string
+}
+
+// lastClose reads the task's most recent done or canceled event.
+func lastClose(tx dbtx, taskID int64) (closeRecord, error) {
 	var typ, detail string
 	err := tx.QueryRow(`
 		SELECT event_type, COALESCE(detail, '') FROM events
@@ -181,27 +210,56 @@ func lastCloseWasAutomatic(tx dbtx, taskID int64) (bool, error) {
 		ORDER BY ts DESC, rep DESC, seq DESC LIMIT 1`,
 		taskID, string(EventDone), string(EventCanceled),
 	).Scan(&typ, &detail)
-	if err == sql.ErrNoRows {
-		return false, nil
+	if err == sql.ErrNoRows || (err == nil && detail == "") {
+		return closeRecord{}, nil
 	}
 	if err != nil {
-		return false, err
-	}
-	if detail == "" {
-		return false, nil
+		return closeRecord{}, err
 	}
 	if EventType(typ) == EventDone {
 		var p DonePayload
-		if err := json.Unmarshal([]byte(detail), &p); err != nil {
-			return false, nil
+		if json.Unmarshal([]byte(detail), &p) != nil {
+			return closeRecord{}, nil
 		}
-		return p.AutoClosed, nil
+		return closeRecord{AutoClosed: p.AutoClosed, CascadeClosed: p.CascadeClosed, ClosedByParent: p.CascadeClosedByParent}, nil
 	}
 	var p CanceledPayload
-	if err := json.Unmarshal([]byte(detail), &p); err != nil {
-		return false, nil
+	if json.Unmarshal([]byte(detail), &p) != nil {
+		return closeRecord{}, nil
 	}
-	return p.AutoClosed, nil
+	return closeRecord{AutoClosed: p.AutoClosed, CascadeClosed: p.CascadeClosed, ClosedByParent: p.CascadeClosedByParent}, nil
+}
+
+// cascadeClosedDescendants returns, in the order the close recorded them, the
+// descendants target's most recent close cascaded to that are still closed by
+// it, and separately the ones a person has reopened or closed again since.
+func cascadeClosedDescendants(tx dbtx, target *Task) (recorded []string, still []*Task, leftAlone []string, err error) {
+	rec, err := lastClose(tx, target.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	for _, sid := range rec.CascadeClosed {
+		d, err := GetTaskByShortID(tx, sid)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if d == nil {
+			// Purged since: there is nothing left to reopen or report.
+			continue
+		}
+		if d.Status == "done" || d.Status == "canceled" {
+			own, err := lastClose(tx, d.ID)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			if own.ClosedByParent == target.ShortID {
+				still = append(still, d)
+				continue
+			}
+		}
+		leftAlone = append(leftAlone, sid)
+	}
+	return rec.CascadeClosed, still, leftAlone, nil
 }
 
 // restoreDroppedBlocks re-adds the edges blocker held that were dropped

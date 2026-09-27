@@ -34,7 +34,7 @@ Reopened: XRZTSR "Middleware returns 429 with Retry-After"
   claimed by alice (expires in 30m)
 ```
 
-`reopen` claims the task for you by default, on the theory that reopening means "I'm picking this back up". `--no-claim` leaves it available for someone else — use that when you reopen on an agent's behalf. `--cascade` also reopens the task's done and canceled descendants.
+`reopen` claims the task for you by default, on the theory that reopening means "I'm picking this back up". `--no-claim` leaves it available for someone else — use that when you reopen on an agent's behalf. `--cascade` also reopens the subtasks the task's own `done --cascade` or `cancel --cascade` closed with it; subtasks closed separately stay closed.
 
 Reopening also undoes what the close did on its own. Closing a blocker removed its block edges, which left the leaves that waited on it available to claim against unfinished work; reopening puts those edges back — the `Re-blocked:` lines above. And if the leaf was the last one open under its parent, its close auto-closed the parent; reopening the leaf reopens the parent too, with an `Auto-reopened:` line in the ack.
 
