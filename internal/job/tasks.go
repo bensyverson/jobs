@@ -542,6 +542,31 @@ func RunSplit(db *sql.DB, parentShortID string, titles []string, actor string) (
 		return nil, fmt.Errorf("cannot split %s: it already has %d child(ren); split only operates on leaves", parentShortID, len(existing))
 	}
 
+	// The split leaf becomes a parent, and a parent's criteria have nowhere
+	// to live: they'd sit pending forever on a task whose close is now
+	// driven by its children, not by them. Refuse rather than guess a
+	// target child or silently drop them.
+	criteria, err := GetCriteria(db, parent.ID)
+	if err != nil {
+		return nil, err
+	}
+	var pendingLabels []string
+	for _, c := range criteria {
+		if c.State == CriterionPending {
+			pendingLabels = append(pendingLabels, c.Label)
+		}
+	}
+	if len(pendingLabels) > 0 {
+		noun := "criterion"
+		if len(pendingLabels) > 1 {
+			noun = "criteria"
+		}
+		return nil, fmt.Errorf(
+			"cannot split %s: %d pending %s: %s (mark each passed/skipped/failed first, e.g. 'job edit %s --set-criterion \"<label>=passed\"')",
+			parentShortID, len(pendingLabels), noun, strings.Join(pendingLabels, ", "), parentShortID,
+		)
+	}
+
 	res := &SplitResult{ParentShortID: parentShortID}
 	for _, title := range titles {
 		add, err := RunAdd(db, parentShortID, title, "", "", nil, actor)

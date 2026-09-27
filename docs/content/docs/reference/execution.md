@@ -161,11 +161,13 @@ job cancel abc12 -m "Out of scope — moved to next quarter."
 job cancel abc12 abc34 -m "Both blocked on a vendor we dropped."
 job cancel abc12 --cascade -m "Whole subtree no longer needed."
 job cancel abc12 -F reason.md                       # reason from a file (or -m @path, or -F -)
-job cancel abc12 --purge                            # erase the row and events
-job cancel abc12 --purge --cascade --yes            # erase a whole subtree
+job cancel abc12 --purge -m "Duplicate root from a bare add."   # -m/--reason is required here too
+job cancel abc12 --purge --cascade --yes -m "Whole test tree, never real work."
 ```
 
-`--purge` is the only destructive operation in the verb list — it removes the task row and its events outright instead of transitioning state. `--purge --cascade` requires `--yes` for exactly that reason. Reach for `cancel` without `--purge` whenever you can; it preserves the audit trail.
+Canceling a parent refuses if it has any open (not done, not canceled) descendants — same rule `done` applies, and the error names `--cascade`. That includes an [issue-tree](../../concepts/tree-kinds/) root with open issues under it: `--cascade` is required there too. Multi-id cancel is atomic, so one target with open children fails the whole call, the same as `done`.
+
+`--purge` is the only destructive operation in the verb list. It doesn't erase history: it appends a tombstone event that later reads honor, so the task disappears from `ls`, `show`, `log` and the dashboard, but the original `created` event is still in `.jobs/log/` (see [recovery](../../recipes/recovery/#purge-it-should-never-have-existed)). Without `--cascade` it refuses a task with any subtasks, done or open; `--purge --cascade` requires `--yes` because it takes the whole subtree with it. Reach for `cancel` without `--purge` whenever you can; it's reversible with `reopen`.
 
 ## `heartbeat`
 

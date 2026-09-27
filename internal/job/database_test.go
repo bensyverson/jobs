@@ -1147,6 +1147,64 @@ func TestRunSplit_ParentNotFound(t *testing.T) {
 	}
 }
 
+func TestRunSplit_RefusesPendingCriteria(t *testing.T) {
+	db := SetupTestDB(t)
+	parent := MustAdd(t, db, "", "Parent leaf")
+	if _, err := RunAddCriteria(db, parent, []Criterion{{Label: "The dump matches"}}, TestActor); err != nil {
+		t.Fatalf("RunAddCriteria: %v", err)
+	}
+
+	_, err := RunSplit(db, parent, []string{"Child A", "Child B"}, TestActor)
+	if err == nil {
+		t.Fatal("expected error when splitting a leaf with pending criteria")
+	}
+	if !strings.Contains(err.Error(), "The dump matches") {
+		t.Errorf("error should name the pending criterion: %v", err)
+	}
+	if !strings.Contains(err.Error(), parent) {
+		t.Errorf("error should name the task: %v", err)
+	}
+
+	// Refused: no children created.
+	children, err := getChildren(db, MustGet(t, db, parent).ID)
+	if err != nil {
+		t.Fatalf("getChildren: %v", err)
+	}
+	if len(children) != 0 {
+		t.Errorf("expected no children after refused split, got %d", len(children))
+	}
+}
+
+func TestRunSplit_TerminalCriteriaDoNotBlock(t *testing.T) {
+	db := SetupTestDB(t)
+	parent := MustAdd(t, db, "", "Parent leaf")
+	crit, err := RunAddCriteria(db, parent, []Criterion{
+		{Label: "Passed one"},
+		{Label: "Skipped one"},
+		{Label: "Failed one"},
+	}, TestActor)
+	if err != nil {
+		t.Fatalf("RunAddCriteria: %v", err)
+	}
+	if _, err := RunSetCriterion(db, parent, crit[0].ShortID, CriterionPassed, TestActor); err != nil {
+		t.Fatalf("RunSetCriterion passed: %v", err)
+	}
+	if _, err := RunSetCriterion(db, parent, crit[1].ShortID, CriterionSkipped, TestActor); err != nil {
+		t.Fatalf("RunSetCriterion skipped: %v", err)
+	}
+	if _, err := RunSetCriterion(db, parent, crit[2].ShortID, CriterionFailed, TestActor); err != nil {
+		t.Fatalf("RunSetCriterion failed: %v", err)
+	}
+
+	res, err := RunSplit(db, parent, []string{"Child A"}, TestActor)
+	if err != nil {
+		t.Fatalf("RunSplit with only terminal criteria should succeed: %v", err)
+	}
+	if len(res.ChildShortIDs) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(res.ChildShortIDs))
+	}
+}
+
 func TestRunSplit_ReleasesClaimedParent(t *testing.T) {
 	db := SetupTestDB(t)
 	parent := MustAdd(t, db, "", "Parent")

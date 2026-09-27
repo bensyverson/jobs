@@ -185,7 +185,7 @@ The one reserved name is `decision`. Tasks carrying it surface as a `Decision:` 
 
 ## `split`
 
-Subdivides a leaf into children. The parent must currently have no children.
+Subdivides a leaf into children. The parent must currently have no children, and no pending criteria of its own.
 
 ```sh
 job split abc12 "Wire backend" "Wire frontend" "Document"
@@ -196,5 +196,7 @@ The shape after split:
 - `abc12` is no longer a leaf — its leaf-frontier role transfers to the new children.
 - All three children inherit nothing automatically: no labels, no criteria, no description. They're fresh tasks under `abc12`.
 - The parent will auto-close once all the new children close. If the parent had a claim, that claim is released as part of the split.
+
+**A leaf with pending criteria refuses to split.** Once `abc12` becomes a parent, its own close is driven by its children rather than by `done`, so a criterion left pending on it would sit there forever — auto-close doesn't check criteria. Split names the pending criteria in its error; mark each `passed`/`skipped`/`failed` with `job edit abc12 --set-criterion "<label>=<state>"` first. Criteria already in a terminal state don't block the split.
 
 Use `split` when you discover a leaf is bigger than expected. To pile children onto an existing phase, use `add` instead.

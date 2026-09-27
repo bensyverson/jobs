@@ -49,7 +49,7 @@ job add "x"                               # → identity required. Pass --as <na
 job --as alice add "x"                    # ok
 ```
 
-Toggle after init with `job identity strict on|off --as <name>`. Turning strict *off* leaves the default unset until you call `job identity set` explicitly — there's no implicit revival.
+Toggle after init with `job identity strict on|off --as <name>`. Strict on/off touches only the strict flag, not the default identity: if `init --as` (or a later `job identity set`) ever recorded a name, it's still there, and turning strict back off makes it effective again immediately — no `job identity set` needed. Only a database that was `init --strict`'d from the start, with no name ever recorded, has nothing to revive.
 
 ## Where it is kept
 

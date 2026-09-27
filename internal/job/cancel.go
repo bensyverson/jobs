@@ -3,6 +3,7 @@ package job
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 type CanceledResult struct {
@@ -112,6 +113,18 @@ func executeCancel(
 		open, err := findOpenDescendants(tx, tgt.task.ID)
 		if err != nil {
 			return nil, nil, err
+		}
+		// Matching `job done`'s refusal of incomplete subtasks: canceling a
+		// parent without --cascade would otherwise leave its open children
+		// stranded on the frontier — visible to `next` and `claim --next`
+		// under a parent that read as settled.
+		if len(open) > 0 && !cascade {
+			var descs []string
+			for _, t := range open {
+				descs = append(descs, fmt.Sprintf("%s (%s)", t.ShortID, t.Title))
+			}
+			return nil, nil, fmt.Errorf("task %s has open subtasks: %s (run 'job cancel --cascade %s' to cancel all).",
+				tgt.shortID, strings.Join(descs, ", "), tgt.shortID)
 		}
 		var cTasks []*Task
 		var cShorts []string

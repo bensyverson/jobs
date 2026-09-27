@@ -81,7 +81,11 @@ Canceling is still a close, so it moves the tree:
   ```
 
   If any sibling was done, the parent closes as done.
-- **To drop a whole subtree, cancel its root with `--cascade`.** Without it, canceling a parent leaves its open children behind on the frontier, where `next` will still hand them out.
+- **To drop a whole subtree, cancel its root with `--cascade`.** Without it, canceling a parent with open children refuses outright — the same "incomplete subtasks" rule `done` applies — rather than leaving them behind on the frontier where `next` would still hand them out:
+
+  ```text
+  Error: task zycvaO has open subtasks: jpSx13 (Backfill old invoices) (run 'job cancel --cascade zycvaO' to cancel all).
+  ```
 
 A canceled task can be brought back with `reopen`, reason and all still in its history.
 

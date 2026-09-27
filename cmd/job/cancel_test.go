@@ -87,6 +87,169 @@ func TestCancel_AllOrNothing(t *testing.T) {
 	}
 }
 
+// --- Refuse a parent with open descendants unless --cascade is given ---
+
+func TestCancel_RefusesParentWithOpenChild_WithoutCascade(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	parent := job.MustAdd(t, db, "", "Parent")
+	child := job.MustAdd(t, db, parent, "Open child")
+	db.Close()
+
+	_, _, err := runCLI(t, dbFile, "--as", "alice", "cancel", parent, "--reason", "pivot")
+	if err == nil {
+		t.Fatal("expected error canceling a parent with an open child without --cascade")
+	}
+	if !strings.Contains(err.Error(), "--cascade") {
+		t.Errorf("error should name --cascade: %v", err)
+	}
+	if !strings.Contains(err.Error(), child) {
+		t.Errorf("error should name the open child %s: %v", child, err)
+	}
+
+	db = openTestDB(t, dbFile)
+	if p := job.MustGet(t, db, parent); p.Status == "canceled" {
+		t.Errorf("parent should not have been canceled")
+	}
+	if c := job.MustGet(t, db, child); c.Status == "canceled" {
+		t.Errorf("child should not have been canceled")
+	}
+}
+
+func TestCancel_RefusesGrandparentWithOpenDescendant_WithoutCascade(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	gp := job.MustAdd(t, db, "", "Grandparent")
+	p := job.MustAdd(t, db, gp, "Parent")
+	_ = job.MustAdd(t, db, p, "GC")
+	db.Close()
+
+	_, _, err := runCLI(t, dbFile, "--as", "alice", "cancel", gp, "--reason", "pivot")
+	if err == nil {
+		t.Fatal("expected error canceling a grandparent with an open descendant without --cascade")
+	}
+	if !strings.Contains(err.Error(), "--cascade") {
+		t.Errorf("error should name --cascade: %v", err)
+	}
+}
+
+func TestCancel_MultiID_OpenChildRefusal_IsAtomic(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	a := job.MustAdd(t, db, "", "A")
+	parent := job.MustAdd(t, db, "", "Parent")
+	_ = job.MustAdd(t, db, parent, "Open child")
+	db.Close()
+
+	_, _, err := runCLI(t, dbFile, "--as", "alice", "cancel", a, parent, "--reason", "pivot")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	db = openTestDB(t, dbFile)
+	if got := job.MustGet(t, db, a); got.Status == "canceled" {
+		t.Errorf("%s should not have been canceled; refusal on %s must fail the whole call", a, parent)
+	}
+}
+
+func TestCancel_AllowsParent_WhenCascadeGiven(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	parent := job.MustAdd(t, db, "", "Parent")
+	child := job.MustAdd(t, db, parent, "Open child")
+	db.Close()
+
+	if _, _, err := runCLI(t, dbFile, "--as", "alice", "cancel", parent, "--reason", "pivot", "--cascade"); err != nil {
+		t.Fatalf("cancel --cascade: %v", err)
+	}
+
+	db = openTestDB(t, dbFile)
+	if p := job.MustGet(t, db, parent); p.Status != "canceled" {
+		t.Errorf("parent status = %q, want canceled", p.Status)
+	}
+	if c := job.MustGet(t, db, child); c.Status != "canceled" {
+		t.Errorf("child status = %q, want canceled", c.Status)
+	}
+}
+
+func TestCancel_AllowsParent_WhenChildrenAlreadyClosed(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	parent := job.MustAdd(t, db, "", "Parent")
+	child := job.MustAdd(t, db, parent, "Child")
+	db.Close()
+
+	// Closing the only child auto-closes the parent (leaf-frontier cascade),
+	// so reopen it to exercise "cancel a parent whose children are already
+	// closed but the parent itself is still open" — the case the refusal
+	// must not block.
+	db = openTestDB(t, dbFile)
+	job.MustDone(t, db, child)
+	if _, err := job.RunReopen(db, parent, false, job.TestActor); err != nil {
+		t.Fatalf("RunReopen: %v", err)
+	}
+	db.Close()
+
+	if _, _, err := runCLI(t, dbFile, "--as", "alice", "cancel", parent, "--reason", "no longer needed"); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+
+	db = openTestDB(t, dbFile)
+	if p := job.MustGet(t, db, parent); p.Status != "canceled" {
+		t.Errorf("parent status = %q, want canceled", p.Status)
+	}
+}
+
+func TestCancel_IssueRoot_RefusesWithOpenIssue_WithoutCascade(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	root, err := job.RunAddKind(db, "", "Bugs", "", "", nil, job.TestActor, job.KindIssue)
+	if err != nil {
+		t.Fatalf("RunAddKind: %v", err)
+	}
+	bug := job.MustAdd(t, db, root.ShortID, "Flaky test")
+	db.Close()
+
+	_, _, err = runCLI(t, dbFile, "--as", "alice", "cancel", root.ShortID, "--reason", "closing shop")
+	if err == nil {
+		t.Fatal("expected error canceling an issue root with an open issue without --cascade")
+	}
+	if !strings.Contains(err.Error(), "--cascade") {
+		t.Errorf("error should name --cascade: %v", err)
+	}
+
+	db = openTestDB(t, dbFile)
+	if got := job.MustGet(t, db, root.ShortID); got.Status == "canceled" {
+		t.Errorf("issue root should not have been canceled")
+	}
+	if got := job.MustGet(t, db, bug); got.Status == "canceled" {
+		t.Errorf("open issue should not have been canceled")
+	}
+}
+
+func TestCancel_IssueRoot_Cascade_ClosesOpenIssues(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	root, err := job.RunAddKind(db, "", "Bugs", "", "", nil, job.TestActor, job.KindIssue)
+	if err != nil {
+		t.Fatalf("RunAddKind: %v", err)
+	}
+	bug := job.MustAdd(t, db, root.ShortID, "Flaky test")
+	db.Close()
+
+	if _, _, err := runCLI(t, dbFile, "--as", "alice", "cancel", root.ShortID, "--reason", "closing shop", "--cascade"); err != nil {
+		t.Fatalf("cancel --cascade: %v", err)
+	}
+
+	db = openTestDB(t, dbFile)
+	if got := job.MustGet(t, db, root.ShortID); got.Status != "canceled" {
+		t.Errorf("issue root status = %q, want canceled", got.Status)
+	}
+	if got := job.MustGet(t, db, bug); got.Status != "canceled" {
+		t.Errorf("issue status = %q, want canceled", got.Status)
+	}
+}
+
 func TestCancel_Cascade_ClosesOpenDescendants(t *testing.T) {
 	dbFile := setupCLI(t)
 	db := openTestDB(t, dbFile)
