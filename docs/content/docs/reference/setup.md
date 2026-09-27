@@ -3,7 +3,7 @@ title: Setup
 weight: 1
 ---
 
-The verbs that bring a store into existence, govern who is allowed to write to it, and put one back together: `init`, `gitignore`, `identity`, `replicas`, `replica rename`, `schema`, `merge`, `rebuild` and `rekey`. Only the last three touch tasks, and only to rebuild them from the log or reconcile two copies of the same ones. [The store](../../concepts/the-store/) is the model these last three assume.
+The verbs that bring a store into existence, govern who is allowed to write to it, and put one back together: `init`, `gitignore`, `identity`, `replicas`, `replica rename`, `schema`, `merge`, `rebuild`, `rekey` and `version`. Only `merge`, `rebuild` and `rekey` touch tasks, and only to rebuild them from the log or reconcile two copies of the same ones. [The store](../../concepts/the-store/) is the model those three assume.
 
 ## `init`
 
@@ -183,3 +183,18 @@ Task ids are six random base62 characters minted locally, so two machines workin
 `rekey` mints a fresh id for the named replica's task and records a `rekeyed` event in this replica's log. Every machine that pulls the log applies the same rename, so nobody decides twice. The **earlier** task keeps the id — it is the one the existing notes point at — and the log names both, so a reader can tell what happened.
 
 It reads `.jobs/log` directly rather than the cache, since the cache is what refused to build, and rebuilds when it is done. Commit `.jobs/log` afterwards to carry the rename to the other machine.
+
+## `version`
+
+Prints the module version and the commit this binary was built from.
+
+```sh
+job version
+job --version    # same line, top-level flag
+```
+
+```text
+job v0.0.0-20260902142258-9b888be508f9 (commit 9b888be, 2026-09-02T14:22:58Z)
+```
+
+`modified` is appended when the checkout that built the binary had uncommitted changes. This is the fastest way to tell whether a `make install` on another machine actually took, or whether `PATH` is still pointing at a stale binary. No database, no `--as`.

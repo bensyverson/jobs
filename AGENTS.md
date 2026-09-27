@@ -6,8 +6,7 @@ You are working on Jobs, a hierarchical task manager for the CLI, backed by an e
 
 ## Documentation
 
-- [docs/content/docs/](docs/content/docs/) — the published documentation site (Hugo); `make docs` serves it locally
-- [DOCS.md](DOCS.md) — the full CLI reference; the fastest way to learn what a command does
+- [docs/content/docs/](docs/content/docs/) — the published documentation site (Hugo); `make docs` serves it locally. [reference/](docs/content/docs/reference/) is the full CLI reference — the fastest way to learn what a command does.
 - [README.md](README.md) — what Jobs is and a quick start, written for humans
 - [DESIGN.md](DESIGN.md) — the dashboard's design system: tokens, type scale, component specs
 - [project/](project/) — dated design documents and agent-feedback reports; [project/gotchas.md](project/gotchas.md) holds project traps and rule feedback

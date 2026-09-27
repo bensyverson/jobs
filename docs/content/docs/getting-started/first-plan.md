@@ -70,7 +70,7 @@ AIs0dP  Write the handler
 oBFdSx  Wire it into the router
 ```
 
-The six-character ids are stable and case-sensitive. Use them anywhere a verb takes `<id>`.
+The six-character ids are stable and case-sensitive. Use them anywhere a verb takes `<id>`. (Tasks created before 2026-09-01 kept the five-character ids they were minted with; either length is an exact match, never a fuzzy one.)
 
 ## 4. Status
 

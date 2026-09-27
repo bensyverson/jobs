@@ -34,6 +34,10 @@ Number keys jump between the tabs in header order (`1` Home, `2` Plan, `3` Issue
 
 Two auxiliary pages — `/tasks/{id}` (single task with peek view at `/tasks/{id}/peek`) and `/search` — round out the click paths but aren't usually entry points. The task page also carries the [found-in](../concepts/found-in/) reference in both directions: `Found in` links the task that surfaced this one, and `Surfaced` lists the issues this task produced; the peek sheet shows `Found in` only.
 
+### Home's task map
+
+Below the progress chart, Home draws a **dependency-flow mini-graph**: one line per parent whose subtree contains active or imminent work, rendered as a subway-system map — lines and stations — rather than a general node-and-edge layout. Two or more lines join at their lowest common ancestor. A closure marker (`⊘`) sits on an edge running into a sequence-blocked line; in-gap `…` dots mark a jump between two visible windows that aren't adjacent; and a trailing `(+N)` pill summarizes the siblings that fall outside the focal task's window instead of drawing every one of them. See [the design note](https://github.com/bensyverson/jobs/blob/main/project/2026-04-25-graph-clarification.md) for the reasoning behind the layout.
+
 ### Home's progress chart
 
 Home opens with a **Progress** panel: how the work has gone over a range, rather than what happened in the last few minutes. It shows one chart at a time — `Burn-up · Activity` in its header switches between them (`?chart=activity`; the burn-up is the default).
