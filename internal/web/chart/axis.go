@@ -43,6 +43,39 @@ const (
 	// edgeAnchorPct is how close to an edge a label must sit before it
 	// anchors inward so it stays inside the plot.
 	edgeAnchorPct = 4.0
+
+	// axisPlotFloorPx is the narrowest rendered plot width this axis
+	// must never crowd at. LayoutAxis runs server-side, before any
+	// browser exists to ask, so it cannot know the width it will
+	// actually be stretched to — the viewBox is fixed and CSS scales
+	// the plot to fill whatever's there (chart.go's package doc).
+	// Rather than guess, it reasons about the narrowest phone this
+	// dashboard is checked at (a 390px viewport; DESIGN.md names no
+	// narrower floor) and picks ticks that never collide there; a wider
+	// viewport only gains clearance; it never loses it, because
+	// nothing below the panel's 720px breakpoint is percentage-based.
+	//
+	// Measured with `sleepy query --selector ".c-burnup" --size
+	// 390x844` against the chart-panel preview's one-sample state:
+	// the plot is 236px wide there. That is 390px minus the panel's
+	// fixed chrome (154px): the page container's padding (24px ×2),
+	// the panel's border (1px ×2) and inner padding (12px ×2 at this
+	// width), the column gap (8px) and the end-label column at its
+	// phone width (72px) — all fixed pixel tokens, none of them
+	// percentage-based, so the same 154px chrome is true for every
+	// viewport at or under 720px, only the plot's 1fr share changes.
+	axisPlotFloorPx = 236.0
+
+	// axisCharPx is --font-mono at --font-data-id-size's fixed
+	// advance width — a monospace face renders every character the
+	// same width — measured the same way against two label lengths:
+	// 34.02px / 5 chars ("17:00") and 20.41px / 3 chars both give
+	// 6.80px.
+	axisCharPx = 6.803
+
+	// axisLabelGapPx is the least clearance kept between two labels'
+	// boxes, so a passing pair never renders edge-to-edge.
+	axisLabelGapPx = 4.0
 )
 
 // tickUnit is one candidate spacing for axis ticks, finest first.
@@ -112,23 +145,29 @@ func clockLabel(t time.Time) string {
 }
 
 // LayoutAxis picks the finest calendar unit that puts at most maxTicks
-// ticks inside rep's window, in loc's calendar, and places each import
-// marker that falls inside it.
+// ticks inside rep's window, in loc's calendar, whose labels also fit
+// without colliding at axisPlotFloorPx, and places each import marker
+// that falls inside it.
 func LayoutAxis(rep job.Report, loc *time.Location) Axis {
 	var a Axis
 	since, until := rep.Window.Since.In(loc), rep.Window.Until.In(loc)
 	sc := newTimeScale(rep.Window)
 	if until.After(since) {
+		var coarsest []Tick // the sparsest candidate tried, in case none fit cleanly
 		for _, u := range tickUnits {
-			ticks := unitTicks(u, since, until)
-			if len(ticks) > maxTicks {
+			times := unitTicks(u, since, until)
+			if len(times) > maxTicks {
 				continue
 			}
-			for _, t := range ticks {
-				p := sc.frac(t) * 100
-				a.Ticks = append(a.Ticks, Tick{X: fmtPct(p), Label: u.label(t), Anchor: anchorFor(p)})
+			cand := labelTicks(sc, u, times)
+			coarsest = cand
+			if ticksFit(cand) {
+				a.Ticks = cand
+				break
 			}
-			break
+		}
+		if a.Ticks == nil {
+			a.Ticks = coarsest
 		}
 	}
 	for _, m := range rep.Imports {
@@ -168,5 +207,47 @@ func anchorFor(p float64) Anchor {
 		return AnchorEnd
 	default:
 		return AnchorMiddle
+	}
+}
+
+// labelTicks places times on sc's scale as labelled, anchored ticks.
+func labelTicks(sc timeScale, u tickUnit, times []time.Time) []Tick {
+	ticks := make([]Tick, len(times))
+	for i, t := range times {
+		p := sc.frac(t) * 100
+		ticks[i] = Tick{X: fmtPct(p), Label: u.label(t), Anchor: anchorFor(p)}
+	}
+	return ticks
+}
+
+// ticksFit reports whether ticks' labels sit clear of one another,
+// rendered at axisPlotFloorPx — the narrowest width this axis must
+// support (axisPlotFloorPx's doc comment). Ticks are already ordered
+// left to right, so only adjacent pairs can possibly overlap.
+func ticksFit(ticks []Tick) bool {
+	for i := 1; i < len(ticks); i++ {
+		_, prevHi := labelSpanPx(ticks[i-1])
+		lo, _ := labelSpanPx(ticks[i])
+		if lo < prevHi+axisLabelGapPx {
+			return false
+		}
+	}
+	return true
+}
+
+// labelSpanPx is where tk's label sits along the plot at
+// axisPlotFloorPx, in px from the plot's left edge — start grows
+// right from x, end grows left into x, middle straddles it, the way
+// SVG's text-anchor lays glyphs out.
+func labelSpanPx(tk Tick) (lo, hi float64) {
+	x := pct(tk.X) / 100 * axisPlotFloorPx
+	w := float64(len([]rune(tk.Label))) * axisCharPx
+	switch tk.Anchor {
+	case AnchorStart:
+		return x, x + w
+	case AnchorEnd:
+		return x - w, x
+	default:
+		return x - w/2, x + w/2
 	}
 }
