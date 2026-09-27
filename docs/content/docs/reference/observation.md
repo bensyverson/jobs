@@ -89,7 +89,13 @@ Store: replica 6oDqmc "ben-mbp:~/src/healthz" · 2 log files, 10 events · cache
 
 `cache rebuilt on open` means a log file grew — usually a `git pull` — and `.jobs.db` was replayed from `.jobs/log` before this command ran. See [The store](../../concepts/the-store/).
 
-`--format=json` mirrors the human output's structure. Forest scope returns `{identity, counts, last_activity_unix, roots, next, focus, stale, decisions, issues, store}`, where `store` is `{replica, label, files, events, cache}`; `roots` lists task-tree roots only, and `issues` is `{open, claimed, next}` shaped like `next` — `null` when there is no issue-tree root. Subtree scope swaps the preamble for `{target, children, …}`. See [the JSON output reference](../../machine-interface/json-output/) for the per-field shape.
+Every run also scans the whole store for a deadlock — a loop in the [wait graph](../../concepts/blockers/#cycle-detection) that `block add` and `import` refuse to create today, but that an older store may already hold. Each distinct loop found gets its own `Deadlock:` line, naming the loop and which `block remove` breaks it, in both the global and the scoped view — a deadlock is a whole-store bug, not something a subtree view should hide:
+
+```text
+Deadlock: B blocked by A, A blocked by B — fix: job block remove B by A
+```
+
+`--format=json` mirrors the human output's structure. Forest scope returns `{identity, counts, last_activity_unix, roots, next, focus, stale, decisions, issues, deadlocks, store}`, where `store` is `{replica, label, files, events, cache}`; `roots` lists task-tree roots only, `issues` is `{open, claimed, next}` shaped like `next` — `null` when there is no issue-tree root — and `deadlocks` is an array of `{chain, blocked, blocker, fix}`, empty when the store is clean. Subtree scope swaps the preamble for `{target, children, …}` but keeps `deadlocks` whole-store. See [the JSON output reference](../../machine-interface/json-output/) for the per-field shape.
 
 `summary` is a deprecated alias and emits a stderr notice on every call.
 

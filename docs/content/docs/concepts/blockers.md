@@ -48,6 +48,14 @@ The reverse — a parent blocked by its own descendant — is allowed. It adds n
 
 [`import`](../../plan-grammar/) runs the same check over a whole plan. Refusal is the entire transaction's outcome — no partial application.
 
+These checks only stop a *new* loop from being written. A store populated before they existed can already hold one — [`status`](../../reference/observation/#status) scans the whole graph on every run and reports each loop it finds, in the same wording as the refusal above, plus which `block remove` breaks it:
+
+```text
+Deadlock: B blocked by A, A blocked by B — fix: job block remove B by A
+```
+
+There is no automatic repair; `block remove` is a decision about which edge was wrong, not something the tool can guess.
+
 ## Auto-unblock on done
 
 When a task is marked `done`, every edge `<other> blockedBy <this>` is removed automatically. The downstream task transitions back to `available` if no other blockers remain, and the next `next` walk will surface it.

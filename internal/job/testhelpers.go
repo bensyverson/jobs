@@ -66,3 +66,21 @@ func MustClaim(t *testing.T, db *sql.DB, shortID, duration string) {
 		t.Fatalf("claim task %s: %v", shortID, err)
 	}
 }
+
+// SeedBlockEdge writes a blocks row directly, the same INSERT applyBlocked
+// performs when replaying a `blocked` event — skipping RunBlockMany's cycle
+// check entirely. block add and import both refuse an edge that would close
+// a loop in the wait graph, so a healthy store can never reach one through
+// the CLI; this is how a test puts one in a store anyway, standing in for a
+// database written before that check existed.
+func SeedBlockEdge(t *testing.T, db *sql.DB, blockedShortID, blockerShortID string) {
+	t.Helper()
+	blocked := MustGet(t, db, blockedShortID)
+	blocker := MustGet(t, db, blockerShortID)
+	if _, err := db.Exec(
+		"INSERT OR IGNORE INTO blocks (blocker_id, blocked_id, created_at) VALUES (?, ?, ?)",
+		blocker.ID, blocked.ID, CurrentNowFunc().Unix(),
+	); err != nil {
+		t.Fatalf("seed block edge %s by %s: %v", blockedShortID, blockerShortID, err)
+	}
+}

@@ -219,6 +219,14 @@ func RenderStaleClaims(w io.Writer, claims []StaleClaim) {
 	}
 }
 
+// RenderDeadlocks writes one line per deadlock: the loop and the block edge
+// that would break it. Emits nothing when the list is empty.
+func RenderDeadlocks(w io.Writer, deadlocks []Deadlock) {
+	for _, d := range deadlocks {
+		fmt.Fprintf(w, "Deadlock: %s — fix: %s\n", d.Chain, d.Fix())
+	}
+}
+
 func RenderStatus(w io.Writer, s *StatusSummary) {
 	var parts []string
 	// Claimed term is scoped to the caller when HasActor, else the global

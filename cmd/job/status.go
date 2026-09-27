@@ -59,6 +59,14 @@ func newStatusCmd() *cobra.Command {
 				return err
 			}
 
+			// A deadlock is a whole-store bug, not a subtree concern: it
+			// surfaces the same way whether `status` is scoped to a
+			// subtree or not.
+			deadlocks, err := job.FindDeadlocks(db)
+			if err != nil {
+				return err
+			}
+
 			var decisions []*job.Task
 
 			if target != nil {
@@ -69,7 +77,7 @@ func newStatusCmd() *cobra.Command {
 				decisions = rollup.DecisionTasks
 
 				if format == "json" {
-					return renderStatusSubtreeJSON(out, target, rollup, stales, decisions)
+					return renderStatusSubtreeJSON(out, target, rollup, stales, decisions, deadlocks)
 				}
 
 				job.RenderSummary(out, rollup)
@@ -122,7 +130,7 @@ func newStatusCmd() *cobra.Command {
 				rollup.Issues = issues
 
 				if format == "json" {
-					return renderStatusForestJSON(out, s, rollup, stales, decisions)
+					return renderStatusForestJSON(out, s, rollup, stales, decisions, deadlocks)
 				}
 
 				job.RenderStatus(out, s)
@@ -137,6 +145,7 @@ func newStatusCmd() *cobra.Command {
 				job.RenderStaleClaims(out, stales)
 			}
 			renderDecisionTasks(out, decisions)
+			job.RenderDeadlocks(out, deadlocks)
 			return nil
 		},
 	}
@@ -152,8 +161,8 @@ func renderDecisionTasks(w io.Writer, tasks []*job.Task) {
 
 // renderStatusForestJSON emits the forest-scope (no-id) JSON shape:
 // identity + counts + last_activity_unix preamble, roots rollup, next
-// claimable leaf, stale claims, and decision tasks.
-func renderStatusForestJSON(w io.Writer, s *job.StatusSummary, rollup *job.Summary, stales []job.StaleClaim, decisions []*job.Task) error {
+// claimable leaf, stale claims, decision tasks, and deadlocks.
+func renderStatusForestJSON(w io.Writer, s *job.StatusSummary, rollup *job.Summary, stales []job.StaleClaim, decisions []*job.Task, deadlocks []job.Deadlock) error {
 	payload := map[string]any{
 		"identity": map[string]any{
 			"default": s.IdentityDefault,
@@ -173,6 +182,7 @@ func renderStatusForestJSON(w io.Writer, s *job.StatusSummary, rollup *job.Summa
 		"stale":              staleJSON(stales),
 		"decisions":          decisionsJSON(decisions),
 		"issues":             issuesJSON(rollup.Issues),
+		"deadlocks":          deadlocksJSON(deadlocks),
 	}
 	return writeJSON(w, payload)
 }
@@ -210,14 +220,17 @@ func issuesJSON(i *job.IssuesStatus) map[string]any {
 
 // renderStatusSubtreeJSON emits the subtree-scope JSON shape: the same
 // fields the human form prints when scoped to a single task, dropping
-// the DB-wide preamble (identity + counts).
-func renderStatusSubtreeJSON(w io.Writer, target *job.Task, rollup *job.Summary, stales []job.StaleClaim, decisions []*job.Task) error {
+// the DB-wide preamble (identity + counts). deadlocks is whole-store, not
+// subtree-scoped — a deadlock elsewhere is a store-wide bug, not something a
+// subtree view should hide.
+func renderStatusSubtreeJSON(w io.Writer, target *job.Task, rollup *job.Summary, stales []job.StaleClaim, decisions []*job.Task, deadlocks []job.Deadlock) error {
 	payload := map[string]any{
 		"target":    rollupRowJSON(rollup.Target),
 		"children":  rollupRowsJSON(rollup.DirectChildren),
 		"next":      nextJSON(rollup.Next),
 		"stale":     staleJSON(stales),
 		"decisions": decisionsJSON(decisions),
+		"deadlocks": deadlocksJSON(deadlocks),
 	}
 	return writeJSON(w, payload)
 }
@@ -286,6 +299,22 @@ func decisionsJSON(tasks []*job.Task) []map[string]any {
 		out = append(out, map[string]any{
 			"short_id": t.ShortID,
 			"title":    t.Title,
+		})
+	}
+	return out
+}
+
+// deadlocksJSON renders each loop findDeadlocks reports: the chain in the
+// same wording the human line uses, the block edge on it, and the `job
+// block remove` invocation that breaks it.
+func deadlocksJSON(deadlocks []job.Deadlock) []map[string]any {
+	out := make([]map[string]any, 0, len(deadlocks))
+	for _, d := range deadlocks {
+		out = append(out, map[string]any{
+			"chain":   d.Chain,
+			"blocked": d.Blocked,
+			"blocker": d.Blocker,
+			"fix":     d.Fix(),
 		})
 	}
 	return out

@@ -168,3 +168,152 @@ func (g *waitGraph) shortIDs(query, arg string) ([]string, error) {
 func circularError(prefix, chain string) error {
 	return fmt.Errorf("%s: would create a circular dependency: %s", prefix, chain)
 }
+
+// Deadlock is one closed loop already sitting in the wait graph: a chain of
+// open tasks that can never close because each waits on the next. block add
+// and import both refuse to write an edge that would create one, but a store
+// written before that check landed may already hold one — FindDeadlocks is
+// how it surfaces after the fact.
+type Deadlock struct {
+	// Chain names the loop in the same wording circularError/blockCycle use,
+	// e.g. "b blocked by a, a blocked by b".
+	Chain string
+	// Blocked and Blocker are one "blocked by" edge on the loop — a loop
+	// always has at least one, since containment alone (a parent waiting on
+	// an open child) cannot cycle on its own.
+	Blocked string
+	Blocker string
+}
+
+// Fix is the `job block remove` invocation that breaks this loop.
+func (d Deadlock) Fix() string {
+	return fmt.Sprintf("job block remove %s by %s", d.Blocked, d.Blocker)
+}
+
+// FindDeadlocks scans every open task's wait edges for a cycle: one DFS over
+// the whole graph, coloring each task white/gray/black. A back edge to a
+// gray ancestor closes a loop, which is read straight off the DFS stack.
+// Once a node goes black its edges are never walked again, so the whole scan
+// costs one pass over the open tasks and their blocks/containment edges —
+// the same successors() that blockCycle uses for a single new edge, run from
+// every node instead of just one.
+//
+// A loop found this way is reported exactly once: a specific edge is only
+// ever examined during its "from" node's single visit, so the same loop
+// cannot surface twice from two different starting nodes. It is still
+// rotated to start at its lexicographically smallest node before rendering,
+// so the wording never depends on scan order.
+func FindDeadlocks(tx dbtx) ([]Deadlock, error) {
+	g := newWaitGraph(tx)
+
+	rows, err := tx.Query(`SELECT short_id FROM tasks WHERE ` + openChildFilter("") + ` ORDER BY short_id`)
+	if err != nil {
+		return nil, err
+	}
+	var nodes []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		nodes = append(nodes, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	const (
+		white = iota
+		gray
+		black
+	)
+	color := make(map[string]int, len(nodes))
+	var onStack []string
+	var edgeStack []waitEdge // edgeStack[i] is the edge from onStack[i] to onStack[i+1]
+	seen := map[string]bool{}
+	var out []Deadlock
+
+	var visit func(node string) error
+	visit = func(node string) error {
+		color[node] = gray
+		onStack = append(onStack, node)
+		edges, err := g.successors(node)
+		if err != nil {
+			return err
+		}
+		for _, e := range edges {
+			switch color[e.to] {
+			case white:
+				edgeStack = append(edgeStack, e)
+				if err := visit(e.to); err != nil {
+					return err
+				}
+				edgeStack = edgeStack[:len(edgeStack)-1]
+			case gray:
+				d := renderDeadlock(onStack, edgeStack, e)
+				if !seen[d.Chain] {
+					seen[d.Chain] = true
+					out = append(out, d)
+				}
+			}
+		}
+		onStack = onStack[:len(onStack)-1]
+		color[node] = black
+		return nil
+	}
+
+	for _, n := range nodes {
+		if color[n] == white {
+			if err := visit(n); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return out, nil
+}
+
+// renderDeadlock turns a DFS back edge into a Deadlock. closing.to is the
+// gray ancestor the current top of onStack points back to; onStack[idx:]
+// plus closing are the loop's nodes and edges, in stack order. The result is
+// rotated to start at the loop's lexicographically smallest node so the same
+// loop always renders identically regardless of which node the scan reached
+// it from first.
+func renderDeadlock(onStack []string, edgeStack []waitEdge, closing waitEdge) Deadlock {
+	idx := len(onStack) - 1
+	for onStack[idx] != closing.to {
+		idx--
+	}
+	steps := make([]waitStep, 0, len(onStack)-idx)
+	for i := idx; i < len(onStack)-1; i++ {
+		steps = append(steps, waitStep{from: onStack[i], waitEdge: edgeStack[i]})
+	}
+	steps = append(steps, waitStep{from: onStack[len(onStack)-1], waitEdge: closing})
+
+	minAt := 0
+	for i, s := range steps {
+		if s.from < steps[minAt].from {
+			minAt = i
+		}
+	}
+	rotated := make([]waitStep, len(steps))
+	for i := range steps {
+		rotated[i] = steps[(minAt+i)%len(steps)]
+	}
+
+	parts := make([]string, len(rotated))
+	var blocked, blocker string
+	for i, s := range rotated {
+		verb := "blocked by"
+		if s.kind == waitParentOf {
+			verb = "parent of"
+		}
+		parts[i] = s.from + " " + verb + " " + s.to
+		if blocked == "" && s.kind == waitBlockedBy {
+			blocked, blocker = s.from, s.to
+		}
+	}
+	return Deadlock{Chain: strings.Join(parts, ", "), Blocked: blocked, Blocker: blocker}
+}
