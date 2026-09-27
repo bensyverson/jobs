@@ -9,7 +9,7 @@
      preserveAspectRatio="none" and non-scaling strokes. Text that must
      not stretch is positioned in percent in an outer <svg> with no
      viewBox, where user units are CSS pixels. No inline styles. */ -}}
-{{define "chart_panel"}}<chart-panel class="c-chart-panel" data-home-panel{{if .Pending}} aria-busy="true"{{end}}>
+{{define "chart_panel"}}<chart-panel class="c-chart-panel" data-home-panel{{if .Pending}} aria-busy="true"{{end}}{{with .HoverAt}} data-hover-at="{{.}}" data-hover-chart="{{$.HoverChart}}"{{end}}{{if .Sliding}} data-chart-anim="slide"{{end}}>
 <section class="c-panel c-chart-panel__frame" aria-labelledby="{{.ID}}-progress">
   <div class="c-panel__header c-chart-panel__header">
     <h2 id="{{.ID}}-progress" class="c-panel__title">Progress</h2>
@@ -39,6 +39,7 @@
           <path class="c-burnup__scope" d="{{.Burnup.ScopePath}}" vector-effect="non-scaling-stroke" />
           <path class="c-burnup__done" d="{{.Burnup.DonePath}}" vector-effect="non-scaling-stroke" />
         </svg>
+        <line class="c-chart-cross c-chart-cross--burnup" x1="0" x2="0" y1="0" y2="100%" />
         <circle class="c-burnup__dot c-burnup__dot--scope" cx="{{.Burnup.ScopeDot.X}}" cy="{{.Burnup.ScopeDot.Y}}" r="2.5" />
         <circle class="c-burnup__dot c-burnup__dot--done" cx="{{.Burnup.DoneDot.X}}" cy="{{.Burnup.DoneDot.Y}}" r="3" />
         {{- range .Burnup.Gridlines}}
@@ -56,18 +57,23 @@
         </span>
         <svg class="c-burnup-ends__labels">
           {{- with .Burnup.Created}}
+          <g class="c-burnup-ends__block" data-end="created">
           <text class="c-burnup-ends__value c-burnup-ends__value--created" x="0" y="{{.Y}}" dy="7">{{.Text}}</text>
           <text class="c-burnup-ends__word" x="1" y="{{.Y}}" dy="21">{{.Word}}</text>
           <text class="c-burnup-ends__total" x="1" y="{{.Y}}" dy="34">{{.Total}}</text>
+          </g>
           {{- end}}
           {{- with .Burnup.Done}}
+          <g class="c-burnup-ends__block" data-end="done">
           <text class="c-burnup-ends__value c-burnup-ends__value--done" x="0" y="{{.Y}}" dy="7">{{.Text}}</text>
           <text class="c-burnup-ends__word" x="1" y="{{.Y}}" dy="21">{{.Word}}</text>
           <text class="c-burnup-ends__total" x="1" y="{{.Y}}" dy="34">{{.Total}}</text>
+          </g>
           {{- end}}
         </svg>
       </div>
       {{template "chart_axis" .BurnupAxis}}
+      {{template "chart_tip"}}
       <div class="sr-only"><table>
         <caption>Burn-up samples over {{.RangePhrase}}, state as of each time; in this window {{.Burnup.Created.Value}} created, {{.Burnup.Done.Value}} done and {{.Burnup.Canceled}} canceled</caption>
         <thead><tr><th scope="col">Time</th><th scope="col">Scope</th><th scope="col">Done</th><th scope="col">Open</th><th scope="col">Blocked</th><th scope="col">Canceled</th></tr></thead>
@@ -87,18 +93,20 @@
         {{- range .Activity.Bars}}{{$bar := .}}{{range .Segments}}
         <rect class="c-activity__seg c-activity__seg--{{.Kind}}" x="{{$bar.Left}}" width="{{$bar.Width}}" y="{{.Top}}" height="{{.Height}}" />
         {{- end}}{{end}}
+        <line class="c-chart-cross c-chart-cross--activity" x1="0" x2="0" y1="0" y2="100" vector-effect="non-scaling-stroke" />
       </svg>
       {{- end}}
       <ul class="c-activity-legend" aria-label="Activity totals">
-        <li><span class="c-activity__swatch c-activity__swatch--created"></span>{{count .Activity.Created}} created</li>
-        <li><span class="c-activity__swatch c-activity__swatch--claimed"></span>{{count .Activity.Claimed}} claimed</li>
-        <li><span class="c-activity__swatch c-activity__swatch--done"></span>{{count .Activity.Done}} done</li>
-        <li><span class="c-activity__swatch c-activity__swatch--blocked"></span>{{count .Activity.Blocked}} blocked</li>
+        <li><span class="c-activity__swatch c-activity__swatch--created"></span><span class="c-activity-legend__count" data-kind="created">{{count .Activity.Created}}</span> created</li>
+        <li><span class="c-activity__swatch c-activity__swatch--claimed"></span><span class="c-activity-legend__count" data-kind="claimed">{{count .Activity.Claimed}}</span> claimed</li>
+        <li><span class="c-activity__swatch c-activity__swatch--done"></span><span class="c-activity-legend__count" data-kind="done">{{count .Activity.Done}}</span> done</li>
+        <li><span class="c-activity__swatch c-activity__swatch--blocked"></span><span class="c-activity-legend__count" data-kind="blocked">{{count .Activity.Blocked}}</span> blocked</li>
         {{- with .Axis.Imports}}
         <li class="c-activity-legend__imports"><span class="c-activity__swatch c-activity__swatch--import"></span>{{len .}} imported</li>
         {{- end}}
       </ul>
       {{template "chart_axis" .ActivityAxis}}
+      {{template "chart_tip"}}
       <div class="sr-only"><table>
         <caption>Leaf tasks created, claimed, done and blocked per bucket over {{.RangePhrase}}</caption>
         <thead><tr><th scope="col">Bucket start</th><th scope="col">Created</th><th scope="col">Claimed</th><th scope="col">Done</th><th scope="col">Blocked</th></tr></thead>
@@ -114,6 +122,7 @@
        JSON-encodes it in this script context and escapes <, > and &,
        so a title holding "</script>" cannot close the element. */}}
   <script type="application/json" class="c-chart-panel__data">{{.Data}}</script>
+  <p class="sr-only c-chart-panel__live" aria-live="polite"></p>
   {{- else}}
   <p class="c-chart-panel__message{{if eq .State "error"}} c-chart-panel__message--error{{end}}">{{.Message}}</p>
   {{- end}}
@@ -143,3 +152,11 @@
         <a class="c-chart-axis__import-link" href="{{.Href}}" data-peek aria-label="{{.Label}}"{{if not $reachable}} tabindex="-1"{{end}}><title>{{.Label}}</title><svg class="c-chart-axis__import-mark" x="{{.X}}" overflow="visible"><rect class="c-chart-axis__import-hit" x="-6" y="-3" width="12" height="15" /><line class="c-chart-axis__import" x1="0" x2="0" y1="0" y2="7" /><circle class="c-chart-axis__import-head" cx="0" cy="8.5" r="2" /></svg></a>
         {{- end}}
       </svg>{{end}}
+
+
+{{- /* chart_tip — the crosshair's tooltip, one per chart and empty: the
+     script fills the three lines and shows the one over the chart the
+     pointer is on, docked on the side away from it (data-side). Hidden
+     from assistive tech, which hears the same words once, from the
+     panel's live region, when the keyboard moves the crosshair. */ -}}
+{{define "chart_tip"}}<div class="c-chart-tip" data-side="end" aria-hidden="true"><p class="c-chart-tip__when"></p><p class="c-chart-tip__events"></p><p class="c-chart-tip__state"></p></div>{{end}}

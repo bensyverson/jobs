@@ -42,7 +42,7 @@ func fetchPreview(t *testing.T, component, state string) (int, string) {
 	return w.Code, w.Body.String()
 }
 
-var chartPanelStates = []string{"empty", "hour", "single-day", "imports", "one-sample", "reopen-dip", "fitted-week", "flat", "crowded", "mostly-canceled", "parked", "fetching", "error"}
+var chartPanelStates = []string{"empty", "hour", "single-day", "imports", "one-sample", "reopen-dip", "fitted-week", "flat", "crowded", "mostly-canceled", "parked", "fetching", "hover", "hover-activity", "sliding", "error"}
 
 func TestPreviewIndex_ListsTheChartPanel(t *testing.T) {
 	code, body := fetchPreview(t, "", "")
@@ -165,6 +165,21 @@ func TestPreviewStates_HistogramSumsToTheWindowFigures(t *testing.T) {
 func TestPreviewState_FetchingIsBusy(t *testing.T) {
 	_, body := fetchPreview(t, "chart-panel", "fetching")
 	mustContain(t, body, `aria-busy="true"`)
+}
+
+// The hover and the slide are reachable only through the script, so
+// their states declare the attributes it sets (the web rules' catalog
+// convention); the script upgrades them on load.
+func TestPreviewState_HoverDeclaresTheScriptsAttributes(t *testing.T) {
+	_, body := fetchPreview(t, "chart-panel", "hover")
+	mustContainAll(t, body, `data-hover-at="`, `data-hover-chart="burnup"`)
+	_, body = fetchPreview(t, "chart-panel", "hover-activity")
+	mustContainAll(t, body, `data-hover-at="`, `data-hover-chart="activity"`)
+}
+
+func TestPreviewState_SlidingDeclaresTheScriptsAttribute(t *testing.T) {
+	_, body := fetchPreview(t, "chart-panel", "sliding")
+	mustContain(t, body, `data-chart-anim="slide"`)
 }
 
 func TestPreview_UnknownComponentOrStateIs404(t *testing.T) {

@@ -57,6 +57,12 @@ func chartPanelPreview() previewComponent {
 				"Rendered for ?at=: the right edge of the axis reads the time at the cursor instead of Now, and the range tabs keep the cursor."),
 			previewPanelState("fetching", "Fetching", job.Range14D, reopenDipReport(), nil, "", true,
 				"The script sets aria-busy while it fetches the panel for a new range or scrubber position; the old panel dims instead of blanking."),
+			hoverPanelState("hover", "Hovering the burn-up", job.RangeDay, singleDayReport(), previewUntil.Add(-5*time.Hour), ChartBurnup,
+				"The crosshair at 12:00 on 1D, declared with the attributes the script sets: both charts carry the line, the dots and end labels move to that sample and read the figures of the day up to it, the legend counts to that hour, and the tooltip docks away from the pointer."),
+			hoverPanelState("hover-activity", "Hovering the histogram", job.Range14D, reopenDipReport(), previewUntil.Add(-108*time.Hour), ChartActivity,
+				"The pointer over the histogram late in 14D, during the reopen dip: the tooltip moves over the histogram and docks left, and the done figure up to that day sits below the window figure."),
+			slidingPanelState("sliding", "Switching range", job.Range7D, fittedWeekReport(),
+				"Mid-flight between two ranges (data-chart-anim, as the script sets it): the histogram, the end labels and the axis and gridline labels fade while the burn-up slides, and come back with the new fragment. The in-between frames of the burn-up need both islands, so this state shows the lines of the destination."),
 			previewPanelState("error", "Report unavailable", job.Range7D, job.Report{Schema: job.ReportSchema}, errPreviewReport, "", false,
 				"BuildReport failed (here: the store could not be read). The selector stays usable and the message names the cause."),
 		},
@@ -81,6 +87,25 @@ func previewPanelState(slug, name string, key job.RangeKey, rep job.Report, err 
 	p := buildChartPanel("preview-"+slug, rep, err, homePanelNav(q), end, time.UTC)
 	p.Pending = pending
 	return previewState{Slug: slug, Name: name, Note: note, Payload: p}
+}
+
+// hoverPanelState is a drawn state with the crosshair declared at a
+// moment over one chart — the attributes the script sets on a hover.
+func hoverPanelState(slug, name string, key job.RangeKey, rep job.Report, at time.Time, over ChartKind, note string) previewState {
+	s := previewPanelState(slug, name, key, rep, nil, "", false, note)
+	p := s.Payload.(ChartPanel)
+	p.HoverAt, p.HoverChart = at.UnixMilli(), over
+	s.Payload = p
+	return s
+}
+
+// slidingPanelState is a drawn state declared mid-slide.
+func slidingPanelState(slug, name string, key job.RangeKey, rep job.Report, note string) previewState {
+	s := previewPanelState(slug, name, key, rep, nil, "", false, note)
+	p := s.Payload.(ChartPanel)
+	p.Sliding = true
+	s.Payload = p
+	return s
 }
 
 // bucketPoint is one bucket's sample and activity, as a generator

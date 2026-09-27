@@ -3305,6 +3305,108 @@ a.c-graph-node__bug:focus-visible {
   stroke-width: 1.5;
 }
 
+/* --- Hover and motion (chart-panel-hover.mjs, chart-panel-slide.mjs) ---
+   The server ships the crosshair lines and tooltips hidden; the script
+   positions them with SVG attributes and sets data-* attributes on the
+   element, which is all these rules read. No script, no crosshair. */
+
+/* Once the element is upgraded the plots take the pointer: a horizontal
+   drag moves the crosshair, a vertical one still scrolls the page. */
+chart-panel:defined .c-burnup,
+chart-panel:defined svg.c-activity {
+  touch-action: pan-y;
+  cursor: crosshair;
+}
+
+.c-chart-cross {
+  display: none;
+  stroke: var(--color-on-surface-muted);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+chart-panel[data-hover-at] .c-chart-cross {
+  display: inline;
+}
+
+/* One tooltip per chart, over the top of its plot; the one over the
+   chart under the pointer shows, docked on the side away from it. */
+.c-chart-tip {
+  grid-area: plot;
+  align-self: start;
+  justify-self: end;
+  z-index: 1;
+  display: none;
+  max-width: min(17rem, 100%);
+  margin: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--color-surface-popover);
+  border: 1px solid var(--color-outline);
+  border-radius: var(--radius-md);
+  color: var(--color-on-surface-muted);
+  font-size: var(--font-data-id-size);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+.c-chart-tip[data-side="start"] {
+  justify-self: start;
+}
+
+.c-chart-tip p {
+  margin: 0;
+}
+
+.c-chart-tip p:empty {
+  display: none;
+}
+
+/* The span and the slice's events are one line each; the state at the
+   sample may wrap. */
+.c-chart-tip__when,
+.c-chart-tip__events {
+  white-space: nowrap;
+}
+
+.c-chart-tip__when {
+  color: var(--color-on-surface);
+  font-family: var(--font-mono);
+}
+
+.c-chart-tip__state {
+  color: var(--color-on-surface-dim);
+}
+
+chart-panel[data-hover-chart="burnup"] .c-chart-panel__chart--burnup .c-chart-tip,
+chart-panel[data-hover-chart="activity"] .c-chart-panel__chart--activity .c-chart-tip {
+  display: block;
+}
+
+/* The range switch: while the burn-up slides, everything that belongs
+   to one window only — the bars, the end labels, the legend, the axis
+   and gridline labels — fades out; with the new fragment it fades back
+   in. The gridlines themselves hold still. */
+.c-chart-panel :is(svg.c-activity, .c-activity-legend, .c-burnup-ends__labels, .c-burnup__grid-label, .c-chart-axis) {
+  transition: opacity var(--motion-duration-base) var(--motion-ease-out);
+}
+
+chart-panel[data-chart-anim="slide"] :is(svg.c-activity, .c-activity-legend, .c-burnup-ends__labels, .c-burnup__grid-label, .c-chart-axis) {
+  opacity: 0;
+}
+
+@starting-style {
+  chart-panel[data-chart-anim="land"] :is(svg.c-activity, .c-activity-legend, .c-burnup-ends__labels, .c-burnup__grid-label, .c-chart-axis) {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .c-chart-panel :is(svg.c-activity, .c-activity-legend, .c-burnup-ends__labels, .c-burnup__grid-label, .c-chart-axis) {
+    transition: none;
+  }
+}
+
 @media (max-width: 720px) {
   .c-chart-panel__body {
     grid-template-columns: minmax(0, 1fr);

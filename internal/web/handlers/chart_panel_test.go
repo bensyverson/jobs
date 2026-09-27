@@ -251,7 +251,7 @@ func TestChartPanelTemplate_HistogramStacksByKind(t *testing.T) {
 	mustHave(t, out,
 		`class="c-activity__seg c-activity__seg--done"`,
 		`class="c-activity__seg c-activity__seg--created"`,
-		`20 created`, `3 claimed`, `12 done`, `1 blocked`,
+		`>20</span> created`, `>3</span> claimed`, `>12</span> done`, `>1</span> blocked`,
 	)
 }
 

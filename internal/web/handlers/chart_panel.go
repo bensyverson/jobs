@@ -55,7 +55,17 @@ type ChartPanel struct {
 	RangePhrase string
 	// Pending marks a fetch in flight; the element's script sets the
 	// same aria-busy attribute while it swaps the panel.
-	Pending  bool
+	Pending bool
+	// HoverAt and HoverChart declare a crosshair: the moment (Unix ms)
+	// and the chart the pointer is over. The script sets the same
+	// data-hover-at and data-hover-chart attributes while hovering and
+	// upgrades a panel rendered with them, so the preview catalog can
+	// show the hover without a pointer. Zero is no hover.
+	HoverAt    int64
+	HoverChart ChartKind
+	// Sliding declares a range switch mid-flight: the script sets the
+	// same data-chart-anim="slide" while it slides between two islands.
+	Sliding  bool
 	Burnup   chart.Burnup
 	Activity chart.Activity
 	Axis     chart.Axis

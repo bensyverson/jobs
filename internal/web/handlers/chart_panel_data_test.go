@@ -92,5 +92,6 @@ func TestChartPanelTemplate_LegendCountsUseThousandsSeparators(t *testing.T) {
 	rep := panelReport()
 	rep.Activity[0].Created = 1153
 	out := renderPanel(t, buildChartPanel("home", rep, nil, navAt(job.Range7D), chart.EndsNow, time.UTC))
-	mustHave(t, out, `1,161 created</li>`)
+	// The count sits in its handle span (chart-panel-hover.mjs rewrites it).
+	mustHave(t, out, `>1,161</span> created</li>`)
 }

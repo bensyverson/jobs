@@ -130,3 +130,18 @@ func TestPanelData_EmptyListsAreArrays(t *testing.T) {
 		t.Errorf("JSON = %s, want empty imports and buckets as []", raw)
 	}
 }
+
+// The island names the calendar the axis reads in, so the tooltip's
+// times agree with the axis labels whatever the browser's own zone.
+func TestLayoutPanelData_CarriesTheWindowsZone(t *testing.T) {
+	rep := panelDataReport()
+	rep.Window.Timezone = "America/Chicago"
+	d := LayoutPanelData(rep, LayoutBurnup(rep, time.UTC), LayoutActivity(rep, time.UTC))
+	if d.Zone != "America/Chicago" {
+		t.Errorf("Zone = %q, want the report window's IANA name", d.Zone)
+	}
+	raw, _ := json.Marshal(d)
+	if !strings.Contains(string(raw), `"zone":"America/Chicago"`) {
+		t.Errorf("JSON lacks zone: %s", raw)
+	}
+}

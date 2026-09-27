@@ -15,6 +15,10 @@ type PanelData struct {
 	// Since and Until are the window's edges: x runs Since → Until.
 	Since int64 `json:"since"`
 	Until int64 `json:"until"`
+	// Zone is the IANA name of the calendar the axis and tables read
+	// in (the report window's Timezone), so the tooltip names moments
+	// as the axis does rather than in the browser's zone.
+	Zone string `json:"zone"`
 	// Y is the burn-up's vertical domain as drawn: Lo on the baseline,
 	// Hi at the top edge.
 	Y YDomain `json:"y"`
@@ -82,6 +86,7 @@ func LayoutPanelData(rep job.Report, b Burnup, a Activity) PanelData {
 	d := PanelData{
 		Since:   rep.Window.Since.UnixMilli(),
 		Until:   rep.Window.Until.UnixMilli(),
+		Zone:    rep.Window.Timezone,
 		Y:       YDomain{Lo: b.dom.lo, Hi: b.dom.hi},
 		Trace:   make([]TracePoint, 0, len(b.trace)),
 		Buckets: make([]BucketPoint, 0, len(rep.Activity)),

@@ -155,8 +155,12 @@ const (
 // y maps a count to a viewBox y coordinate.
 func (b Burnup) y(v int) float64 { return b.yf(float64(v)) }
 
+// The float64 conversion forbids fusing the multiply and subtract into
+// one FMA (the Go spec allows it, and arm64 does it): fused, the result
+// could differ from chart-geometry.mjs's in the last bit, and from one
+// architecture to another, which would break the shared fixture.
 func (b Burnup) yf(v float64) float64 {
-	return BurnupViewH - (v-b.dom.lo)/(b.dom.hi-b.dom.lo)*BurnupViewH
+	return BurnupViewH - float64((v-b.dom.lo)/(b.dom.hi-b.dom.lo)*BurnupViewH)
 }
 
 // fitDomain spans exactly the plotted values — scope, done and the
