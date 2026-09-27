@@ -1,5 +1,6 @@
-{{- /* Chart panel — Home's burn-up and activity histogram over one
-     range (project/2026-09-26-reporting.md). Payload: handlers.ChartPanel,
+{{- /* Chart panel — Home's burn-up or activity histogram over one
+     range, one chart at a time (project/2026-09-26-reporting.md).
+     Payload: handlers.ChartPanel,
      built from a job.Report. Rendered in the Home page, alone by
      GET /home/panel (the fragment <chart-panel> swaps in), and by the
      preview catalog.
@@ -15,12 +16,36 @@
     {{- if eq .State "chart"}}
     <span class="c-panel__meta c-chart-panel__meta">{{.Burnup.Caption}}</span>
     {{- end}}
+    <nav class="c-chart-panel__views" aria-label="Chart">
+      {{- range $i, $t := .ViewTabs}}{{if $i}}<span class="c-chart-panel__views-sep" aria-hidden="true">·</span>{{end}}<a href="{{$t.URL}}" class="c-chart-panel__view{{if $t.Active}} c-chart-panel__view--active{{end}}"{{if $t.Active}} aria-current="true"{{end}}>{{$t.Label}}</a>{{end -}}
+    </nav>
     <nav class="c-tabs c-chart-panel__ranges" aria-label="Range">
       {{- range .RangeTabs}}<a href="{{.URL}}" class="c-tab{{if .Active}} c-tab--active{{end}}"{{if .Active}} aria-current="true"{{end}}>{{.Label}}</a>{{end -}}
     </nav>
   </div>
   {{- if eq .State "chart"}}
   <div class="c-chart-panel__body">
+    {{- if .View.IsActivity}}
+    {{- if .Activity.Empty}}
+    <p class="c-activity c-activity--empty">No activity in {{.RangePhrase}}.</p>
+    {{- else}}
+    <svg class="c-activity" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img"
+         aria-label="Activity over {{.RangePhrase}}: {{.Activity.Total}} events, stacked by kind">
+      {{- range .Activity.Bars}}{{$bar := .}}{{range .Segments}}
+      <rect class="c-activity__seg c-activity__seg--{{.Kind}}" x="{{$bar.Left}}" width="{{$bar.Width}}" y="{{.Top}}" height="{{.Height}}" />
+      {{- end}}{{end}}
+    </svg>
+    {{- end}}
+    <ul class="c-activity-legend" aria-label="Activity totals">
+      <li><span class="c-activity__swatch c-activity__swatch--created"></span>{{.Activity.Created}} created</li>
+      <li><span class="c-activity__swatch c-activity__swatch--claimed"></span>{{.Activity.Claimed}} claimed</li>
+      <li><span class="c-activity__swatch c-activity__swatch--done"></span>{{.Activity.Done}} done</li>
+      <li><span class="c-activity__swatch c-activity__swatch--blocked"></span>{{.Activity.Blocked}} blocked</li>
+      {{- with .Axis.Imports}}
+      <li class="c-activity-legend__imports"><span class="c-activity__swatch c-activity__swatch--import"></span>{{len .}} imported</li>
+      {{- end}}
+    </ul>
+    {{- else}}
     <svg class="c-burnup" role="img" aria-labelledby="{{.ID}}-burnup-title {{.ID}}-burnup-desc">
       <title id="{{.ID}}-burnup-title">Burn-up over {{.RangePhrase}}: scope and done, in leaf tasks</title>
       <desc id="{{.ID}}-burnup-desc">{{.Burnup.Summary}}{{with .Axis.Imports}} {{len .}} imported plans are marked on the time axis.{{end}}</desc>
@@ -46,25 +71,7 @@
       <text class="c-burnup-ends__value c-burnup-ends__value--done" x="0" y="{{.Burnup.Done.Y}}" dy="6">{{.Burnup.Done.Text}}</text>
       <text class="c-burnup-ends__word" x="1" y="{{.Burnup.Done.Y}}" dy="22">done</text>
     </svg>
-    {{- if .Activity.Empty}}
-    <p class="c-activity c-activity--empty">No activity in {{.RangePhrase}}.</p>
-    {{- else}}
-    <svg class="c-activity" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img"
-         aria-label="Activity over {{.RangePhrase}}: {{.Activity.Total}} events, stacked by kind">
-      {{- range .Activity.Bars}}{{$bar := .}}{{range .Segments}}
-      <rect class="c-activity__seg c-activity__seg--{{.Kind}}" x="{{$bar.Left}}" width="{{$bar.Width}}" y="{{.Top}}" height="{{.Height}}" />
-      {{- end}}{{end}}
-    </svg>
     {{- end}}
-    <ul class="c-activity-legend" aria-label="Activity totals">
-      <li><span class="c-activity__swatch c-activity__swatch--created"></span>{{.Activity.Created}} created</li>
-      <li><span class="c-activity__swatch c-activity__swatch--claimed"></span>{{.Activity.Claimed}} claimed</li>
-      <li><span class="c-activity__swatch c-activity__swatch--done"></span>{{.Activity.Done}} done</li>
-      <li><span class="c-activity__swatch c-activity__swatch--blocked"></span>{{.Activity.Blocked}} blocked</li>
-      {{- with .Axis.Imports}}
-      <li class="c-activity-legend__imports"><span class="c-activity__swatch c-activity__swatch--import"></span>{{len .}} imported</li>
-      {{- end}}
-    </ul>
     <svg class="c-chart-axis" aria-hidden="true">
       {{- range .Axis.Imports}}
       <line class="c-chart-axis__import" x1="{{.X}}" x2="{{.X}}" y1="0" y2="7"><title>{{.Label}}</title></line>
@@ -73,15 +80,7 @@
       <text class="c-chart-axis__label" x="{{.X}}" y="21" text-anchor="{{.Anchor}}">{{.Label}}</text>
       {{- end}}
     </svg>
-    <table class="sr-only">
-      <caption>Burn-up samples over {{.RangePhrase}}, state as of each time</caption>
-      <thead><tr><th scope="col">Time</th><th scope="col">Scope</th><th scope="col">Done</th><th scope="col">Open</th><th scope="col">Blocked</th><th scope="col">Canceled</th></tr></thead>
-      <tbody>
-        {{- range .Burnup.Rows}}
-        <tr><td>{{.When}}</td><td>{{.Scope}}</td><td>{{.Done}}</td><td>{{.Open}}</td><td>{{.Blocked}}</td><td>{{.Canceled}}</td></tr>
-        {{- end}}
-      </tbody>
-    </table>
+    {{- if .View.IsActivity}}
     <table class="sr-only">
       <caption>Events per bucket over {{.RangePhrase}}</caption>
       <thead><tr><th scope="col">Bucket start</th><th scope="col">Created</th><th scope="col">Claimed</th><th scope="col">Done</th><th scope="col">Blocked</th></tr></thead>
@@ -91,6 +90,17 @@
         {{- end}}
       </tbody>
     </table>
+    {{- else}}
+    <table class="sr-only">
+      <caption>Burn-up samples over {{.RangePhrase}}, state as of each time</caption>
+      <thead><tr><th scope="col">Time</th><th scope="col">Scope</th><th scope="col">Done</th><th scope="col">Open</th><th scope="col">Blocked</th><th scope="col">Canceled</th></tr></thead>
+      <tbody>
+        {{- range .Burnup.Rows}}
+        <tr><td>{{.When}}</td><td>{{.Scope}}</td><td>{{.Done}}</td><td>{{.Open}}</td><td>{{.Blocked}}</td><td>{{.Canceled}}</td></tr>
+        {{- end}}
+      </tbody>
+    </table>
+    {{- end}}
   </div>
   {{- else}}
   <p class="c-chart-panel__message{{if eq .State "error"}} c-chart-panel__message--error{{end}}">{{.Message}}</p>

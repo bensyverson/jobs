@@ -42,7 +42,7 @@ func fetchPreview(t *testing.T, component, state string) (int, string) {
 	return w.Code, w.Body.String()
 }
 
-var chartPanelStates = []string{"empty", "single-day", "one-sample", "reopen-dip", "crowded", "mostly-canceled", "fetching", "error"}
+var chartPanelStates = []string{"empty", "single-day", "activity", "one-sample", "reopen-dip", "fitted-week", "flat", "crowded", "mostly-canceled", "fetching", "error"}
 
 func TestPreviewIndex_ListsTheChartPanel(t *testing.T) {
 	code, body := fetchPreview(t, "", "")

@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"errors"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -18,10 +19,10 @@ import (
 func TestHomeRanges_OfferEveryKey(t *testing.T) {
 	wantKeys := job.RangeKeys()
 	wantLabels := []string{"1H", "1D", "7D", "14D", "30D", "All"}
-	if len(homeRanges) != len(wantKeys) {
-		t.Fatalf("homeRanges has %d options, want %d", len(homeRanges), len(wantKeys))
+	if len(homeRanges.Options) != len(wantKeys) {
+		t.Fatalf("homeRanges has %d options, want %d", len(homeRanges.Options), len(wantKeys))
 	}
-	for i, opt := range homeRanges {
+	for i, opt := range homeRanges.Options {
 		if opt.Key != wantKeys[i] || opt.Label != wantLabels[i] {
 			t.Errorf("option %d = %q/%q, want %q/%q", i, opt.Key, opt.Label, wantKeys[i], wantLabels[i])
 		}
@@ -53,14 +54,14 @@ func panelReport() job.Report {
 }
 
 func TestBuildChartPanel_OtherErrorsNameTheCause(t *testing.T) {
-	p := buildChartPanel("home", job.Report{}, errors.New("disk on fire"), job.Range7D, nil, time.UTC)
+	p := buildChartPanel("home", job.Report{}, errors.New("disk on fire"), navAt(job.Range7D), time.UTC)
 	if p.State != PanelError || !strings.Contains(p.Message, "disk on fire") {
 		t.Errorf("State %q Message %q, want the error state naming the cause", p.State, p.Message)
 	}
 }
 
 func TestBuildChartPanel_EmptyReportIsTheEmptyState(t *testing.T) {
-	p := buildChartPanel("home", job.Report{Window: panelReport().Window}, nil, job.Range7D, nil, time.UTC)
+	p := buildChartPanel("home", job.Report{Window: panelReport().Window}, nil, navAt(job.Range7D), time.UTC)
 	if p.State != PanelEmpty {
 		t.Fatalf("State = %q, want %q", p.State, PanelEmpty)
 	}
@@ -70,7 +71,7 @@ func TestBuildChartPanel_EmptyReportIsTheEmptyState(t *testing.T) {
 }
 
 func TestBuildChartPanel_LaysOutTheReport(t *testing.T) {
-	p := buildChartPanel("home", panelReport(), nil, job.Range7D, nil, time.UTC)
+	p := buildChartPanel("home", panelReport(), nil, navAt(job.Range7D), time.UTC)
 	if p.State != PanelChart {
 		t.Fatalf("State = %q, want %q", p.State, PanelChart)
 	}
@@ -106,8 +107,7 @@ func mustHave(t *testing.T, body string, needles ...string) {
 }
 
 func TestChartPanelTemplate_BurnupIsAnAccessibleImage(t *testing.T) {
-	tabs := buildRangeTabs("/", nil, job.Range7D, homeRanges)
-	out := renderPanel(t, buildChartPanel("home", panelReport(), nil, job.Range7D, tabs, time.UTC))
+	out := renderPanel(t, buildChartPanel("home", panelReport(), nil, homePanelNav(url.Values{"range": {"7d"}}), time.UTC))
 	mustHave(t, out,
 		`<chart-panel`, `data-home-panel`,
 		`role="img"`, `aria-labelledby="home-burnup-title home-burnup-desc"`,
@@ -120,22 +120,40 @@ func TestChartPanelTemplate_BurnupIsAnAccessibleImage(t *testing.T) {
 	)
 }
 
-func TestChartPanelTemplate_ShipsDataTablesForAssistiveTech(t *testing.T) {
-	out := renderPanel(t, buildChartPanel("home", panelReport(), nil, job.Range7D, nil, time.UTC))
-	tables := regexp.MustCompile(`<table class="sr-only"`).FindAllStringIndex(out, -1)
-	if len(tables) != 2 {
-		t.Fatalf("sr-only tables = %d, want 2 (burn-up and activity)", len(tables))
-	}
-	mustHave(t, out, `<td>2026-09-26 17:00</td>`, `<td>1155</td>`)
+// activityNav is the panel's navigation on the histogram at 7D.
+func activityNav() panelNav {
+	return homePanelNav(url.Values{"chart": {"activity"}, "range": {"7d"}})
 }
 
+// Each view ships the data table for the chart it draws (one chart at
+// a time since the 2026-09-26 review, so one table).
+func TestChartPanelTemplate_ShipsDataTablesForAssistiveTech(t *testing.T) {
+	out := renderPanel(t, buildChartPanel("home", panelReport(), nil, navAt(job.Range7D), time.UTC))
+	tables := regexp.MustCompile(`<table class="sr-only"`).FindAllStringIndex(out, -1)
+	if len(tables) != 1 {
+		t.Fatalf("burn-up view: sr-only tables = %d, want 1", len(tables))
+	}
+	mustHave(t, out, `<td>2026-09-26 17:00</td>`, `<td>1155</td>`)
+
+	out = renderPanel(t, buildChartPanel("home", panelReport(), nil, activityNav(), time.UTC))
+	tables = regexp.MustCompile(`<table class="sr-only"`).FindAllStringIndex(out, -1)
+	if len(tables) != 1 {
+		t.Fatalf("activity view: sr-only tables = %d, want 1", len(tables))
+	}
+	mustHave(t, out, `<caption>Events per bucket`)
+}
+
+// Import ticks sit on the shared axis in both views; the legend's
+// "N imported" key belongs to the histogram's legend.
 func TestChartPanelTemplate_ImportTicksCarryTheirPlan(t *testing.T) {
-	out := renderPanel(t, buildChartPanel("home", panelReport(), nil, job.Range7D, nil, time.UTC))
-	mustHave(t, out, `class="c-chart-axis__import"`, `<title>Imported Reporting from reporting.md</title>`, `1 imported</li>`)
+	out := renderPanel(t, buildChartPanel("home", panelReport(), nil, navAt(job.Range7D), time.UTC))
+	mustHave(t, out, `class="c-chart-axis__import"`, `<title>Imported Reporting from reporting.md</title>`)
+	out = renderPanel(t, buildChartPanel("home", panelReport(), nil, activityNav(), time.UTC))
+	mustHave(t, out, `class="c-chart-axis__import"`, `1 imported</li>`)
 }
 
 func TestChartPanelTemplate_HistogramStacksByKind(t *testing.T) {
-	out := renderPanel(t, buildChartPanel("home", panelReport(), nil, job.Range7D, nil, time.UTC))
+	out := renderPanel(t, buildChartPanel("home", panelReport(), nil, activityNav(), time.UTC))
 	mustHave(t, out,
 		`class="c-activity__seg c-activity__seg--done"`,
 		`class="c-activity__seg c-activity__seg--created"`,
@@ -147,9 +165,10 @@ func TestChartPanelTemplate_HistogramStacksByKind(t *testing.T) {
 // everything with SVG attributes and classes.
 func TestChartPanelTemplate_HasNoInlineStyles(t *testing.T) {
 	for _, p := range []ChartPanel{
-		buildChartPanel("home", panelReport(), nil, job.Range7D, nil, time.UTC),
-		buildChartPanel("home", job.Report{}, errors.New("disk on fire"), job.Range7D, nil, time.UTC),
-		buildChartPanel("home", job.Report{}, nil, job.Range7D, nil, time.UTC),
+		buildChartPanel("home", panelReport(), nil, navAt(job.Range7D), time.UTC),
+		buildChartPanel("home", panelReport(), nil, activityNav(), time.UTC),
+		buildChartPanel("home", job.Report{}, errors.New("disk on fire"), navAt(job.Range7D), time.UTC),
+		buildChartPanel("home", job.Report{}, nil, navAt(job.Range7D), time.UTC),
 	} {
 		if out := renderPanel(t, p); strings.Contains(out, "style=") {
 			t.Errorf("state %q renders an inline style:\n%s", p.State, out)
@@ -158,8 +177,7 @@ func TestChartPanelTemplate_HasNoInlineStyles(t *testing.T) {
 }
 
 func TestChartPanelTemplate_ErrorStateKeepsTheSelector(t *testing.T) {
-	tabs := buildRangeTabs("/", nil, job.RangeDay, homeRanges)
-	out := renderPanel(t, buildChartPanel("home", job.Report{}, errors.New("disk on fire"), job.RangeDay, tabs, time.UTC))
+	out := renderPanel(t, buildChartPanel("home", job.Report{}, errors.New("disk on fire"), homePanelNav(nil), time.UTC))
 	mustHave(t, out, `disk on fire`, `>1H<`, `>All<`, `aria-current="true">1D<`)
 	if strings.Contains(out, `role="img"`) {
 		t.Errorf("error state draws a chart:\n%s", out)
@@ -167,11 +185,120 @@ func TestChartPanelTemplate_ErrorStateKeepsTheSelector(t *testing.T) {
 }
 
 func TestChartPanelTemplate_PendingSetsAriaBusy(t *testing.T) {
-	p := buildChartPanel("home", panelReport(), nil, job.Range7D, nil, time.UTC)
+	p := buildChartPanel("home", panelReport(), nil, navAt(job.Range7D), time.UTC)
 	p.Pending = true
 	mustHave(t, renderPanel(t, p), `aria-busy="true"`)
 	p.Pending = false
 	if out := renderPanel(t, p); strings.Contains(out, `aria-busy`) {
 		t.Errorf("settled panel carries aria-busy:\n%s", out)
+	}
+}
+
+// navAt is the panel's navigation at a range with the default chart
+// and no other parameters.
+func navAt(key job.RangeKey) panelNav {
+	q := url.Values{}
+	if key != homeRanges.Default {
+		q.Set("range", string(key))
+	}
+	return homePanelNav(q)
+}
+
+func TestParseChartView_DefaultsToTheBurnup(t *testing.T) {
+	cases := map[string]ChartView{
+		"":          ChartBurnup,
+		"burnup":    ChartBurnup,
+		"activity":  ChartActivity,
+		" Activity": ChartActivity,
+		"pie":       ChartBurnup,
+	}
+	for raw, want := range cases {
+		if got := parseChartView(raw); got != want {
+			t.Errorf("parseChartView(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func tabURLs(tabs []RangeTab) map[string]string {
+	out := map[string]string{}
+	for _, tab := range tabs {
+		out[tab.Label] = tab.URL
+	}
+	return out
+}
+
+func activeLabel(tabs []RangeTab) string {
+	for _, tab := range tabs {
+		if tab.Active {
+			return tab.Label
+		}
+	}
+	return ""
+}
+
+// The toggle is two plain links. The burn-up is the default and omits
+// chart=; both keep ?range= and ?at=.
+func TestHomePanelNav_ViewTabsKeepRangeAndCursor(t *testing.T) {
+	nav := homePanelNav(url.Values{"range": {"7d"}, "at": {"1-a-2"}})
+	if nav.View != ChartBurnup || activeLabel(nav.ViewTabs) != "Burn-up" {
+		t.Errorf("view = %q, active tab %q, want the burn-up", nav.View, activeLabel(nav.ViewTabs))
+	}
+	urls := tabURLs(nav.ViewTabs)
+	if urls["Burn-up"] != "/?at=1-a-2&range=7d" {
+		t.Errorf("Burn-up URL = %q, want /?at=1-a-2&range=7d", urls["Burn-up"])
+	}
+	if urls["Activity"] != "/?at=1-a-2&chart=activity&range=7d" {
+		t.Errorf("Activity URL = %q, want /?at=1-a-2&chart=activity&range=7d", urls["Activity"])
+	}
+}
+
+// The range tabs keep ?chart=, so switching range stays on the
+// histogram.
+func TestHomePanelNav_RangeTabsKeepTheChart(t *testing.T) {
+	nav := homePanelNav(url.Values{"chart": {"activity"}})
+	if nav.View != ChartActivity || activeLabel(nav.ViewTabs) != "Activity" {
+		t.Fatalf("view = %q, active tab %q, want activity", nav.View, activeLabel(nav.ViewTabs))
+	}
+	if nav.Range != job.RangeDay {
+		t.Errorf("range = %q, want Home's 1d default", nav.Range)
+	}
+	urls := tabURLs(nav.RangeTabs)
+	if urls["1D"] != "/?chart=activity" || urls["All"] != "/?chart=activity&range=all" {
+		t.Errorf("range tab URLs = %v, want each to keep chart=activity", urls)
+	}
+	if got := tabURLs(nav.ViewTabs)["Burn-up"]; got != "/" {
+		t.Errorf("Burn-up URL = %q, want /", got)
+	}
+}
+
+func TestChartPanelTemplate_ToggleIsPlainLinks(t *testing.T) {
+	out := renderPanel(t, buildChartPanel("home", panelReport(), nil, homePanelNav(url.Values{"range": {"7d"}}), time.UTC))
+	mustHave(t, out,
+		`aria-label="Chart"`,
+		`<a href="/?range=7d" class="c-chart-panel__view c-chart-panel__view--active" aria-current="true">Burn-up</a>`,
+		`<a href="/?chart=activity&amp;range=7d" class="c-chart-panel__view">Activity</a>`,
+	)
+}
+
+// One chart at a time: the burn-up view draws no histogram, and the
+// activity view no burn-up — but both keep the header caption.
+func TestChartPanelTemplate_BurnupViewDrawsOnlyTheBurnup(t *testing.T) {
+	out := renderPanel(t, buildChartPanel("home", panelReport(), nil, navAt(job.Range7D), time.UTC))
+	mustHave(t, out, `class="c-burnup"`, `class="c-burnup-ends"`, `75 open`)
+	for _, gone := range []string{`class="c-activity"`, `class="c-activity-legend"`, `c-activity__seg`} {
+		if strings.Contains(out, gone) {
+			t.Errorf("burn-up view renders %q", gone)
+		}
+	}
+}
+
+func TestChartPanelTemplate_ActivityViewDrawsOnlyTheHistogram(t *testing.T) {
+	nav := homePanelNav(url.Values{"chart": {"activity"}, "range": {"7d"}})
+	out := renderPanel(t, buildChartPanel("home", panelReport(), nil, nav, time.UTC))
+	mustHave(t, out, `class="c-activity"`, `class="c-activity-legend"`, `20 created`, `75 open`, `class="c-chart-axis"`)
+	for _, gone := range []string{`class="c-burnup"`, `class="c-burnup-ends"`, `c-burnup__scope`} {
+		if strings.Contains(out, gone) {
+			t.Errorf("activity view renders %q", gone)
+		}
 	}
 }

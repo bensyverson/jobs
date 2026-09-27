@@ -507,7 +507,7 @@ job serve --db /path/to/.jobs.db         # custom database
 
 Views:
 
-- `/` — Home: a progress chart panel (burn-up + activity histogram over a `?range=` of 1H · 1D · 7D · 14D · 30D · All, redrawn in place from `GET /home/panel`), an active-claims table, recent completions, an Upcoming panel, a Blocked strip, and a **dependency-flow mini-graph** rendered as a [subway-system map](project/2026-04-25-graph-clarification.md) — one line per parent whose subtree contains active or imminent work, an LCA fork when two or more lines exist, closure markers (`⊘`) on edges into sequence-blocked lines, in-gap `…` dots between non-adjacent visible windows, and a `(+N)` terminal pill summarizing trailing siblings that fall outside the focal's ±N window.
+- `/` — Home: a progress chart panel showing the burn-up or the activity histogram (`?chart=activity`) over a `?range=` of 1H · 1D · 7D · 14D · 30D · All (default 1D), the burn-up's axis fitted to the window's values, redrawn in place from `GET /home/panel`, an active-claims table, recent completions, an Upcoming panel, a Blocked strip, and a **dependency-flow mini-graph** rendered as a [subway-system map](project/2026-04-25-graph-clarification.md) — one line per parent whose subtree contains active or imminent work, an LCA fork when two or more lines exist, closure markers (`⊘`) on edges into sequence-blocked lines, in-gap `…` dots between non-adjacent visible windows, and a `(+N)` terminal pill summarizing trailing siblings that fall outside the focal's ±N window.
 - `/log` — event stream with filter chips (actor / event type / label)
 - `/tasks/<id>` — task detail: status, labels, parent, blocked-by, blocks, description, completion note, history
 

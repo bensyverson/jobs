@@ -51,7 +51,7 @@ func TestParseRange_BoundedViewsNormalizeTheirOwnKeys(t *testing.T) {
 
 // A view that does offer 1h gets it, measured back from the anchor.
 func TestParseRange_OfferedKeysAnchorTheWindow(t *testing.T) {
-	offered := []rangeOption{{job.RangeHour, "1H"}, {job.Range7D, "7D"}}
+	offered := rangeMenu{Default: job.Range7D, Options: []rangeOption{{job.RangeHour, "1H"}, {job.Range7D, "7D"}}}
 	got := parseRange(url.Values{"range": {"1h"}}, rangeAnchorFixture, offered)
 	if got.Key != job.RangeHour {
 		t.Fatalf("parseRange(range=1h).Key = %q, want 1h", got.Key)
@@ -59,8 +59,58 @@ func TestParseRange_OfferedKeysAnchorTheWindow(t *testing.T) {
 	if want := rangeAnchorFixture.Add(-time.Hour).Unix(); got.Cutoff != want {
 		t.Errorf("parseRange(range=1h).Cutoff = %d, want %d", got.Cutoff, want)
 	}
-	if def := parseRange(url.Values{}, rangeAnchorFixture, offered); def.Key != job.DefaultRangeKey {
-		t.Errorf("parseRange(no range).Key = %q, want the default", def.Key)
+	if def := parseRange(url.Values{}, rangeAnchorFixture, offered); def.Key != offered.Default {
+		t.Errorf("parseRange(no range).Key = %q, want the view's default", def.Key)
+	}
+}
+
+// The default is the view's, not the vocabulary's: Home falls back to
+// 1D while the Actors board and the Log keep 7D.
+func TestParseRange_FallsBackToTheViewsDefault(t *testing.T) {
+	if boundedViewRanges.Default != job.Range7D {
+		t.Errorf("boundedViewRanges.Default = %q, want 7d", boundedViewRanges.Default)
+	}
+	if homeRanges.Default != job.RangeDay {
+		t.Errorf("homeRanges.Default = %q, want 1d", homeRanges.Default)
+	}
+	for _, raw := range []string{"", "bogus", "90d"} {
+		q := url.Values{}
+		if raw != "" {
+			q.Set("range", raw)
+		}
+		if got := parseRange(q, rangeAnchorFixture, homeRanges).Key; got != job.RangeDay {
+			t.Errorf("home parseRange(range=%q).Key = %q, want 1d", raw, got)
+		}
+		if got := parseRange(q, rangeAnchorFixture, boundedViewRanges).Key; got != job.Range7D {
+			t.Errorf("bounded parseRange(range=%q).Key = %q, want 7d", raw, got)
+		}
+	}
+}
+
+// A menu whose default is not one of its options is a programming
+// error the tests catch here rather than a tab that can never be
+// reached without ?range=.
+func TestRangeMenus_DefaultIsOffered(t *testing.T) {
+	for name, m := range map[string]rangeMenu{"home": homeRanges, "bounded": boundedViewRanges} {
+		if !m.offers(m.Default) {
+			t.Errorf("%s menu does not offer its own default %q", name, m.Default)
+		}
+	}
+}
+
+// The tab for the view's own default omits range=; every other tab,
+// including the vocabulary-wide default 7d on Home, names its key.
+func TestBuildRangeTabs_OmitsTheViewsOwnDefault(t *testing.T) {
+	tabs := buildRangeTabs("/", url.Values{}, job.RangeDay, homeRanges)
+	urls := map[string]string{}
+	for _, tab := range tabs {
+		urls[tab.Label] = tab.URL
+	}
+	if urls["1D"] != "/" {
+		t.Errorf("1D tab URL = %q, want /", urls["1D"])
+	}
+	if urls["7D"] != "/?range=7d" {
+		t.Errorf("7D tab URL = %q, want /?range=7d", urls["7D"])
 	}
 }
 
@@ -68,10 +118,10 @@ func TestParseRange_OfferedKeysAnchorTheWindow(t *testing.T) {
 // shown, and every offered key is a real core key.
 func TestBoundedViewRanges_AreTheFourTabs(t *testing.T) {
 	want := []job.RangeKey{job.Range7D, job.Range14D, job.Range30D, job.RangeAll}
-	if len(boundedViewRanges) != len(want) {
-		t.Fatalf("boundedViewRanges has %d options, want %d", len(boundedViewRanges), len(want))
+	if len(boundedViewRanges.Options) != len(want) {
+		t.Fatalf("boundedViewRanges has %d options, want %d", len(boundedViewRanges.Options), len(want))
 	}
-	for i, opt := range boundedViewRanges {
+	for i, opt := range boundedViewRanges.Options {
 		if opt.Key != want[i] {
 			t.Errorf("option %d = %q, want %q", i, opt.Key, want[i])
 		}

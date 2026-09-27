@@ -56,7 +56,7 @@ func (c logChipCtx) url(setKey, setValue string) string {
 	}
 	// The default range is expressed by omitting the parameter, so the
 	// canonical /log URL stays clean.
-	if c.rangeKey != job.DefaultRangeKey {
+	if c.rangeKey != boundedViewRanges.Default {
 		q.Set("range", string(c.rangeKey))
 	}
 	if c.chipsAll {
@@ -332,7 +332,7 @@ func moreURL(c logChipCtx, oldest eventlog.Position) string {
 	if c.f.Limit > 0 {
 		q.Set("limit", strconv.Itoa(c.f.Limit))
 	}
-	if c.rangeKey != job.DefaultRangeKey {
+	if c.rangeKey != boundedViewRanges.Default {
 		q.Set("range", string(c.rangeKey))
 	}
 	if c.chipsAll {

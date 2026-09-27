@@ -6,7 +6,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { PANEL_FRAGMENT_PATH, panelFragmentURL, isPlainClick } from "../assets/js/chart-panel-url.mjs";
+import {
+  PANEL_FRAGMENT_PATH,
+  PANEL_LINK_SELECTOR,
+  panelFragmentURL,
+  isPlainClick,
+} from "../assets/js/chart-panel-url.mjs";
 
 test("panelFragmentURL: the default view asks for the bare fragment", () => {
   assert.equal(panelFragmentURL("/"), PANEL_FRAGMENT_PATH);
@@ -15,6 +20,18 @@ test("panelFragmentURL: the default view asks for the bare fragment", () => {
 
 test("panelFragmentURL: carries ?range= and ?at=", () => {
   assert.equal(panelFragmentURL("/?range=1d&at=1700000000-r1-4"), "/home/panel?range=1d&at=1700000000-r1-4");
+});
+
+test("panelFragmentURL: carries ?chart= alongside ?range= and ?at=", () => {
+  assert.equal(panelFragmentURL("/?chart=activity"), "/home/panel?chart=activity");
+  assert.equal(
+    panelFragmentURL("/?at=1-a-2&chart=activity&range=7d"),
+    "/home/panel?range=7d&at=1-a-2&chart=activity",
+  );
+});
+
+test("PANEL_LINK_SELECTOR: the range tabs and the chart toggle swap in place", () => {
+  assert.equal(PANEL_LINK_SELECTOR, ".c-chart-panel__ranges a[href], .c-chart-panel__views a[href]");
 });
 
 test("panelFragmentURL: drops what the panel does not read", () => {

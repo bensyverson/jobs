@@ -46,7 +46,15 @@ type Burnup struct {
 	Summary string
 	Rows    []BurnupRow
 
-	top float64 // the value at the top of the plot
+	dom domain // the values at the plot's bottom and top edges
+}
+
+// domain is the burn-up's vertical extent: lo on the baseline, hi at
+// the top edge. hi > lo always. A flat window's domain is padded
+// around its one value, which the gridlines keep clear of.
+type domain struct {
+	lo, hi float64
+	flat   bool
 }
 
 // Gridline is one horizontal rule, at Y percent of the plot height.
@@ -80,25 +88,99 @@ type BurnupRow struct {
 }
 
 const (
-	// headroom lifts the plot's top above the tallest scope so the
-	// line never runs along the panel's edge.
-	headroom = 1.08
-	// gridTarget is how many intervals the gridlines aim to cut the
-	// plot into: sparse, a reference rather than a lattice.
-	gridTarget = 3
+	// maxGridlines keeps the gridlines sparse — a reference, not a
+	// lattice — in a plot about 100px tall.
+	maxGridlines = 3
+	// flatPadFrac is the pad above and below a flat window's value, as
+	// a share of it, so the line sits mid-chart with gridlines around
+	// it. Never less than one leaf.
+	flatPadFrac = 0.05
+	// flatClearFrac is how near a flat window's line, as a share of the
+	// span, a gridline may sit before it is dropped: close enough and
+	// the line strikes through its label.
+	flatClearFrac = 0.1
 	// minEndLabelGapPct keeps the two end labels (a large number over a
-	// small-caps word) from overlapping when the lines end close
-	// together. Percent of the plot height, which CSS fixes.
-	minEndLabelGapPct = 20.0
+	// small-caps word, about 34px tall together) from overlapping when
+	// the lines end close together. Percent of the plot height, which
+	// CSS fixes at 100px.
+	minEndLabelGapPct = 36.0
 	// endLabelTopPct and endLabelBottomPct keep the end labels inside
 	// the plot's box.
-	endLabelTopPct    = 8.0
-	endLabelBottomPct = 86.0
+	endLabelTopPct    = 9.0
+	endLabelBottomPct = 78.0
 )
 
 // y maps a count to a viewBox y coordinate.
-func (b Burnup) y(v int) float64 {
-	return BurnupViewH - float64(v)/b.top*BurnupViewH
+func (b Burnup) y(v int) float64 { return b.yf(float64(v)) }
+
+func (b Burnup) yf(v float64) float64 {
+	return BurnupViewH - (v-b.dom.lo)/(b.dom.hi-b.dom.lo)*BurnupViewH
+}
+
+// fitDomain spans exactly the plotted values — scope and done across
+// every sample — so the chart fills its height on every range, All
+// included; nothing pins it at zero. A flat window (every value equal)
+// is padded symmetrically, so its line sits mid-chart, not on an edge.
+func fitDomain(series []job.Sample) domain {
+	lo, hi := math.Inf(1), math.Inf(-1)
+	for _, s := range series {
+		lo = min(lo, float64(s.Scope), float64(s.Done))
+		hi = max(hi, float64(s.Scope), float64(s.Done))
+	}
+	if hi > lo {
+		return domain{lo: lo, hi: hi}
+	}
+	pad := niceStep(math.Abs(lo) * flatPadFrac)
+	return domain{lo: lo - pad, hi: hi + pad, flat: true}
+}
+
+// gridlines picks the finest round step that puts at most
+// maxGridlines values strictly inside the domain, so none sits on the
+// baseline or the top edge. A span too narrow for two interior whole
+// values takes its edges too. Negative values are never labelled, and
+// a flat window's gridlines keep clear of its line.
+func (d domain) gridlines() []float64 {
+	mid, keepOff := (d.lo+d.hi)/2, (d.hi-d.lo)*flatClearFrac
+	inside := func(step float64, edges bool) []float64 {
+		var out []float64
+		for v := math.Ceil(d.lo/step) * step; v <= d.hi; v += step {
+			if v < 0 || (!edges && (v == d.lo || v == d.hi)) || (d.flat && math.Abs(v-mid) < keepOff) {
+				continue
+			}
+			out = append(out, v)
+		}
+		return out
+	}
+	for _, step := range gridSteps(d.hi - d.lo) {
+		if vs := inside(step, false); len(vs) <= maxGridlines {
+			if len(vs) < 2 && step == 1 {
+				if edged := inside(1, true); len(edged) <= maxGridlines {
+					return edged
+				}
+			}
+			return vs
+		}
+	}
+	return nil
+}
+
+// gridSteps lists the round steps — 1, 2, 2.5, 5 × 10ⁿ, whole numbers
+// only, since counts are whole leaves — finest first, up to one at
+// least as wide as span.
+func gridSteps(span float64) []float64 {
+	var out []float64
+	for mag := 1.0; ; mag *= 10 {
+		for _, m := range []float64{1, 2, 2.5, 5} {
+			step := m * mag
+			if step != math.Trunc(step) {
+				continue
+			}
+			out = append(out, step)
+			if step >= span {
+				return out
+			}
+		}
+	}
 }
 
 // LayoutBurnup lays out rep's series. loc is the calendar the table's
@@ -109,15 +191,10 @@ func LayoutBurnup(rep job.Report, loc *time.Location) Burnup {
 		b.Empty = true
 		return b
 	}
-	maxScope := 0
-	for _, s := range rep.Series {
-		maxScope = max(maxScope, s.Scope)
-	}
-	step := niceStep(float64(maxScope) / gridTarget)
-	b.top = max(float64(maxScope)*headroom, 1)
-	for v := step; v <= float64(maxScope); v += step {
+	b.dom = fitDomain(rep.Series)
+	for _, v := range b.dom.gridlines() {
 		b.Gridlines = append(b.Gridlines, Gridline{
-			Y:     fmtPct(b.y(int(v)) / BurnupViewH * 100),
+			Y:     fmtPct(b.yf(v) / BurnupViewH * 100),
 			Label: Count(int(v)),
 		})
 	}

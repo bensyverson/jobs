@@ -230,3 +230,132 @@ func TestLayoutBurnup_EndDotsMarkTheLastSample(t *testing.T) {
 		t.Errorf("done dot Y = %q, want %q", b.DoneDot.Y, want)
 	}
 }
+
+// windowOf is a four-sample daily window with the given scope and done
+// values.
+func windowOf(scope, done [4]int) job.Report {
+	rep := fourDays()
+	for i := range rep.Series {
+		rep.Series[i].Scope, rep.Series[i].Done = scope[i], done[i]
+		rep.Series[i].Open, rep.Series[i].Blocked, rep.Series[i].Canceled = scope[i]-done[i], 0, 0
+	}
+	return rep
+}
+
+func gridLabels(b Burnup) string {
+	var labels []string
+	for _, g := range b.Gridlines {
+		labels = append(labels, g.Label)
+	}
+	return strings.Join(labels, ",")
+}
+
+// The y domain is exactly the plotted values' [min, max], so a window
+// that moved from 400 to 500 fills the full height rather than hugging
+// the top of a zero-based axis.
+func TestLayoutBurnup_DomainFitsThePlottedValues(t *testing.T) {
+	b := LayoutBurnup(windowOf([4]int{400, 450, 480, 500}, [4]int{410, 430, 460, 490}), time.UTC)
+	if !strings.HasPrefix(b.ScopePath, "M250 1000") {
+		t.Errorf("ScopePath starts %q, want the minimum (400) on the baseline", b.ScopePath)
+	}
+	if !strings.HasSuffix(b.ScopePath, "L1000 0") {
+		t.Errorf("ScopePath ends %q, want the maximum (500) at the top", b.ScopePath)
+	}
+	if b.ScopeDot.Y != "0%" {
+		t.Errorf("scope dot Y = %q, want 0%%", b.ScopeDot.Y)
+	}
+}
+
+// Done can be the minimum: the domain spans both lines.
+func TestLayoutBurnup_DomainSpansDoneToo(t *testing.T) {
+	b := LayoutBurnup(windowOf([4]int{400, 410, 420, 430}, [4]int{380, 390, 400, 410}), time.UTC)
+	if !strings.HasPrefix(b.DonePath, "M250 1000") {
+		t.Errorf("DonePath starts %q, want done's minimum (380) on the baseline", b.DonePath)
+	}
+	if !strings.HasSuffix(b.ScopePath, "L1000 0") {
+		t.Errorf("ScopePath ends %q, want scope's maximum (430) at the top", b.ScopePath)
+	}
+}
+
+// All is fitted like any other range: nothing pins the axis at zero.
+func TestLayoutBurnup_DomainIsFittedOnAllToo(t *testing.T) {
+	rep := windowOf([4]int{190, 250, 330, 402}, [4]int{190, 240, 320, 400})
+	rep.Window.Bucket = job.BucketWeek
+	b := LayoutBurnup(rep, time.UTC)
+	if !strings.HasPrefix(b.DonePath, "M250 1000") {
+		t.Errorf("DonePath starts %q, want 190 on the baseline", b.DonePath)
+	}
+}
+
+// A flat window gets a small symmetric pad, so the line sits mid-chart
+// rather than on an edge.
+func TestLayoutBurnup_FlatWindowSitsMidChart(t *testing.T) {
+	b := LayoutBurnup(windowOf([4]int{400, 400, 400, 400}, [4]int{400, 400, 400, 400}), time.UTC)
+	if b.ScopePath != "M250 500L500 500L750 500L1000 500" {
+		t.Errorf("ScopePath = %q, want a line at y=500", b.ScopePath)
+	}
+	if b.ScopeDot.Y != "50%" {
+		t.Errorf("scope dot Y = %q, want 50%%", b.ScopeDot.Y)
+	}
+	if n := len(b.Gridlines); n < 2 || n > 4 {
+		t.Errorf("flat window has %d gridlines (%s), want 2–4", n, gridLabels(b))
+	}
+}
+
+// A flat window at zero (a store whose only leaves were canceled)
+// never labels a negative gridline.
+func TestLayoutBurnup_FlatZeroHasNoNegativeGridlines(t *testing.T) {
+	rep := windowOf([4]int{0, 0, 0, 0}, [4]int{0, 0, 0, 0})
+	for i := range rep.Series {
+		rep.Series[i].Canceled = 3
+	}
+	b := LayoutBurnup(rep, time.UTC)
+	if b.Empty || b.ScopeDot.Y != "50%" {
+		t.Fatalf("Empty=%v scope dot Y=%q, want a drawn line mid-chart", b.Empty, b.ScopeDot.Y)
+	}
+	for _, g := range b.Gridlines {
+		if strings.HasPrefix(g.Label, "-") {
+			t.Errorf("gridline %q is negative", g.Label)
+		}
+	}
+}
+
+// Gridlines fall at round values strictly inside the fitted span, two
+// to four of them.
+func TestLayoutBurnup_GridlinesAreRoundInsideTheSpan(t *testing.T) {
+	cases := []struct {
+		scope, done [4]int
+		want        string
+	}{
+		{[4]int{400, 450, 480, 500}, [4]int{400, 430, 460, 490}, "425,450,475"},
+		{[4]int{392, 396, 400, 402}, [4]int{390, 394, 398, 400}, "395,400"},
+		{[4]int{190, 250, 330, 402}, [4]int{190, 240, 320, 400}, "200,300,400"},
+	}
+	for _, c := range cases {
+		if got := gridLabels(LayoutBurnup(windowOf(c.scope, c.done), time.UTC)); got != c.want {
+			t.Errorf("scope %v done %v: gridlines %q, want %q", c.scope, c.done, got, c.want)
+		}
+	}
+}
+
+// Each gridline sits where its value plots.
+func TestLayoutBurnup_GridlinesSitAtTheirValue(t *testing.T) {
+	b := LayoutBurnup(windowOf([4]int{400, 450, 480, 500}, [4]int{400, 430, 460, 490}), time.UTC)
+	if len(b.Gridlines) == 0 || b.Gridlines[1].Label != "450" || b.Gridlines[1].Y != "50%" {
+		t.Errorf("gridlines = %+v, want 450 at 50%%", b.Gridlines)
+	}
+}
+
+// A flat window's gridlines keep clear of its line, so no label is
+// struck through by it (the 402 preview put "400" under the line).
+func TestLayoutBurnup_FlatGridlinesClearTheLine(t *testing.T) {
+	b := LayoutBurnup(windowOf([4]int{402, 402, 402, 402}, [4]int{402, 402, 402, 402}), time.UTC)
+	for _, g := range b.Gridlines {
+		if y := pct(g.Y); y > 40 && y < 60 {
+			t.Errorf("gridline %s at %s crowds the line at 50%%", g.Label, g.Y)
+		}
+	}
+	if n := len(b.Gridlines); n < 2 {
+		t.Errorf("gridlines = %s, want at least 2", gridLabels(b))
+	}
+}

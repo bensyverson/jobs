@@ -2949,8 +2949,9 @@ a.c-graph-node__bug:focus-visible {
 /* ===== END log chip overflow (7QB2y) ===== */
 
 /* =====================================================
-   Chart panel — Home's burn-up and activity histogram over one range
-   (partials/chart_panel.html.tmpl, DESIGN.md § Chart panel). The plots
+   Chart panel — Home's burn-up or activity histogram over one range,
+   one at a time (partials/chart_panel.html.tmpl, DESIGN.md § Chart
+   panel). The plots
    stretch to the panel: each draws in a fixed viewBox with
    preserveAspectRatio="none" and non-scaling strokes, while labels sit
    in pixel space at percent positions. Every color is a token, so the
@@ -2960,8 +2961,9 @@ a.c-graph-node__bug:focus-visible {
 
 .c-chart-panel {
   display: block;
-  --burnup-h: 200px;
-  --activity-h: 40px;
+  /* Both charts draw at this height; the burn-up's end-label spacing
+     (chart.minEndLabelGapPct) is tuned to it. */
+  --plot-h: 100px;
   --ends-w: 112px;
 }
 
@@ -2969,10 +2971,46 @@ a.c-graph-node__bug:focus-visible {
   flex-wrap: wrap;
 }
 
+/* The title takes the slack, so the caption, the toggle and the range
+   selector pack right whether or not the caption is shown. */
+.c-chart-panel__header .c-panel__title {
+  margin-right: auto;
+}
+
 .c-chart-panel__meta {
-  margin-left: auto;
   color: var(--color-on-surface-dim);
   font-variant-numeric: tabular-nums;
+}
+
+/* Burn-up · Activity: two quiet links, the current one lit. */
+.c-chart-panel__views {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-right: var(--space-sm);
+  font-size: var(--font-label-caps-size);
+  font-weight: var(--font-label-caps-weight);
+  letter-spacing: var(--font-label-caps-letter-spacing);
+}
+
+.c-chart-panel__view {
+  padding: var(--space-xs) 2px;
+  color: var(--color-on-surface-dim);
+  border-bottom: none;
+  transition: color var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.c-chart-panel__view:hover {
+  color: var(--color-on-surface);
+  border-bottom: none;
+}
+
+.c-chart-panel__view--active {
+  color: var(--color-on-surface);
+}
+
+.c-chart-panel__views-sep {
+  color: var(--color-outline-strong);
 }
 
 .c-chart-panel__ranges .c-tab {
@@ -2988,8 +3026,7 @@ a.c-graph-node__bug:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--ends-w);
   grid-template-areas:
-    "burnup ends"
-    "activity legend"
+    "plot side"
     "axis .";
   column-gap: var(--space-lg);
   row-gap: var(--space-sm);
@@ -3015,10 +3052,10 @@ a.c-graph-node__bug:focus-visible {
 /* --- Burn-up --- */
 
 .c-burnup {
-  grid-area: burnup;
+  grid-area: plot;
   display: block;
   width: 100%;
-  height: var(--burnup-h);
+  height: var(--plot-h);
   overflow: visible;
 }
 
@@ -3076,10 +3113,10 @@ a.c-graph-node__bug:focus-visible {
 
 /* End labels: the two final values, large, with the word beneath. */
 .c-burnup-ends {
-  grid-area: ends;
+  grid-area: side;
   display: block;
   width: 100%;
-  height: var(--burnup-h);
+  height: var(--plot-h);
   overflow: visible;
 }
 
@@ -3109,10 +3146,10 @@ a.c-graph-node__bug:focus-visible {
 /* --- Activity histogram --- */
 
 .c-activity {
-  grid-area: activity;
+  grid-area: plot;
   display: block;
   width: 100%;
-  height: var(--activity-h);
+  height: var(--plot-h);
 }
 
 .c-activity--empty {
@@ -3130,7 +3167,7 @@ a.c-graph-node__bug:focus-visible {
 .c-activity__seg--blocked { fill: var(--color-status-blocked); }
 
 .c-activity-legend {
-  grid-area: legend;
+  grid-area: side;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -3201,7 +3238,6 @@ a.c-graph-node__bug:focus-visible {
 
 @media (max-width: 720px) {
   .c-chart-panel {
-    --burnup-h: 150px;
     --ends-w: 72px;
   }
 
@@ -3213,7 +3249,6 @@ a.c-graph-node__bug:focus-visible {
   .c-chart-panel__meta {
     order: 3;
     width: 100%;
-    margin-left: 0;
   }
 
   .c-burnup-ends__value {

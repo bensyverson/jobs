@@ -140,14 +140,16 @@ func TestHome_ChartPanelReplacesTheSignalCards(t *testing.T) {
 	}
 }
 
-func TestHome_ChartPanelOffersSixRangesDefaulting7D(t *testing.T) {
+// Home defaults to 1D (reporting decision 10, second correction);
+// the Actors board and the Log keep 7D.
+func TestHome_ChartPanelOffersSixRangesDefaulting1D(t *testing.T) {
 	db := setupLogTestDB(t)
 	labels, active := rangeTabLabels(t, fetchHome(t, newLogDeps(t, db)))
 	if got := strings.Join(labels, " "); got != "1H 1D 7D 14D 30D All" {
 		t.Errorf("range tabs = %q, want 1H 1D 7D 14D 30D All", got)
 	}
-	if active != "7D" {
-		t.Errorf("active range = %q, want 7D", active)
+	if active != "1D" {
+		t.Errorf("active range = %q, want 1D", active)
 	}
 }
 
@@ -165,6 +167,7 @@ func TestHome_RangeTabsAreLinksToHome(t *testing.T) {
 	db := setupLogTestDB(t)
 	body := fetchHome(t, newLogDeps(t, db))
 	mustContain(t, body, `href="/?range=1h"`)
+	mustContain(t, body, `href="/?range=7d"`)
 	mustContain(t, body, `href="/?range=all"`)
 	mustContain(t, body, `href="/" class="c-tab c-tab--active"`)
 }
@@ -207,6 +210,19 @@ func TestHomePanel_TabsKeepTheCursor(t *testing.T) {
 		t.Fatalf("status %d\n%s", code, body)
 	}
 	mustContain(t, body, "at="+at)
+}
+
+// ?chart=activity picks the histogram, server-side: the toggle works
+// with JavaScript off, and the page and the fragment agree.
+func TestHome_ChartParamSelectsTheHistogram(t *testing.T) {
+	db := setupLogTestDB(t)
+	deps := newLogDeps(t, db)
+	_, fragment := fetchHomePanel(t, deps, "chart=activity")
+	for _, body := range []string{fetchHomeQuery(t, deps, "chart=activity"), fragment} {
+		mustContain(t, body, `aria-current="true">Activity</a>`)
+		mustContain(t, body, `href="/" class="c-chart-panel__view"`)
+		mustContain(t, body, `href="/?chart=activity&amp;range=all"`)
+	}
 }
 
 func TestHomePanel_RejectsAMalformedCursor(t *testing.T) {

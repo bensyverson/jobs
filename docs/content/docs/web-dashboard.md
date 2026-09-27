@@ -15,7 +15,7 @@ The dashboard is for the human watching agents work. The CLI remains the surface
 
 | View       | URL          | What it shows                                                                                  |
 |------------|--------------|------------------------------------------------------------------------------------------------|
-| Home       | `/`          | A progress chart (burn-up and activity over a range), the task map, recent completions, active claims, available and blocked work. |
+| Home       | `/`          | A progress chart (burn-up or activity over a range), the task map, recent completions, active claims, available and blocked work. |
 | Plan       | `/plan`      | The task tree, scoped (`/plan/{id}`) or filtered by label (`?label=<name>`; `/labels/{name}` redirects there). Issue trees are not here. |
 | Issues     | `/issues`    | The same tree view over your [issue trees](../concepts/tree-kinds/), scoped at `/issues/{root-id}`. |
 | Actors     | `/actors`    | Column-per-actor board — one stack of cards per identity, freshest at the bottom, bounded by a range selector. Click through to `/actors/{name}` for a single actor's stream. |
@@ -36,19 +36,19 @@ Two auxiliary pages — `/tasks/{id}` (single task with peek view at `/tasks/{id
 
 ### Home's progress chart
 
-Home opens with a **Progress** panel: how the work has gone over a range, rather than what happened in the last few minutes.
+Home opens with a **Progress** panel: how the work has gone over a range, rather than what happened in the last few minutes. It shows one chart at a time — `Burn-up · Activity` in its header switches between them (`?chart=activity`; the burn-up is the default).
 
-- **The burn-up** draws two lines. *Scope* is the leaf tasks that exist and aren't canceled; *done* is the ones finished. The shaded gap between them is the open work, and the darker band inside it, sitting on the done line, is the part of that work that is blocked. The two end values are printed large beside the lines, and the header says it in words: `75 open · 12 blocked · 4 canceled`. Each point is the store's state *as of that moment* — so if a task is reopened, the done line dips, and it rises again when the task closes for good. Canceled work leaves scope instead of drawing a line of its own; its count is in the header.
-- **The activity histogram** underneath shares the burn-up's time axis: one bar per bucket, stacked by tasks created, claimed, done and blocked.
+- **The burn-up** draws two lines. *Scope* is the leaf tasks that exist and aren't canceled; *done* is the ones finished. The shaded gap between them is the open work, and the darker band inside it, sitting on the done line, is the part of that work that is blocked. The two end values are printed large beside the lines, and the header says it in words: `75 open · 12 blocked · 4 canceled`. Each point is the store's state *as of that moment* — so if a task is reopened, the done line dips, and it rises again when the task closes for good. Canceled work leaves scope instead of drawing a line of its own; its count is in the header. The vertical axis is **fitted**: it runs from the lowest value either line reaches in the range to the highest, on every range, `All` included — so a week in which scope went from 400 to 500 fills the chart rather than drawing two flat lines near the top of an axis that starts at zero. Read the gridline labels for the scale. A range in which nothing changed draws its line across the middle.
+- **The activity histogram** is the other view, on the same time axis: one bar per bucket, stacked by tasks created, claimed, done and blocked, with the totals beside it. It keeps a zero baseline — its bars are counts.
 - **Import ticks.** Each plan brought in with `job import` is a small tick on the time axis (hover it for the plan and its file) — the chart's only annotation. Stores from before import events existed simply show none.
 
 The counting rules — leaves only, state as of each moment — belong to the core and are shared with `job stats`, so the chart and the CLI never disagree.
 
-The panel has its own `1H · 1D · 7D · 14D · 30D · All` selector (`?range=`, default `7D`). Each range picks its natural bucket: a minute for 1H, an hour for 1D, six hours for 7D, a day for 14D and 30D, and for All whichever of those fits the store's history — so a day-old store draws hourly points, and one past 90 days draws weekly ones. `1H` is the old one-minute live view. Like every range selector here, the options are plain links, so the chart works with JavaScript off; with it, switching range redraws only the panel, in place, and keeps the URL in step.
+The panel has its own `1H · 1D · 7D · 14D · 30D · All` selector (`?range=`, default `1D`, so a new or freshly revived project shows movement on first load). Each range picks its natural bucket: a minute for 1H, an hour for 1D, six hours for 7D, a day for 14D and 30D, and for All whichever of those fits the store's history — so a day-old store draws hourly points, and one past 90 days draws weekly ones. `1H` is the old one-minute live view. Like every range selector here, the options — and the chart toggle — are plain links, so the chart works with JavaScript off; with it, switching range or chart redraws only the panel, in place, and keeps the URL in step. Each keeps the other's setting and any `?at=`.
 
 ### The range selector
 
-The Actors board and the Log both open on the **last 7 days**. A `7D · 14D · 30D · All` control sits at the top of the view; picking one sets `?range=7d|14d|30d|all` and the page reloads — they are ordinary links, so the control works with JavaScript off and each range is a bookmarkable URL. An unrecognized value falls back to `7d` rather than erroring, and `7D` itself is the bare `/actors` or `/log`. Home's chart offers the same control with two shorter spans in front, `1H` and `1D` (see above).
+The Actors board and the Log both open on the **last 7 days**. A `7D · 14D · 30D · All` control sits at the top of the view; picking one sets `?range=7d|14d|30d|all` and the page reloads — they are ordinary links, so the control works with JavaScript off and each range is a bookmarkable URL. An unrecognized value falls back to `7d` rather than erroring, and `7D` itself is the bare `/actors` or `/log`. Home's chart offers the same control with two shorter spans in front, `1H` and `1D`, and opens on `1D` instead (see above).
 
 On **Actors** the range decides two things at once: an actor only gets a column when they have an event inside the window, and a column only carries the cards its in-window events produced. On a long-lived store that is the difference between a readable board and several hundred columns of agents who last ran in March.
 

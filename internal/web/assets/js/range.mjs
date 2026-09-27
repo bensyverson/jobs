@@ -1,8 +1,9 @@
 /*
   Client mirror of the `?range=` window a bounded view looks back over.
-  The key vocabulary, durations and default mirror
-  internal/job/timerange.go; which keys a view offers mirrors
-  internal/web/handlers/range.go (boundedViewRanges).
+  The key vocabulary and durations mirror internal/job/timerange.go;
+  which keys a view offers, and its default, mirror
+  internal/web/handlers/range.go (boundedViewRanges). Home's chart
+  panel (default 1D) is read only by the server, so it has no mirror.
 
   The server renders the first frame with a cutoff already applied;
   when the scrubber rebuilds a view from the in-memory event log it
@@ -35,7 +36,8 @@ export const RANGE_KEYS = Object.freeze([
 // including 1h and 1d — falls back to the default.
 export const BOUNDED_VIEW_RANGES = Object.freeze([RANGE_7D, RANGE_14D, RANGE_30D, RANGE_ALL]);
 
-// DEFAULT_RANGE mirrors job.DefaultRangeKey.
+// DEFAULT_RANGE mirrors boundedViewRanges.Default: the default of the
+// only views whose range the client reads.
 export const DEFAULT_RANGE = RANGE_7D;
 
 const HOUR_SECONDS = 3600;
