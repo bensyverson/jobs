@@ -143,9 +143,9 @@ func TestOwnLogFileDeclaresTheCurrentFormat(t *testing.T) {
 	}
 }
 
-// The latest replica event wins, so a rename at the current format after an
-// earlier line from the future still refuses: the file's declared format is
-// the newest one it carries.
+// The latest replica event wins: a file re-declared by a newer binary declares
+// the newer format. (The opposite order, a lower line after a higher one, still
+// refuses — store_format_lowering_test.go.)
 func TestFileFormatTakesTheLatestReplicaEvent(t *testing.T) {
 	evs := []eventlog.Envelope{
 		replicaLine(t, 1, StoreFormat),

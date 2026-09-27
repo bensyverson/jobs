@@ -20,12 +20,22 @@ import (
 //
 // ts is created_at in milliseconds, so the line keeps its place in the
 // timeline; rep and seq are assigned by the caller under the store lock.
+//
+// Unpositioned `replica` and `snapshot` rows are left out. The store minted
+// both, so neither predates it: one in this state is another replica's
+// bookkeeping, transcribed by a `job merge` from before merge stopped copying
+// it (planEvents). Neither is history, and a `replica` line would do harm —
+// landing after this file's own declaration, its format and label would become
+// the file's, lowering the format every binary in the field reads it at.
+// Nothing is lost to the adoption check, which compares history without them
+// (dumpHistory).
 func legacyEnvelopes(db *sql.DB) ([]eventlog.Envelope, error) {
 	rows, err := db.Query(`
 		SELECT e.id, e.actor, e.event_type, COALESCE(e.detail, ''), e.created_at,
 		       COALESCE(t.short_id, '')
 		FROM events e LEFT JOIN tasks t ON t.id = e.task_id
-		WHERE e.rep = '' ORDER BY e.id`)
+		WHERE e.rep = '' AND e.event_type NOT IN (?, ?) ORDER BY e.id`,
+		string(EventReplica), string(EventSnapshot))
 	if err != nil {
 		return nil, err
 	}
