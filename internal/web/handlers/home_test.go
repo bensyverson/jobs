@@ -212,16 +212,33 @@ func TestHomePanel_TabsKeepTheCursor(t *testing.T) {
 	mustContain(t, body, "at="+at)
 }
 
-// ?chart=activity picks the histogram, server-side: the toggle works
-// with JavaScript off, and the page and the fragment agree.
-func TestHome_ChartParamSelectsTheHistogram(t *testing.T) {
+// The axis's right edge is the handler's call: "Now" on the live
+// panel, the cursor's moment when the panel is rendered for ?at=.
+// Both charts render either way; there is no ?chart= any more.
+func TestHomePanel_AxisEndReadsNowOrTheCursor(t *testing.T) {
 	db := setupLogTestDB(t)
+	if _, err := job.RunAdd(db, "", "anchored", "", "", nil, "alice"); err != nil {
+		t.Fatalf("RunAdd: %v", err)
+	}
+	// Move the add an hour back onto a whole second: the range anchor
+	// reads the cursor event's second, so an event later in that same
+	// second would fall outside the parked window.
+	if _, err := db.Exec(`UPDATE events SET created_at = created_at - 3600, ts = (created_at - 3600) * 1000`); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+	events, err := job.GetEventsForTaskTree(db, "")
+	if err != nil || len(events) == 0 {
+		t.Fatalf("events: %v / %d", err, len(events))
+	}
 	deps := newLogDeps(t, db)
-	_, fragment := fetchHomePanel(t, deps, "chart=activity")
-	for _, body := range []string{fetchHomeQuery(t, deps, "chart=activity"), fragment} {
-		mustContain(t, body, `aria-current="true">Activity</a>`)
-		mustContain(t, body, `href="/" class="c-chart-panel__view"`)
-		mustContain(t, body, `href="/?chart=activity&amp;range=all"`)
+	_, live := fetchHomePanel(t, deps, "")
+	mustContain(t, live, `>Now</text>`)
+	mustContain(t, live, `class="c-burnup"`)
+	mustContain(t, live, `class="c-activity`)
+	_, parked := fetchHomePanel(t, deps, "at="+events[0].Position().String())
+	mustContain(t, parked, `c-chart-axis__label--end`)
+	if strings.Contains(parked, `>Now</text>`) {
+		t.Errorf("the panel parked under ?at= labels its end Now:\n%s", parked)
 	}
 }
 

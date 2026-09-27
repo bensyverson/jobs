@@ -22,16 +22,15 @@ test("panelFragmentURL: carries ?range= and ?at=", () => {
   assert.equal(panelFragmentURL("/?range=1d&at=1700000000-r1-4"), "/home/panel?range=1d&at=1700000000-r1-4");
 });
 
-test("panelFragmentURL: carries ?chart= alongside ?range= and ?at=", () => {
-  assert.equal(panelFragmentURL("/?chart=activity"), "/home/panel?chart=activity");
-  assert.equal(
-    panelFragmentURL("/?at=1-a-2&chart=activity&range=7d"),
-    "/home/panel?range=7d&at=1-a-2&chart=activity",
-  );
+// The Burn-up · Activity toggle is gone (chart panel revision, decision
+// 3): both charts always render, so a stale ?chart= is not forwarded.
+test("panelFragmentURL: drops a stale ?chart=", () => {
+  assert.equal(panelFragmentURL("/?chart=activity"), "/home/panel");
+  assert.equal(panelFragmentURL("/?at=1-a-2&chart=activity&range=7d"), "/home/panel?range=7d&at=1-a-2");
 });
 
-test("PANEL_LINK_SELECTOR: the range tabs and the chart toggle swap in place", () => {
-  assert.equal(PANEL_LINK_SELECTOR, ".c-chart-panel__ranges a[href], .c-chart-panel__views a[href]");
+test("PANEL_LINK_SELECTOR: only the range tabs swap in place", () => {
+  assert.equal(PANEL_LINK_SELECTOR, ".c-chart-panel__ranges a[href]");
 });
 
 test("panelFragmentURL: drops what the panel does not read", () => {

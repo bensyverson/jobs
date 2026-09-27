@@ -33,16 +33,19 @@ type Burnup struct {
 	DoneDot  Point
 
 	Gridlines []Gridline
-	Scope     EndLabel
-	Done      EndLabel
+	// Created sits beside the scope line's end: the line is scope, the
+	// label is the window's creations. Done sits beside the done line's.
+	Created EndLabel
+	Done    EndLabel
 
-	// Open, Blocked and Canceled are the state at the window's end.
+	// Open and Blocked are the state at the window's end; Canceled is
+	// leaves canceled in the window (LeafFigures.Canceled).
 	Open     int
 	Blocked  int
 	Canceled int
 
-	// Summary restates the end state in a sentence, for the SVG's
-	// <desc>.
+	// Summary restates the window's figures and the end state in
+	// sentences, for the SVG's <desc>.
 	Summary string
 	Rows    []BurnupRow
 
@@ -69,11 +72,16 @@ type Point struct {
 	Y string
 }
 
-// EndLabel is a line's final value, placed at Y percent of the plot
-// height beside the line's end.
+// EndLabel is a line's window figure (chart panel revision, decision
+// 4), placed at Y percent of the plot height beside the line's end:
+// Text ("+12") over Word ("created"), with Total ("of 358") — the
+// line's value at the window's end — beneath.
 type EndLabel struct {
+	// Value is the window's delta Text spells.
 	Value int
 	Text  string
+	Word  string
+	Total string
 	Y     string
 }
 
@@ -89,7 +97,7 @@ type BurnupRow struct {
 
 const (
 	// maxGridlines keeps the gridlines sparse — a reference, not a
-	// lattice — in a plot about 100px tall.
+	// lattice — in a plot about 140px tall.
 	maxGridlines = 3
 	// flatPadFrac is the pad above and below a flat window's value, as
 	// a share of it, so the line sits mid-chart with gridlines around
@@ -99,15 +107,20 @@ const (
 	// span, a gridline may sit before it is dropped: close enough and
 	// the line strikes through its label.
 	flatClearFrac = 0.1
-	// minEndLabelGapPct keeps the two end labels (a large number over a
-	// small-caps word, about 34px tall together) from overlapping when
-	// the lines end close together. Percent of the plot height, which
-	// CSS fixes at 100px.
-	minEndLabelGapPct = 36.0
-	// endLabelTopPct and endLabelBottomPct keep the end labels inside
-	// the plot's box.
-	endLabelTopPct    = 9.0
-	endLabelBottomPct = 78.0
+	// minEndLabelGapPct keeps the two end-label blocks apart when the
+	// lines end close together, so a number is never read against the
+	// other block's word. Each block — the delta at heading-lg, its
+	// word and its "of N" total in 11px type beneath — runs from about
+	// 8px above its Y to 36px below (the template's dy offsets), 44px
+	// in all; 56px between the two Ys leaves 12px of air between the
+	// blocks. Percent of the plot height, which CSS fixes at 140px
+	// (--plot-h): 56 / 140.
+	minEndLabelGapPct = 40.0
+	// endLabelTopPct and endLabelBottomPct keep both blocks inside the
+	// plot's box: 8px / 140px at the top, (140 − 36)px / 140px at the
+	// bottom.
+	endLabelTopPct    = 6.0
+	endLabelBottomPct = 74.0
 )
 
 // y maps a count to a viewBox y coordinate.
@@ -225,12 +238,21 @@ func LayoutBurnup(rep job.Report, loc *time.Location) Burnup {
 	b.DoneDot = Point{X: endX, Y: fmtPct(done[n-1] / BurnupViewH * 100)}
 
 	last := rep.Series[n-1]
-	b.Open, b.Blocked, b.Canceled = last.Open, last.Blocked, last.Canceled
+	b.Open, b.Blocked, b.Canceled = last.Open, last.Blocked, rep.Leaves.Canceled
 	scopeY, doneY := endLabelPositions(scope[n-1]/BurnupViewH*100, done[n-1]/BurnupViewH*100)
-	b.Scope = EndLabel{Value: last.Scope, Text: Count(last.Scope), Y: fmtPct(scopeY)}
-	b.Done = EndLabel{Value: last.Done, Text: Count(last.Done), Y: fmtPct(doneY)}
-	b.Summary = burnupSummary(last)
+	b.Created = windowLabel(rep.Leaves.Created, "created", last.Scope, scopeY)
+	b.Done = windowLabel(rep.Leaves.Done, "done", last.Done, doneY)
+	b.Summary = burnupSummary(rep.Leaves, last)
 	return b
+}
+
+// windowLabel is an end label reading the window's delta over word,
+// with total — the line's value at the window's end — beneath.
+func windowLabel(delta int, word string, total int, y float64) EndLabel {
+	return EndLabel{
+		Value: delta, Text: "+" + Count(delta), Word: word,
+		Total: "of " + Count(total), Y: fmtPct(y),
+	}
 }
 
 func isEmptySeries(series []job.Sample) bool {
@@ -316,19 +338,10 @@ func endLabelPositions(scopeY, doneY float64) (float64, float64) {
 	return clamp(scopeY, endLabelTopPct, endLabelBottomPct), clamp(doneY, endLabelTopPct, endLabelBottomPct)
 }
 
-func burnupSummary(s job.Sample) string {
-	return fmt.Sprintf("%s in scope, %s done, %s open of which %s blocked, %s canceled.",
-		Count(s.Scope), Count(s.Done), Count(s.Open), Count(s.Blocked), Count(s.Canceled))
-}
-
-// Caption is the open work at the window's end in words — the gap and
-// its blocked share are drawn, so they are also said. Canceled work is
-// named only when there is some (decision 3: it leaves scope and is
-// reported alongside).
-func (b Burnup) Caption() string {
-	s := Count(b.Open) + " open · " + Count(b.Blocked) + " blocked"
-	if b.Canceled > 0 {
-		s += " · " + Count(b.Canceled) + " canceled"
-	}
-	return s
+// burnupSummary says what the end labels and caption say: the window's
+// transitions first, then the state at its end.
+func burnupSummary(f job.LeafFigures, s job.Sample) string {
+	return fmt.Sprintf("In this window, %s created, %s done and %s canceled. At its end, %s in scope, %s done, %s open of which %s blocked.",
+		Count(f.Created), Count(f.Done), Count(f.Canceled),
+		Count(s.Scope), Count(s.Done), Count(s.Open), Count(s.Blocked))
 }

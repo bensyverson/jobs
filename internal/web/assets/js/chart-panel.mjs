@@ -2,19 +2,18 @@
   <chart-panel> — Home's burn-up + activity panel
   (templates/html/partials/chart_panel.html.tmpl).
 
-  The server ships the whole panel as HTML, and the range selector and
-  the chart toggle are plain links, so the panel works with JavaScript
-  off. This element upgrades what is already there; it never renders a chart
+  The server ships the whole panel as HTML — the burn-up and the
+  histogram side by side — and the range selector is plain links, so
+  the panel works with JavaScript off. This element upgrades what is already there; it never renders a chart
   itself and holds none of the counting rules (reporting decision 12).
-  It re-fetches the server fragment (GET /home/panel?range=&chart=&at=)
+  It re-fetches the server fragment (GET /home/panel?range=&at=)
   and swaps its own contents when:
 
-    - a range tab or the Burn-up · Activity toggle is clicked:
-      pushState the link's URL, fetch, swap;
+    - a range tab is clicked: pushState the link's URL, fetch, swap;
     - the scrubber moves (jobs:scrubber-frame, debounced) or returns to
       live (jobs:scrubber-live) — the pill has already written ?at= to
       the address bar;
-    - back/forward changes ?range=, ?chart= or ?at= (popstate);
+    - back/forward changes ?range= or ?at= (popstate);
     - a live event arrives (the <live-region>'s "event", debounced) so
       the live panel keeps up.
 

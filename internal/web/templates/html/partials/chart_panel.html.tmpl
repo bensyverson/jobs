@@ -1,9 +1,9 @@
-{{- /* Chart panel — Home's burn-up or activity histogram over one
-     range, one chart at a time (project/2026-09-26-reporting.md).
-     Payload: handlers.ChartPanel,
-     built from a job.Report. Rendered in the Home page, alone by
-     GET /home/panel (the fragment <chart-panel> swaps in), and by the
-     preview catalog.
+{{- /* Chart panel — Home's burn-up and activity histogram side by side
+     over one range, each over its own copy of the time axis
+     (project/2026-09-26-reporting.md, project/2026-09-27-chart-panel-revision.md).
+     Payload: handlers.ChartPanel, built from a job.Report. Rendered in
+     the Home page, alone by GET /home/panel (the fragment <chart-panel>
+     swaps in), and by the preview catalog.
 
      The plots stretch to any width: each draws in a fixed viewBox with
      preserveAspectRatio="none" and non-scaling strokes. Text that must
@@ -14,96 +14,125 @@
   <div class="c-panel__header c-chart-panel__header">
     <h2 id="{{.ID}}-progress" class="c-panel__title">Progress</h2>
     {{- if eq .State "chart"}}
-    <span class="c-panel__meta c-chart-panel__meta">{{.Burnup.Caption}}</span>
+    <span class="c-panel__meta c-chart-panel__meta">{{.Caption}}</span>
     {{- end}}
-    <nav class="c-chart-panel__views" aria-label="Chart">
-      {{- range $i, $t := .ViewTabs}}{{if $i}}<span class="c-chart-panel__views-sep" aria-hidden="true">·</span>{{end}}<a href="{{$t.URL}}" class="c-chart-panel__view{{if $t.Active}} c-chart-panel__view--active{{end}}"{{if $t.Active}} aria-current="true"{{end}}>{{$t.Label}}</a>{{end -}}
-    </nav>
     <nav class="c-tabs c-chart-panel__ranges" aria-label="Range">
       {{- range .RangeTabs}}<a href="{{.URL}}" class="c-tab{{if .Active}} c-tab--active{{end}}"{{if .Active}} aria-current="true"{{end}}>{{.Label}}</a>{{end -}}
     </nav>
   </div>
   {{- if eq .State "chart"}}
   <div class="c-chart-panel__body">
-    {{- if .View.IsActivity}}
-    {{- if .Activity.Empty}}
-    <p class="c-activity c-activity--empty">No activity in {{.RangePhrase}}.</p>
-    {{- else}}
-    <svg class="c-activity" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img"
-         aria-label="Activity over {{.RangePhrase}}: {{.Activity.Total}} events, stacked by kind">
-      {{- range .Activity.Bars}}{{$bar := .}}{{range .Segments}}
-      <rect class="c-activity__seg c-activity__seg--{{.Kind}}" x="{{$bar.Left}}" width="{{$bar.Width}}" y="{{.Top}}" height="{{.Height}}" />
-      {{- end}}{{end}}
-    </svg>
-    {{- end}}
-    <ul class="c-activity-legend" aria-label="Activity totals">
-      <li><span class="c-activity__swatch c-activity__swatch--created"></span>{{.Activity.Created}} created</li>
-      <li><span class="c-activity__swatch c-activity__swatch--claimed"></span>{{.Activity.Claimed}} claimed</li>
-      <li><span class="c-activity__swatch c-activity__swatch--done"></span>{{.Activity.Done}} done</li>
-      <li><span class="c-activity__swatch c-activity__swatch--blocked"></span>{{.Activity.Blocked}} blocked</li>
-      {{- with .Axis.Imports}}
-      <li class="c-activity-legend__imports"><span class="c-activity__swatch c-activity__swatch--import"></span>{{len .}} imported</li>
-      {{- end}}
-    </ul>
-    {{- else}}
-    <svg class="c-burnup" role="img" aria-labelledby="{{.ID}}-burnup-title {{.ID}}-burnup-desc">
-      <title id="{{.ID}}-burnup-title">Burn-up over {{.RangePhrase}}: scope and done, in leaf tasks</title>
-      <desc id="{{.ID}}-burnup-desc">{{.Burnup.Summary}}{{with .Axis.Imports}} {{len .}} imported plans are marked on the time axis.{{end}}</desc>
-      {{- range .Burnup.Gridlines}}
-      <line class="c-burnup__grid" x1="0" x2="100%" y1="{{.Y}}" y2="{{.Y}}" />
-      {{- end}}
-      <line class="c-burnup__baseline" x1="0" x2="100%" y1="100%" y2="100%" />
-      <svg viewBox="0 0 1000 1000" preserveAspectRatio="none" width="100%" height="100%">
-        <path class="c-burnup__gap" d="{{.Burnup.GapPath}}" />
-        <path class="c-burnup__blocked" d="{{.Burnup.BlockedPath}}" />
-        <path class="c-burnup__scope" d="{{.Burnup.ScopePath}}" vector-effect="non-scaling-stroke" />
-        <path class="c-burnup__done" d="{{.Burnup.DonePath}}" vector-effect="non-scaling-stroke" />
+    <div class="c-chart-panel__chart c-chart-panel__chart--burnup">
+      <svg class="c-burnup" role="img" aria-labelledby="{{.ID}}-burnup-title {{.ID}}-burnup-desc">
+        <title id="{{.ID}}-burnup-title">Burn-up over {{.RangePhrase}}: scope and done, in leaf tasks</title>
+        <desc id="{{.ID}}-burnup-desc">{{.Burnup.Summary}}{{with .Axis.Imports}} {{len .}} imported plans are marked on the time axis.{{end}}</desc>
+        {{- range .Burnup.Gridlines}}
+        <line class="c-burnup__grid" x1="0" x2="100%" y1="{{.Y}}" y2="{{.Y}}" />
+        {{- end}}
+        <line class="c-burnup__baseline" x1="0" x2="100%" y1="100%" y2="100%" />
+        <svg viewBox="0 0 1000 1000" preserveAspectRatio="none" width="100%" height="100%">
+          <path class="c-burnup__gap" d="{{.Burnup.GapPath}}" />
+          <path class="c-burnup__blocked" d="{{.Burnup.BlockedPath}}" />
+          <path class="c-burnup__scope" d="{{.Burnup.ScopePath}}" vector-effect="non-scaling-stroke" />
+          <path class="c-burnup__done" d="{{.Burnup.DonePath}}" vector-effect="non-scaling-stroke" />
+        </svg>
+        <circle class="c-burnup__dot c-burnup__dot--scope" cx="{{.Burnup.ScopeDot.X}}" cy="{{.Burnup.ScopeDot.Y}}" r="2.5" />
+        <circle class="c-burnup__dot c-burnup__dot--done" cx="{{.Burnup.DoneDot.X}}" cy="{{.Burnup.DoneDot.Y}}" r="3" />
+        {{- range .Burnup.Gridlines}}
+        <text class="c-burnup__grid-label" x="0" y="{{.Y}}" dy="-4">{{.Label}}</text>
+        {{- end}}
       </svg>
-      <circle class="c-burnup__dot c-burnup__dot--scope" cx="{{.Burnup.ScopeDot.X}}" cy="{{.Burnup.ScopeDot.Y}}" r="2.5" />
-      <circle class="c-burnup__dot c-burnup__dot--done" cx="{{.Burnup.DoneDot.X}}" cy="{{.Burnup.DoneDot.Y}}" r="3" />
-      {{- range .Burnup.Gridlines}}
-      <text class="c-burnup__grid-label" x="0" y="{{.Y}}" dy="-4">{{.Label}}</text>
+      {{- /* The end labels sit in an svg so each block can follow its
+           line's end at a percent height; the sizer beside it is the
+           same text laid out invisibly in HTML, which is what gives the
+           column its content width (an svg has none of its own). */}}
+      <div class="c-burnup-ends" aria-hidden="true">
+        <span class="c-burnup-ends__sizer">
+          {{- with .Burnup.Created}}<span class="c-burnup-ends__value">{{.Text}}</span><span class="c-burnup-ends__word">{{.Word}}</span><span class="c-burnup-ends__total">{{.Total}}</span>{{end}}
+          {{- with .Burnup.Done}}<span class="c-burnup-ends__value">{{.Text}}</span><span class="c-burnup-ends__word">{{.Word}}</span><span class="c-burnup-ends__total">{{.Total}}</span>{{end -}}
+        </span>
+        <svg class="c-burnup-ends__labels">
+          {{- with .Burnup.Created}}
+          <text class="c-burnup-ends__value c-burnup-ends__value--created" x="0" y="{{.Y}}" dy="7">{{.Text}}</text>
+          <text class="c-burnup-ends__word" x="1" y="{{.Y}}" dy="21">{{.Word}}</text>
+          <text class="c-burnup-ends__total" x="1" y="{{.Y}}" dy="34">{{.Total}}</text>
+          {{- end}}
+          {{- with .Burnup.Done}}
+          <text class="c-burnup-ends__value c-burnup-ends__value--done" x="0" y="{{.Y}}" dy="7">{{.Text}}</text>
+          <text class="c-burnup-ends__word" x="1" y="{{.Y}}" dy="21">{{.Word}}</text>
+          <text class="c-burnup-ends__total" x="1" y="{{.Y}}" dy="34">{{.Total}}</text>
+          {{- end}}
+        </svg>
+      </div>
+      {{template "chart_axis" .BurnupAxis}}
+      <div class="sr-only"><table>
+        <caption>Burn-up samples over {{.RangePhrase}}, state as of each time; in this window {{.Burnup.Created.Value}} created, {{.Burnup.Done.Value}} done and {{.Burnup.Canceled}} canceled</caption>
+        <thead><tr><th scope="col">Time</th><th scope="col">Scope</th><th scope="col">Done</th><th scope="col">Open</th><th scope="col">Blocked</th><th scope="col">Canceled</th></tr></thead>
+        <tbody>
+          {{- range .Burnup.Rows}}
+          <tr><td>{{.When}}</td><td>{{.Scope}}</td><td>{{.Done}}</td><td>{{.Open}}</td><td>{{.Blocked}}</td><td>{{.Canceled}}</td></tr>
+          {{- end}}
+        </tbody>
+      </table></div>
+    </div>
+    <div class="c-chart-panel__chart c-chart-panel__chart--activity">
+      {{- if .Activity.Empty}}
+      <p class="c-activity c-activity--empty">No activity in {{.RangePhrase}}.</p>
+      {{- else}}
+      <svg class="c-activity" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img"
+           aria-label="Activity over {{.RangePhrase}}: {{.Activity.Total}} events, stacked by kind">
+        {{- range .Activity.Bars}}{{$bar := .}}{{range .Segments}}
+        <rect class="c-activity__seg c-activity__seg--{{.Kind}}" x="{{$bar.Left}}" width="{{$bar.Width}}" y="{{.Top}}" height="{{.Height}}" />
+        {{- end}}{{end}}
+      </svg>
       {{- end}}
-    </svg>
-    <svg class="c-burnup-ends" aria-hidden="true">
-      <text class="c-burnup-ends__value c-burnup-ends__value--scope" x="0" y="{{.Burnup.Scope.Y}}" dy="6">{{.Burnup.Scope.Text}}</text>
-      <text class="c-burnup-ends__word" x="1" y="{{.Burnup.Scope.Y}}" dy="22">scope</text>
-      <text class="c-burnup-ends__value c-burnup-ends__value--done" x="0" y="{{.Burnup.Done.Y}}" dy="6">{{.Burnup.Done.Text}}</text>
-      <text class="c-burnup-ends__word" x="1" y="{{.Burnup.Done.Y}}" dy="22">done</text>
-    </svg>
-    {{- end}}
-    <svg class="c-chart-axis" aria-hidden="true">
-      {{- range .Axis.Imports}}
-      <line class="c-chart-axis__import" x1="{{.X}}" x2="{{.X}}" y1="0" y2="7"><title>{{.Label}}</title></line>
-      {{- end}}
-      {{- range .Axis.Ticks}}
-      <text class="c-chart-axis__label" x="{{.X}}" y="21" text-anchor="{{.Anchor}}">{{.Label}}</text>
-      {{- end}}
-    </svg>
-    {{- if .View.IsActivity}}
-    <table class="sr-only">
-      <caption>Events per bucket over {{.RangePhrase}}</caption>
-      <thead><tr><th scope="col">Bucket start</th><th scope="col">Created</th><th scope="col">Claimed</th><th scope="col">Done</th><th scope="col">Blocked</th></tr></thead>
-      <tbody>
-        {{- range .Activity.Rows}}
-        <tr><td>{{.When}}</td><td>{{.Created}}</td><td>{{.Claimed}}</td><td>{{.Done}}</td><td>{{.Blocked}}</td></tr>
+      <ul class="c-activity-legend" aria-label="Activity totals">
+        <li><span class="c-activity__swatch c-activity__swatch--created"></span>{{.Activity.Created}} created</li>
+        <li><span class="c-activity__swatch c-activity__swatch--claimed"></span>{{.Activity.Claimed}} claimed</li>
+        <li><span class="c-activity__swatch c-activity__swatch--done"></span>{{.Activity.Done}} done</li>
+        <li><span class="c-activity__swatch c-activity__swatch--blocked"></span>{{.Activity.Blocked}} blocked</li>
+        {{- with .Axis.Imports}}
+        <li class="c-activity-legend__imports"><span class="c-activity__swatch c-activity__swatch--import"></span>{{len .}} imported</li>
         {{- end}}
-      </tbody>
-    </table>
-    {{- else}}
-    <table class="sr-only">
-      <caption>Burn-up samples over {{.RangePhrase}}, state as of each time</caption>
-      <thead><tr><th scope="col">Time</th><th scope="col">Scope</th><th scope="col">Done</th><th scope="col">Open</th><th scope="col">Blocked</th><th scope="col">Canceled</th></tr></thead>
-      <tbody>
-        {{- range .Burnup.Rows}}
-        <tr><td>{{.When}}</td><td>{{.Scope}}</td><td>{{.Done}}</td><td>{{.Open}}</td><td>{{.Blocked}}</td><td>{{.Canceled}}</td></tr>
-        {{- end}}
-      </tbody>
-    </table>
-    {{- end}}
+      </ul>
+      {{template "chart_axis" .ActivityAxis}}
+      <div class="sr-only"><table>
+        <caption>Events per bucket over {{.RangePhrase}}</caption>
+        <thead><tr><th scope="col">Bucket start</th><th scope="col">Created</th><th scope="col">Claimed</th><th scope="col">Done</th><th scope="col">Blocked</th></tr></thead>
+        <tbody>
+          {{- range .Activity.Rows}}
+          <tr><td>{{.When}}</td><td>{{.Created}}</td><td>{{.Claimed}}</td><td>{{.Done}}</td><td>{{.Blocked}}</td></tr>
+          {{- end}}
+        </tbody>
+      </table></div>
+    </div>
   </div>
   {{- else}}
   <p class="c-chart-panel__message{{if eq .State "error"}} c-chart-panel__message--error{{end}}">{{.Message}}</p>
   {{- end}}
 </section>
 </chart-panel>{{end}}
+
+{{- /* chart_axis — one chart's copy of the shared time axis. Payload:
+     handlers.PanelAxis. The scale (minor marks, labelled ticks) is
+     decoration: the sr-only tables carry the times. The import ticks
+     are links the peek sheet opens (decision 8); only the reachable
+     copy (the burn-up's) is exposed and focusable, so each plan is
+     announced once — the histogram's copy serves the pointer alone.
+     Each mark is a nested <svg> at its percent x, so the hit target
+     around it can be sized in pixels. */ -}}
+{{define "chart_axis"}}<svg class="c-chart-axis c-chart-axis--{{.Chart}}"{{if not .Reachable}} aria-hidden="true"{{end}}>
+        <g class="c-chart-axis__scale" aria-hidden="true">
+          {{- range .Minor}}
+          <line class="c-chart-axis__minor" x1="{{.}}" x2="{{.}}" y1="0" y2="4" />
+          {{- end}}
+          {{- range .Ticks}}
+          <line class="c-chart-axis__major" x1="{{.X}}" x2="{{.X}}" y1="0" y2="6" />
+          <text class="c-chart-axis__label{{if .IsEnd}} c-chart-axis__label--end{{end}}" x="{{.X}}" y="19" text-anchor="{{.Anchor}}">{{.Label}}</text>
+          {{- end}}
+        </g>
+        {{- $reachable := .Reachable}}
+        {{- range .Imports}}
+        <a class="c-chart-axis__import-link" href="{{.Href}}" data-peek aria-label="{{.Label}}"{{if not $reachable}} tabindex="-1"{{end}}><title>{{.Label}}</title><svg class="c-chart-axis__import-mark" x="{{.X}}" overflow="visible"><rect class="c-chart-axis__import-hit" x="-6" y="-3" width="12" height="15" /><line class="c-chart-axis__import" x1="0" x2="0" y1="0" y2="7" /><circle class="c-chart-axis__import-head" cx="0" cy="8.5" r="2" /></svg></a>
+        {{- end}}
+      </svg>{{end}}

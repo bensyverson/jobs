@@ -2949,30 +2949,28 @@ a.c-graph-node__bug:focus-visible {
 /* ===== END log chip overflow (7QB2y) ===== */
 
 /* =====================================================
-   Chart panel — Home's burn-up or activity histogram over one range,
-   one at a time (partials/chart_panel.html.tmpl, DESIGN.md § Chart
-   panel). The plots
-   stretch to the panel: each draws in a fixed viewBox with
-   preserveAspectRatio="none" and non-scaling strokes, while labels sit
-   in pixel space at percent positions. Every color is a token, so the
-   panel follows the theme. Kept as one trailing block so parallel
-   patches to this file merge cleanly.
+   Chart panel — Home's burn-up and activity histogram side by side
+   over one range (partials/chart_panel.html.tmpl, DESIGN.md § Chart
+   panel). The plots stretch to their column: each draws in a fixed
+   viewBox with preserveAspectRatio="none" and non-scaling strokes,
+   while labels sit in pixel space at percent positions. Every color
+   is a token, so the panel follows the theme. Kept as one trailing
+   block so parallel patches to this file merge cleanly.
    ===================================================== */
 
 .c-chart-panel {
   display: block;
   /* Both charts draw at this height; the burn-up's end-label spacing
-     (chart.minEndLabelGapPct) is tuned to it. */
-  --plot-h: 100px;
-  --ends-w: 112px;
+     (chart.minEndLabelGapPct) is derived from it. */
+  --plot-h: 140px;
 }
 
 .c-chart-panel__header {
   flex-wrap: wrap;
 }
 
-/* The title takes the slack, so the caption, the toggle and the range
-   selector pack right whether or not the caption is shown. */
+/* The title takes the slack, so the caption and the range selector
+   pack right whether or not the caption is shown. */
 .c-chart-panel__header .c-panel__title {
   margin-right: auto;
 }
@@ -2980,37 +2978,6 @@ a.c-graph-node__bug:focus-visible {
 .c-chart-panel__meta {
   color: var(--color-on-surface-dim);
   font-variant-numeric: tabular-nums;
-}
-
-/* Burn-up · Activity: two quiet links, the current one lit. */
-.c-chart-panel__views {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  margin-right: var(--space-sm);
-  font-size: var(--font-label-caps-size);
-  font-weight: var(--font-label-caps-weight);
-  letter-spacing: var(--font-label-caps-letter-spacing);
-}
-
-.c-chart-panel__view {
-  padding: var(--space-xs) 2px;
-  color: var(--color-on-surface-dim);
-  border-bottom: none;
-  transition: color var(--motion-duration-fast) var(--motion-ease-out);
-}
-
-.c-chart-panel__view:hover {
-  color: var(--color-on-surface);
-  border-bottom: none;
-}
-
-.c-chart-panel__view--active {
-  color: var(--color-on-surface);
-}
-
-.c-chart-panel__views-sep {
-  color: var(--color-outline-strong);
 }
 
 .c-chart-panel__ranges .c-tab {
@@ -3022,16 +2989,27 @@ a.c-graph-node__bug:focus-visible {
   right: var(--space-sm);
 }
 
+/* Two equal columns, burn-up first; each chart is its own grid. */
 .c-chart-panel__body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--ends-w);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--space-xl);
+  row-gap: var(--space-lg);
+  padding: var(--space-md) var(--space-lg) var(--space-md);
+  transition: opacity var(--motion-duration-base) var(--motion-ease-out);
+}
+
+/* The plot takes the slack; the label column (end labels or legend)
+   is as wide as its content, so nothing reserves dead space. */
+.c-chart-panel__chart {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
   grid-template-areas:
     "plot side"
     "axis .";
-  column-gap: var(--space-lg);
+  column-gap: var(--space-md);
   row-gap: var(--space-sm);
-  padding: var(--space-md) var(--space-lg) var(--space-md);
-  transition: opacity var(--motion-duration-base) var(--motion-ease-out);
+  min-width: 0;
 }
 
 /* A fetch is in flight (chart-panel.mjs sets aria-busy): dim, don't blank. */
@@ -3077,13 +3055,15 @@ a.c-graph-node__bug:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-/* The open-work gap, and its blocked share drawn denser inside it. */
+/* The open-work gap stays a neutral wash; its blocked share, drawn on
+   the done line, takes the blocked status hue the histogram's blocked
+   segment uses, at a low alpha so the lines still lead. */
 .c-burnup__gap {
   fill: color-mix(in srgb, var(--color-on-surface-muted) 9%, transparent);
 }
 
 .c-burnup__blocked {
-  fill: color-mix(in srgb, var(--color-on-surface-muted) 24%, transparent);
+  fill: color-mix(in srgb, var(--color-status-blocked) 40%, transparent);
 }
 
 .c-burnup__scope,
@@ -3111,12 +3091,29 @@ a.c-graph-node__bug:focus-visible {
   fill: var(--color-primary);
 }
 
-/* End labels: the two final values, large, with the word beneath. */
+/* End labels: each line's window figure, large, over its word, with
+   the total beneath in small type. The svg places the blocks; the
+   invisible sizer gives the column its content width. */
 .c-burnup-ends {
   grid-area: side;
-  display: block;
-  width: 100%;
+  position: relative;
   height: var(--plot-h);
+}
+
+.c-burnup-ends__sizer {
+  display: flex;
+  flex-direction: column;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  white-space: nowrap;
+}
+
+.c-burnup-ends__labels {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   overflow: visible;
 }
 
@@ -3127,7 +3124,7 @@ a.c-graph-node__bug:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-.c-burnup-ends__value--scope {
+.c-burnup-ends__value--created {
   fill: var(--color-on-surface);
 }
 
@@ -3136,11 +3133,17 @@ a.c-graph-node__bug:focus-visible {
 }
 
 .c-burnup-ends__word {
-  fill: var(--color-on-surface-dim);
+  fill: var(--color-on-surface-muted);
   font-size: var(--font-label-caps-size);
   font-weight: var(--font-label-caps-weight);
   letter-spacing: var(--font-label-caps-letter-spacing);
   font-variant: all-small-caps;
+}
+
+.c-burnup-ends__total {
+  fill: var(--color-on-surface-dim);
+  font-size: var(--font-data-id-size);
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- Activity histogram --- */
@@ -3200,27 +3203,40 @@ a.c-graph-node__bug:focus-visible {
 .c-activity__swatch--created { background: var(--color-primary-dim); }
 .c-activity__swatch--blocked { background: var(--color-status-blocked); }
 
-/* The import marker's key: the same quiet tick the axis draws. */
+/* The import marker's key: the same quiet pin the axis draws, a
+   stem with a round head. */
 .c-activity-legend__imports {
   margin-top: var(--space-xs);
 }
 
 .c-activity__swatch--import {
-  width: 1.5px;
-  height: 8px;
-  margin: 0 3px 0 2px;
-  border-radius: 1px;
-  background: var(--color-on-surface-muted);
+  width: 4px;
+  height: 10px;
+  margin: 0 1px 0 1px;
+  border-radius: 0;
+  background:
+    radial-gradient(circle at 50% calc(100% - 2px), var(--color-on-surface-muted) 2px, transparent 2.5px),
+    linear-gradient(var(--color-on-surface-muted), var(--color-on-surface-muted)) center top / 1.5px 7px no-repeat;
 }
 
-/* --- Shared time axis --- */
+/* --- Time axis (one copy under each chart) --- */
 
 .c-chart-axis {
   grid-area: axis;
   display: block;
   width: 100%;
-  height: 26px;
+  height: 24px;
   overflow: visible;
+}
+
+.c-chart-axis__minor,
+.c-chart-axis__major {
+  stroke: var(--color-outline-strong);
+  stroke-width: 1;
+}
+
+.c-chart-axis__major {
+  stroke: var(--color-on-surface-dim);
 }
 
 .c-chart-axis__label {
@@ -3229,21 +3245,67 @@ a.c-graph-node__bug:focus-visible {
   font-size: var(--font-data-id-size);
 }
 
-/* Import markers: quiet ticks, the chart's only annotations. */
+.c-chart-axis__label--end {
+  fill: var(--color-on-surface-muted);
+}
+
+/* Import markers: quiet ticks, the charts' only annotations — links
+   to the imported plan with a 12px hit target around each. */
+.c-chart-axis__import-link {
+  cursor: pointer;
+}
+
+.c-chart-axis__import-hit {
+  fill: transparent;
+  stroke: none;
+  rx: 2px;
+}
+
 .c-chart-axis__import {
   stroke: var(--color-on-surface-muted);
   stroke-width: 1.5;
   stroke-linecap: round;
+  transition: stroke var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+/* The round head tells an import apart from the minor marks beside it. */
+.c-chart-axis__import-head {
+  fill: var(--color-on-surface-muted);
+  transition: fill var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.c-chart-axis__import-link:hover .c-chart-axis__import,
+.c-chart-axis__import-link:focus-visible .c-chart-axis__import {
+  stroke: var(--color-primary);
+  stroke-width: 2.5;
+}
+
+.c-chart-axis__import-link:hover .c-chart-axis__import-head,
+.c-chart-axis__import-link:focus-visible .c-chart-axis__import-head {
+  fill: var(--color-primary);
+}
+
+.c-chart-axis__import-link:hover .c-chart-axis__import-hit {
+  fill: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+.c-chart-axis__import-link:focus {
+  outline: none;
+}
+
+.c-chart-axis__import-link:focus-visible .c-chart-axis__import-hit {
+  stroke: var(--color-primary);
+  stroke-width: 1.5;
 }
 
 @media (max-width: 720px) {
-  .c-chart-panel {
-    --ends-w: 72px;
+  .c-chart-panel__body {
+    grid-template-columns: minmax(0, 1fr);
+    padding: var(--space-sm) var(--space-md) var(--space-md);
   }
 
-  .c-chart-panel__body {
+  .c-chart-panel__chart {
     column-gap: var(--space-sm);
-    padding: var(--space-sm) var(--space-md) var(--space-md);
   }
 
   .c-chart-panel__meta {

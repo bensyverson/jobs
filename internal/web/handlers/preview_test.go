@@ -42,7 +42,7 @@ func fetchPreview(t *testing.T, component, state string) (int, string) {
 	return w.Code, w.Body.String()
 }
 
-var chartPanelStates = []string{"empty", "single-day", "activity", "one-sample", "reopen-dip", "fitted-week", "flat", "crowded", "mostly-canceled", "fetching", "error"}
+var chartPanelStates = []string{"empty", "hour", "single-day", "imports", "one-sample", "reopen-dip", "fitted-week", "flat", "crowded", "mostly-canceled", "parked", "fetching", "error"}
 
 func TestPreviewIndex_ListsTheChartPanel(t *testing.T) {
 	code, body := fetchPreview(t, "", "")
@@ -91,6 +91,26 @@ func TestPreviewState_CrowdedHistoryDrawsImports(t *testing.T) {
 	_, body := fetchPreview(t, "chart-panel", "crowded")
 	if n := strings.Count(body, `class="c-chart-axis__import"`); n < 10 {
 		t.Errorf("crowded state draws %d import ticks, want many", n)
+	}
+}
+
+// The imports state puts several plans in one day, two of them close
+// together, each a link the peek sheet opens.
+func TestPreviewState_ImportsAreLinks(t *testing.T) {
+	_, body := fetchPreview(t, "chart-panel", "imports")
+	if n := strings.Count(body, `class="c-chart-axis__import-link"`); n < 6 {
+		t.Errorf("imports state draws %d import links, want at least three on each axis", n)
+	}
+	mustContain(t, body, `data-peek aria-label="Imported `)
+}
+
+// The parked state is the panel rendered for ?at=: the axis ends at the
+// cursor's moment, not "Now", and the range tabs keep the cursor.
+func TestPreviewState_ParkedEndsAtTheCursor(t *testing.T) {
+	_, body := fetchPreview(t, "chart-panel", "parked")
+	mustContainAll(t, body, `c-chart-axis__label--end`, `at=`)
+	if strings.Contains(body, `>Now</text>`) {
+		t.Errorf("parked state labels its end Now")
 	}
 }
 

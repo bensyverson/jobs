@@ -8,6 +8,7 @@ import (
 	"time"
 
 	job "github.com/bensyverson/jobs/internal/job"
+	"github.com/bensyverson/jobs/internal/web/chart"
 )
 
 // The chart panel's catalog entry. Every state is a job.Report — the
@@ -20,6 +21,11 @@ import (
 // contact sheet never drift between runs.
 var previewUntil = time.Date(2026, 9, 26, 17, 0, 0, 0, time.UTC)
 
+// previewCursor is the log position the parked state is rendered for.
+// Only its presence matters to the panel: the report's window already
+// ends at the cursor's moment, previewUntil.
+const previewCursor = "1790442000000-r1-42"
+
 func chartPanelPreview() previewComponent {
 	return previewComponent{
 		Slug:   "chart-panel",
@@ -27,27 +33,31 @@ func chartPanelPreview() previewComponent {
 		Source: "internal/web/templates/html/partials/chart_panel.html.tmpl",
 		Block:  "chart_panel",
 		States: []previewState{
-			previewPanelState("empty", "Empty store", job.Range7D, ChartBurnup, emptyStoreReport(), nil, false,
+			previewPanelState("empty", "Empty store", job.Range7D, emptyStoreReport(), nil, "", false,
 				"A store with nothing in it yet: the panel keeps its selector and says so in one quiet line rather than drawing two flat lines."),
-			previewPanelState("single-day", "A single day", job.RangeDay, ChartBurnup, singleDayReport(), nil, false,
-				"1D (the Home default) over a store that began this morning: the fitted axis puts the empty morning on the baseline and the plan fills the height."),
-			previewPanelState("activity", "Activity histogram", job.RangeDay, ChartActivity, singleDayReport(), nil, false,
-				"The same day with the toggle on Activity: the histogram alone at the burn-up height on a zero baseline (it counts events), its legend in the label column."),
-			previewPanelState("one-sample", "One sample", job.RangeAll, ChartBurnup, oneSampleReport(), nil, false,
+			previewPanelState("hour", "The last hour", job.RangeHour, hourReport(), nil, "", false,
+				"1H: minor marks every 5 minutes, the start labelled with its clock time and the end reading Now; interior labels never touch the edge labels."),
+			previewPanelState("single-day", "A single day", job.RangeDay, singleDayReport(), nil, "", false,
+				"1D (the Home default) over a store that began this morning: the fitted axis puts the empty morning on the baseline, and the end labels read what the day created and closed, over their totals."),
+			previewPanelState("imports", "Imports in the day", job.RangeDay, importsReport(), nil, "", false,
+				"Three plans imported in the day, two of them three minutes apart: each tick is a link with its own hover and focus ring, and the pair must not swallow each other."),
+			previewPanelState("one-sample", "One sample", job.RangeAll, oneSampleReport(), nil, "", false,
 				"All over a store a few hours old buckets by day, so the series is a single sample: it must still draw (as a dot), not vanish."),
-			previewPanelState("reopen-dip", "A reopen dip", job.Range14D, ChartBurnup, reopenDipReport(), nil, false,
+			previewPanelState("reopen-dip", "A reopen dip", job.Range14D, reopenDipReport(), nil, "", false,
 				"Each point is the state as of t (decision 2), so a reopen dips the done line and the next close restores it — the dip is honest, not a bug."),
-			previewPanelState("fitted-week", "A week near the top", job.Range7D, ChartBurnup, fittedWeekReport(), nil, false,
-				"A long-lived store whose week moved from 390 to 402: the axis spans exactly that, so the lines fill the plot instead of hugging the top of a zero-based one."),
-			previewPanelState("flat", "A flat window", job.Range7D, ChartBurnup, flatReport(), nil, false,
-				"Everything done and nothing moved all week (min == max): the domain is padded symmetrically, so the line sits mid-chart between round gridlines rather than on an edge."),
-			previewPanelState("crowded", "Crowded history", job.RangeAll, ChartBurnup, crowdedReport(), nil, false,
-				"Five months in weekly buckets with two dozen imports: end labels stay legible at four digits, gridlines stay sparse, import ticks stay quiet."),
-			previewPanelState("mostly-canceled", "Mostly canceled", job.Range30D, ChartBurnup, mostlyCanceledReport(), nil, false,
-				"Canceled leaves leave scope rather than drawing a third line (decision 3): scope falls while the caption carries the canceled count."),
-			previewPanelState("fetching", "Fetching", job.Range14D, ChartBurnup, reopenDipReport(), nil, true,
+			previewPanelState("fitted-week", "A week near the top", job.Range7D, fittedWeekReport(), nil, "", false,
+				"A long-lived store whose week moved from 390 to 402: the axis spans exactly that, and the end labels say what the week added while the totals sit beneath in small type."),
+			previewPanelState("flat", "A flat window", job.Range7D, flatReport(), nil, "", false,
+				"Everything done and nothing moved all week (min == max): the line sits mid-chart between round gridlines, and both end labels read plus zero."),
+			previewPanelState("crowded", "Crowded history", job.RangeAll, crowdedReport(), nil, "", false,
+				"Five months in weekly buckets with two dozen imports: four-digit end labels and legend counts size their columns, gridlines stay sparse, import ticks stay quiet."),
+			previewPanelState("mostly-canceled", "Mostly canceled", job.Range30D, mostlyCanceledReport(), nil, "", false,
+				"Canceled leaves leave scope rather than drawing a line (decision 3): scope falls while the caption carries the canceled count for the 30 days."),
+			previewPanelState("parked", "Parked under the scrubber", job.RangeDay, singleDayReport(), nil, previewCursor, false,
+				"Rendered for ?at=: the right edge of the axis reads the time at the cursor instead of Now, and the range tabs keep the cursor."),
+			previewPanelState("fetching", "Fetching", job.Range14D, reopenDipReport(), nil, "", true,
 				"The script sets aria-busy while it fetches the panel for a new range or scrubber position; the old panel dims instead of blanking."),
-			previewPanelState("error", "Report unavailable", job.Range7D, ChartBurnup, job.Report{Schema: job.ReportSchema}, errPreviewReport, false,
+			previewPanelState("error", "Report unavailable", job.Range7D, job.Report{Schema: job.ReportSchema}, errPreviewReport, "", false,
 				"BuildReport failed (here: the store could not be read). The selector stays usable and the message names the cause."),
 		},
 	}
@@ -56,15 +66,19 @@ func chartPanelPreview() previewComponent {
 // errPreviewReport stands in for a failed BuildReport in the error state.
 var errPreviewReport = errors.New("database is locked")
 
-func previewPanelState(slug, name string, key job.RangeKey, view ChartView, rep job.Report, err error, pending bool, note string) previewState {
+// previewPanelState builds one state the way loadChartPanel builds
+// Home's: at, when set, is the ?at= cursor, which parks the axis's end.
+func previewPanelState(slug, name string, key job.RangeKey, rep job.Report, err error, at string, pending bool, note string) previewState {
 	q := url.Values{}
 	if key != homeRanges.Default {
 		q.Set("range", string(key))
 	}
-	if view != ChartBurnup {
-		q.Set(chartParam, string(view))
+	end := chart.EndsNow
+	if at != "" {
+		q.Set("at", at)
+		end = chart.EndsAtCursor
 	}
-	p := buildChartPanel("preview-"+slug, rep, err, homePanelNav(q), time.UTC)
+	p := buildChartPanel("preview-"+slug, rep, err, homePanelNav(q), end, time.UTC)
 	p.Pending = pending
 	return previewState{Slug: slug, Name: name, Note: note, Payload: p}
 }
@@ -103,8 +117,23 @@ func previewReport(since, until time.Time, bucket job.Bucket, gen func(i, n int)
 		rep.Series = append(rep.Series, pt.sample)
 		rep.Activity = append(rep.Activity, pt.activity)
 	}
+	return withWindowFigures(rep, job.Sample{})
+}
+
+// withWindowFigures sets rep's LeafFigures the way BuildReport's would
+// read for this series: the state at the window's end, and each
+// transition as the change since base — the state at Since, zero for a
+// store born inside the window. Created counts leaves later canceled
+// too, since they were created in the window.
+func withWindowFigures(rep job.Report, base job.Sample) job.Report {
 	last := rep.Series[len(rep.Series)-1]
-	rep.Leaves = job.LeafFigures{Open: last.Open, Blocked: last.Blocked}
+	rep.Leaves = job.LeafFigures{
+		Created:  max(0, last.Scope+last.Canceled-base.Scope-base.Canceled),
+		Done:     max(0, last.Done-base.Done),
+		Canceled: max(0, last.Canceled-base.Canceled),
+		Open:     last.Open,
+		Blocked:  last.Blocked,
+	}
 	return rep
 }
 
@@ -112,9 +141,48 @@ func previewReport(since, until time.Time, bucket job.Bucket, gen func(i, n int)
 // a ruler-straight ramp.
 func wobble(i int) float64 { return (math.Sin(float64(i)*1.7)+math.Sin(float64(i)*0.63))/4 + 0.5 }
 
+// startedBefore is rep for a store that already held work at Since:
+// its window figures count from the first sample, not from zero.
+func startedBefore(rep job.Report) job.Report {
+	return withWindowFigures(rep, rep.Series[0])
+}
+
 func emptyStoreReport() job.Report {
 	return previewReport(previewUntil.Add(-7*24*time.Hour), previewUntil, job.BucketSixHours,
 		func(i, n int) bucketPoint { return bucketPoint{} })
+}
+
+// hourReport is a busy hour in a store with a few dozen leaves, in the
+// bucket the core picks for 1H.
+func hourReport() job.Report {
+	since := previewUntil.Add(-time.Hour)
+	return startedBefore(previewReport(since, previewUntil, job.BucketFor(job.RangeHour, 0), func(i, n int) bucketPoint {
+		m := i * 60 / n // minutes into the hour
+		scope := 30 + min(3, m/15)
+		done := min(scope-2, 20+m/9)
+		blocked := 0
+		if m >= 20 && m < 40 {
+			blocked = 1
+		}
+		act := job.ActivityCount{Claimed: int(2 * wobble(i)), Done: int(1.4 * wobble(i+2))}
+		if m%15 == 0 && m > 0 && i*60%n == 0 {
+			act.Created = 1
+		}
+		return bucketPoint{sample: job.Sample{Scope: scope, Done: done, Blocked: blocked}, activity: act}
+	}))
+}
+
+// importsReport is the single day with three plans imported: two in
+// the morning three minutes apart, one after lunch.
+func importsReport() job.Report {
+	rep := singleDayReport()
+	since := rep.Window.Since
+	rep.Imports = []job.ImportMarker{
+		{At: since.Add(16*time.Hour + 2*time.Minute), TaskID: "Pq3xT", Title: "Onboarding flow", Source: "onboarding.md"},
+		{At: since.Add(16*time.Hour + 5*time.Minute), TaskID: "Hn4wQ", Title: "Billing fixes", Source: "billing.md"},
+		{At: since.Add(20*time.Hour + 40*time.Minute), TaskID: "Ty6vB", Title: "Search tuning", Source: "search-tuning.md"},
+	}
+	return rep
 }
 
 func singleDayReport() job.Report {
@@ -156,7 +224,7 @@ func oneSampleReport() job.Report {
 }
 
 func reopenDipReport() job.Report {
-	return previewReport(previewUntil.Add(-14*24*time.Hour), previewUntil, job.BucketDay, func(i, n int) bucketPoint {
+	return startedBefore(previewReport(previewUntil.Add(-14*24*time.Hour), previewUntil, job.BucketDay, func(i, n int) bucketPoint {
 		scope := 40 + min(i, 10)*2
 		done := min(scope, 3+i*4)
 		act := job.ActivityCount{Claimed: 4 + i%3, Done: 4, Created: 2}
@@ -173,14 +241,14 @@ func reopenDipReport() job.Report {
 		}
 		act.Blocked = blocked / 3
 		return bucketPoint{sample: job.Sample{Scope: scope, Done: done, Blocked: blocked}, activity: act}
-	})
+	}))
 }
 
 // fittedWeekReport is a long-lived store's week: hundreds of leaves in
 // scope, a dozen added and closed — the shape that drew two flat lines
 // under the old zero-based axis.
 func fittedWeekReport() job.Report {
-	return previewReport(previewUntil.Add(-7*24*time.Hour), previewUntil, job.BucketSixHours, func(i, n int) bucketPoint {
+	return startedBefore(previewReport(previewUntil.Add(-7*24*time.Hour), previewUntil, job.BucketSixHours, func(i, n int) bucketPoint {
 		scope := 392 + min(10, i*10/n+i%3/2)
 		done := min(scope-2, 388+i*14/n)
 		blocked := 0
@@ -192,14 +260,14 @@ func fittedWeekReport() job.Report {
 			act.Created = 2
 		}
 		return bucketPoint{sample: job.Sample{Scope: scope, Done: done, Blocked: blocked}, activity: act}
-	})
+	}))
 }
 
 // flatReport is a week in which nothing changed: every sample equal.
 func flatReport() job.Report {
-	return previewReport(previewUntil.Add(-7*24*time.Hour), previewUntil, job.BucketSixHours, func(i, n int) bucketPoint {
+	return startedBefore(previewReport(previewUntil.Add(-7*24*time.Hour), previewUntil, job.BucketSixHours, func(i, n int) bucketPoint {
 		return bucketPoint{sample: job.Sample{Scope: 402, Done: 402}}
-	})
+	}))
 }
 
 func crowdedReport() job.Report {

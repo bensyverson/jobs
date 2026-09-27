@@ -22,6 +22,9 @@ func fourDays() job.Report {
 			{End: t0.Add(72 * time.Hour), Scope: 30, Done: 20, Open: 10, Blocked: 0},
 			{End: t0.Add(96 * time.Hour), Scope: 40, Done: 30, Open: 10, Blocked: 3, Canceled: 5},
 		},
+		// The window's transitions: fewer than the totals, since some
+		// of the scope and done predate Since.
+		Leaves: job.LeafFigures{Created: 32, Done: 27, Canceled: 2, Open: 10, Blocked: 3},
 	}
 }
 
@@ -54,22 +57,46 @@ func TestLayoutBurnup_NotEmptyWhenOnlyCanceled(t *testing.T) {
 	}
 }
 
-func TestLayoutBurnup_EndLabelsCarryTheLastSample(t *testing.T) {
+// Decision 4: the end labels are the window's figures — leaves created
+// and closed in it, from the report's LeafFigures — with the absolute
+// total at the window's end beneath: scope under created, done under
+// done.
+func TestLayoutBurnup_EndLabelsAreWindowFigures(t *testing.T) {
 	b := LayoutBurnup(fourDays(), time.UTC)
-	if b.Scope.Value != 40 || b.Done.Value != 30 {
-		t.Fatalf("ends = scope %d done %d, want 40 and 30", b.Scope.Value, b.Done.Value)
+	if b.Created.Text != "+32" || b.Created.Word != "created" || b.Created.Total != "of 40" {
+		t.Errorf("created label = %+v, want +32 created, of 40", b.Created)
 	}
-	if b.Open != 10 || b.Blocked != 3 || b.Canceled != 5 {
-		t.Errorf("open/blocked/canceled = %d/%d/%d, want 10/3/5", b.Open, b.Blocked, b.Canceled)
+	if b.Done.Text != "+27" || b.Done.Word != "done" || b.Done.Total != "of 30" {
+		t.Errorf("done label = %+v, want +27 done, of 30", b.Done)
+	}
+}
+
+// Open and blocked are the state at the window's end; canceled is the
+// window's, from LeafFigures, not the last sample's running total.
+func TestLayoutBurnup_CanceledIsTheWindows(t *testing.T) {
+	b := LayoutBurnup(fourDays(), time.UTC)
+	if b.Open != 10 || b.Blocked != 3 || b.Canceled != 2 {
+		t.Errorf("open/blocked/canceled = %d/%d/%d, want 10/3/2", b.Open, b.Blocked, b.Canceled)
 	}
 }
 
 func TestLayoutBurnup_EndLabelsUseThousandsSeparators(t *testing.T) {
 	rep := fourDays()
 	rep.Series[3].Scope, rep.Series[3].Done = 1155, 1080
+	rep.Leaves.Created, rep.Leaves.Done = 1155, 1080
 	b := LayoutBurnup(rep, time.UTC)
-	if b.Scope.Text != "1,155" || b.Done.Text != "1,080" {
-		t.Fatalf("end texts = %q / %q, want 1,155 / 1,080", b.Scope.Text, b.Done.Text)
+	if b.Created.Text != "+1,155" || b.Done.Text != "+1,080" || b.Created.Total != "of 1,155" || b.Done.Total != "of 1,080" {
+		t.Fatalf("end labels = %+v / %+v, want +1,155 of 1,155 / +1,080 of 1,080", b.Created, b.Done)
+	}
+}
+
+// A window in which nothing was created or closed says so: +0.
+func TestLayoutBurnup_QuietWindowReadsPlusZero(t *testing.T) {
+	rep := fourDays()
+	rep.Leaves = job.LeafFigures{Open: 10, Blocked: 3}
+	b := LayoutBurnup(rep, time.UTC)
+	if b.Created.Text != "+0" || b.Done.Text != "+0" {
+		t.Errorf("end labels = %q / %q, want +0 / +0", b.Created.Text, b.Done.Text)
 	}
 }
 
@@ -167,9 +194,9 @@ func TestLayoutBurnup_EndLabelsKeepApart(t *testing.T) {
 	rep := fourDays()
 	rep.Series[3].Scope, rep.Series[3].Done = 40, 39
 	b := LayoutBurnup(rep, time.UTC)
-	gap := pct(b.Done.Y) - pct(b.Scope.Y)
+	gap := pct(b.Done.Y) - pct(b.Created.Y)
 	if gap < minEndLabelGapPct-0.01 {
-		t.Errorf("end labels %s and %s are %.2f%% apart, want at least %v%%", b.Scope.Y, b.Done.Y, gap, minEndLabelGapPct)
+		t.Errorf("end labels %s and %s are %.2f%% apart, want at least %v%%", b.Created.Y, b.Done.Y, gap, minEndLabelGapPct)
 	}
 }
 
@@ -184,9 +211,11 @@ func TestLayoutBurnup_RowsTabulateEverySample(t *testing.T) {
 	}
 }
 
+// The <desc> leads with the window's figures, as the end labels do,
+// then the state at the window's end.
 func TestLayoutBurnup_SummaryStatesTheNumbers(t *testing.T) {
 	b := LayoutBurnup(fourDays(), time.UTC)
-	for _, want := range []string{"40 in scope", "30 done", "10 open", "3 blocked", "5 canceled"} {
+	for _, want := range []string{"In this window, 32 created, 27 done and 2 canceled", "40 in scope", "30 done", "10 open", "3 blocked"} {
 		if !strings.Contains(b.Summary, want) {
 			t.Errorf("Summary %q lacks %q", b.Summary, want)
 		}

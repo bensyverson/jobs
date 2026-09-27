@@ -9,14 +9,13 @@
 export const PANEL_FRAGMENT_PATH = "/home/panel";
 
 // The query parameters the panel's handler reads (handlers/chart_panel.go):
-// the range, the scrubber cursor and the chart (chartParam). Everything
-// else on the page URL belongs to some other part of the page.
-const PANEL_PARAMS = ["range", "at", "chart"];
+// the range and the scrubber cursor. Everything else on the page URL
+// belongs to some other part of the page.
+const PANEL_PARAMS = ["range", "at"];
 
 // PANEL_LINK_SELECTOR matches the links the element swaps in place
-// rather than navigating: the range tabs and the Burn-up · Activity
-// toggle (partials/chart_panel.html.tmpl).
-export const PANEL_LINK_SELECTOR = ".c-chart-panel__ranges a[href], .c-chart-panel__views a[href]";
+// rather than navigating: the range tabs (partials/chart_panel.html.tmpl).
+export const PANEL_LINK_SELECTOR = ".c-chart-panel__ranges a[href]";
 
 // panelFragmentURL maps a Home page URL (path or absolute) onto the
 // fragment URL that renders its chart panel.
