@@ -21,6 +21,14 @@ import (
 // the rebuild. Refuse rather than warn, for the reason the cache check does:
 // the log is the record, and the next append would be computed from a
 // misread of it.
+//
+// A file outlives the binary that opened it, so the opening declaration alone
+// goes stale: a newer binary appending to a format-1 file would leave it
+// declaring format 1 while holding types format 1 does not have. So before
+// this binary appends to a file declaring an older format, commit re-declares
+// it with another `replica` event (envelope.go, owesFormat). Binaries already
+// in the field honour the latest declaration, which is what makes this a guard
+// for them and not only for binaries yet to be built.
 
 // StoreFormatAheadError reports a log file written at a store format newer
 // than this binary knows.
@@ -66,8 +74,14 @@ func fileStoreFormat(events []eventlog.Envelope) StoreFormatVersion {
 
 // checkStoreFormat refuses a file this binary is too old to apply.
 func checkStoreFormat(path string, events []eventlog.Envelope) error {
-	if format := fileStoreFormat(events); format > StoreFormat {
-		return &StoreFormatAheadError{Path: path, LogFormat: format, BinaryFormat: StoreFormat}
+	return checkStoreFormatFor(StoreFormat, path, events)
+}
+
+// checkStoreFormatFor is checkStoreFormat as a binary that knows only binary
+// would run it — the seam that lets a test play an older binary.
+func checkStoreFormatFor(binary StoreFormatVersion, path string, events []eventlog.Envelope) error {
+	if format := fileStoreFormat(events); format > binary {
+		return &StoreFormatAheadError{Path: path, LogFormat: format, BinaryFormat: binary}
 	}
 	return nil
 }

@@ -46,8 +46,10 @@ const (
 type StoreFormatVersion int
 
 // StoreFormat is the format this binary writes and the newest it can read.
-// Every log file declares its own in the `replica` event that opens it, and a
-// file declaring more than this is refused rather than applied (store_format.go).
+// Every log file declares its own on its latest `replica` event: the one that
+// opens it, or the marker this binary appends to re-declare an older file
+// before writing into it. A file declaring more than this is refused rather
+// than applied (store_format.go).
 //
 // **Bump it whenever a new event type lands above, or the meaning of applying
 // an existing one changes.** A binary that does not know a type applies it as

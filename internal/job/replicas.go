@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/bensyverson/jobs/internal/eventlog"
 )
 
 // Naming a replica.
@@ -81,19 +83,53 @@ func abbreviateHome(path string) string {
 	return path
 }
 
-// replicaEventMissing reports whether this cache holds no `replica` event for
-// rep. It is the cheap check every write makes: one indexed EXISTS, answered
-// false forever after the first write of a replica's life.
-func replicaEventMissing(tx dbtx, rep string) (bool, error) {
-	var found int
-	err := tx.QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM events WHERE rep = ? AND event_type = ?)",
+// replicaDeclaration is what one replica's own file has said about itself so
+// far, read from the cache's copy of its `replica` events.
+type replicaDeclaration struct {
+	// Announced is false until the replica has written any `replica` event.
+	Announced bool
+	// Format is the store format the file declares, by fileStoreFormat's rule.
+	Format StoreFormatVersion
+	// Label is the label on the latest `replica` event.
+	Label string
+}
+
+// loadReplicaDeclaration reads rep's `replica` events out of the cache. It is
+// the check every write makes: an indexed read of a handful of rows — one per
+// announcement, rename or format re-declaration the replica has ever written.
+//
+// The cache rather than the file: every line of this replica's own file was
+// applied by the command that wrote it (or by the rebuild that read it), and
+// the store lock the caller holds keeps it that way until the append.
+func loadReplicaDeclaration(tx dbtx, rep string) (replicaDeclaration, error) {
+	rows, err := tx.Query(
+		"SELECT COALESCE(detail, '') FROM events WHERE rep = ? AND event_type = ? ORDER BY seq",
 		rep, string(EventReplica),
-	).Scan(&found)
+	)
 	if err != nil {
-		return false, err
+		return replicaDeclaration{}, err
 	}
-	return found == 0, nil
+	defer rows.Close()
+	var decl replicaDeclaration
+	var lines []eventlog.Envelope
+	for rows.Next() {
+		var detail string
+		if err := rows.Scan(&detail); err != nil {
+			return replicaDeclaration{}, err
+		}
+		decl.Announced = true
+		e := eventlog.Envelope{Type: eventlog.Type(EventReplica), Data: json.RawMessage(detail)}
+		lines = append(lines, e)
+		var p ReplicaPayload
+		if decodeEventPayload(e, &p) == nil {
+			decl.Label = p.Label
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return replicaDeclaration{}, err
+	}
+	decl.Format = fileStoreFormat(lines)
+	return decl, nil
 }
 
 // ReplicaNames resolves a replica id to the name a reader should see, and

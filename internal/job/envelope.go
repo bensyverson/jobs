@@ -140,21 +140,60 @@ type eventBatch struct {
 	rec    *recorder
 	events []eventlog.Envelope
 
-	// needReplica is set by commit when this replica has never announced
-	// itself. The announcement is emitted lazily, ahead of the first real
-	// event of the batch, so a command that decides to write nothing leaves
-	// the log untouched — and so a fresh replica's announcement is seq 1 of
-	// its file, before anything it describes.
-	needReplica bool
+	// owed is the `replica` event commit found this replica's file owes,
+	// emitted lazily ahead of the first real event of the batch — so a
+	// command that decides to write nothing leaves the log untouched, and a
+	// reader of the file never meets the event before the declaration.
+	owed replicaOwed
+
+	// owedLabel is the label a format re-declaration carries: the file's
+	// existing one, since re-declaring is not renaming.
+	owedLabel string
+}
+
+// replicaOwed names which `replica` event, if any, a batch must write before
+// its first event.
+type replicaOwed int
+
+const (
+	// owesNothing: the file already declares the current format.
+	owesNothing replicaOwed = iota
+	// owesAnnouncement: the replica has never said who it is. Its
+	// announcement is seq 1 of its file, before anything it describes.
+	owesAnnouncement
+	// owesFormat: the file declares an older store format than this binary
+	// writes (store_format.go). Its format is re-declared before the first
+	// event this binary appends, so a binary that knows only the older format
+	// refuses the file instead of replaying newer events as no-ops.
+	owesFormat
+)
+
+// replicaOwedFor is what a replica's file owes before this binary appends.
+func replicaOwedFor(decl replicaDeclaration) replicaOwed {
+	switch {
+	case !decl.Announced:
+		return owesAnnouncement
+	case decl.Format < StoreFormat:
+		return owesFormat
+	default:
+		return owesNothing
+	}
 }
 
 // emit mints an envelope for the event and applies it.
 func (b *eventBatch) emit(tx dbtx, typ EventType, task, actor string, payload any) error {
-	if b.needReplica {
-		// Cleared first: the announcement is emitted through this same
-		// method, and the flag is what stops it recurring.
-		b.needReplica = false
+	owed := b.owed
+	// Cleared first: the owed event is emitted through this same method, and
+	// clearing is what stops it recurring. A `replica` event this binary
+	// writes declares the current format itself, so it settles a format debt.
+	b.owed = owesNothing
+	switch {
+	case owed == owesAnnouncement:
 		if err := b.emit(tx, EventReplica, "", actor, newReplicaPayload(b.rec.cachePath, b.rec.label)); err != nil {
+			return err
+		}
+	case owed == owesFormat && typ != EventReplica:
+		if err := b.emit(tx, EventReplica, "", actor, newReplicaPayload(b.rec.cachePath, b.owedLabel)); err != nil {
 			return err
 		}
 	}
@@ -220,14 +259,13 @@ func commit(db *sql.DB, fn func(tx dbtx, b *eventBatch) error) error {
 	}
 	defer tx.Rollback()
 
-	// One EXISTS per write, answered false for the whole life of a replica
-	// after its first: has this checkout ever said who it is?
-	needReplica, err := replicaEventMissing(tx, rec.rep)
+	// Has this checkout said who it is, and at the format this binary writes?
+	decl, err := loadReplicaDeclaration(tx, rec.rep)
 	if err != nil {
 		return err
 	}
 
-	batch := &eventBatch{rec: rec, needReplica: needReplica}
+	batch := &eventBatch{rec: rec, owed: replicaOwedFor(decl), owedLabel: decl.Label}
 	if err := fn(tx, batch); err != nil {
 		return err
 	}
