@@ -98,7 +98,13 @@ tasks:
 A few facts that aren't obvious from the schema:
 
 - **The whole import is atomic.** A typo in row 47 reverts rows 1 through 46. Pair the first run with `--dry-run` to see what *would* land.
-- **Cycles are detected across the full input set.** Two new blockers that would form a loop with each other (or with an existing edge in the database) cause the entire import to fail.
+- **Deadlocks are refused before anything is written.** A task waits on each of its blockers, and a parent waits on each of its open children, because it closes only when its last one does. Import checks every `blockedBy` edge in the plan against the graph it would leave behind — the plan's own tree and edges, the `--parent` target's ancestry, and every existing edge in the database — and fails the whole import, `--dry-run` included, if any edge closes a loop. That covers two tasks blocked on each other, a task blocked on itself, a task blocked on its own ancestor (or on the `--parent` target), and a loop that runs through existing tasks. The error names the edge and every step of the loop:
+
+  ```text
+  Error: tasks[0].children[1]: blockedBy "design": would create a circular dependency: tasks[0].children[1] (ref build) blocked by tasks[0].children[0] (ref design), tasks[0].children[0] (ref design) blocked by tasks[0].children[1] (ref build)
+  ```
+
+  The reverse — a parent blocked by one of its own descendants — is allowed: it only restates what containment already implies, and the edge drops when the child closes. It is the same check [`block add`](../reference/planning/#block) runs.
 - **Refs scope to one import.** A ref defined in one plan is not addressable from another plan — the next plan must use the resulting short id, or re-use a verbatim title.
 - **Blockers auto-clear when the blocker is `done`.** You only need `block remove` for edges you want to drop while the blocker is still open.
 

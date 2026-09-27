@@ -78,6 +78,7 @@ What to remember:
 - The whole import is atomic. A typo in row 47 reverts rows 1–46. The `--dry-run` ack tells you what *would* be created without touching the database.
 - Each top-level task the import creates gets an `imported` event — `job log` shows `imported from plan.md (4 tasks, 2 leaves)`, with `under <id>` when `--parent` was given. The event goes on the imported task, not on the `--parent` target, and it records the file's base name only. See [events](../../concepts/events/#event-types).
 - `--parent <id>` lets one plan import as a subtree of another. Useful when an agent wants to pull a phase plan into the parent it was scoped from.
+- **`blockedBy` is cycle-checked like `block add`.** A loop among the plan's tasks, a task blocked on its own ancestor (the `--parent` target included), or a loop through existing tasks fails the whole import, `--dry-run` too, with an error that lists every step. See [the plan grammar](../../plan-grammar/).
 - **Block selection is observable.** Import picks the *first* `tasks:` block, but it warns on stderr when the choice is ambiguous (more than one candidate block — naming the one used by line) or lossy (the chosen block carries keys outside the grammar, which are silently dropped). A Markdown file that merely *illustrates* output YAML can otherwise hijack the import; the warnings make that visible. They never block an otherwise valid import, and they fire under `--dry-run` too.
 - **A bare `tasks:` file needs no fence.** Hand `import` a plain `.yaml` whose top level is `tasks:` and it's parsed directly — the Markdown fence is only required when the `tasks:` block is embedded in prose. A file with neither a fenced block nor a bare `tasks:` document fails with a message naming both accepted forms.
 - The schema is exhaustively documented in the [Plan grammar](../../plan-grammar/) section, and `job schema` prints the live source of truth.
@@ -114,7 +115,7 @@ job block remove L9G25 by Hn4Y2                    # release one edge
 
 What's worth knowing:
 
-- `block add` is **atomic and cycle-checked across the full input set**. If any blocker would create a cycle (including with another blocker in the same call), the whole call fails — none of the edges are added.
+- `block add` is **atomic and cycle-checked across the full input set**. If any blocker would create a cycle (including with another blocker in the same call), the whole call fails — none of the edges are added. A parent counts as waiting on its open children, so blocking a task on its own ancestor is a cycle too; the error lists every step of the loop. Blocking a parent on its own descendant is allowed. See [Cycle detection](../../concepts/blockers/#cycle-detection).
 - Duplicate blockers in one call collapse to a single edge. Re-asking for an edge that already exists is reported, not re-recorded.
 - A blocker auto-removes when its target is `done`. You only need `block remove` for edges you want to drop manually — for instance, a task you've decided no longer depends on its blocker.
 - The bare `job block <blocked> by <blocker>` (no `add`/`remove`) still works as a deprecated alias for `block add` and emits a stderr notice. Prefer the explicit form.

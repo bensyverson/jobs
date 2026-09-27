@@ -11,9 +11,10 @@ func RunBlock(db *sql.DB, blockedShortID, blockerShortID, actor string) error {
 }
 
 // RunBlockMany applies N block edges atomically. Duplicates in the input
-// collapse to a single edge (and a single event). Cycle detection runs
-// against the combined post-state. On any failure the transaction rolls
-// back and nothing persists.
+// collapse to a single edge (and a single event). Cycle detection (see
+// waitGraph) runs against the combined post-state, so blocking a task on its
+// own ancestor is refused too. On any failure the transaction rolls back and
+// nothing persists.
 func RunBlockMany(db *sql.DB, blockedShortID string, blockerShortIDs []string, actor string) error {
 	if len(blockerShortIDs) == 0 {
 		return fmt.Errorf("no blockers provided")
@@ -41,13 +42,7 @@ func RunBlockMany(db *sql.DB, blockedShortID string, blockerShortIDs []string, a
 		}
 
 		// Resolve all blockers up-front so a missing one fails fast before any
-		// edge is written. Track them in input order alongside their short IDs
-		// for per-edge cycle reporting and event recording.
-		type blockerEntry struct {
-			shortID string
-			id      int64
-		}
-		blockers := make([]blockerEntry, 0, len(uniqueShortIDs))
+		// edge is written.
 		for _, sid := range uniqueShortIDs {
 			t, err := GetTaskByShortID(tx, sid)
 			if err != nil {
@@ -59,66 +54,30 @@ func RunBlockMany(db *sql.DB, blockedShortID string, blockerShortIDs []string, a
 			if t.ID == blocked.ID {
 				return fmt.Errorf("a task cannot block itself")
 			}
-			blockers = append(blockers, blockerEntry{shortID: sid, id: t.ID})
 		}
 
 		// Cycle check has to consider edges added earlier in this same call,
 		// not just the persisted graph. Each iteration emits its event before
 		// the next check runs, and apply writes as it goes, so a later check
 		// sees the earlier edge.
-		for _, be := range blockers {
-			circular, err := wouldCreateCycle(tx, blocked.ID, be.id)
+		graph := newWaitGraph(tx)
+		for _, sid := range uniqueShortIDs {
+			chain, circular, err := graph.blockCycle(blocked.ShortID, sid)
 			if err != nil {
 				return err
 			}
 			if circular {
-				return fmt.Errorf("cannot block %s by %s: would create a circular dependency", blockedShortID, be.shortID)
+				return circularError(fmt.Sprintf("cannot block %s by %s", blockedShortID, sid), chain)
 			}
 			if err := b.emit(tx, EventBlocked, blockedShortID, actor, BlockedPayload{
 				BlockedID: blockedShortID,
-				BlockerID: be.shortID,
+				BlockerID: sid,
 			}); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
-}
-
-func wouldCreateCycle(tx dbtx, blockedID, blockerID int64) (bool, error) {
-	visited := make(map[int64]bool)
-	return walkBlockerChain(tx, blockerID, blockedID, visited)
-}
-
-func walkBlockerChain(tx dbtx, startID, targetID int64, visited map[int64]bool) (bool, error) {
-	if startID == targetID {
-		return true, nil
-	}
-	if visited[startID] {
-		return false, nil
-	}
-	visited[startID] = true
-
-	rows, err := tx.Query("SELECT blocker_id FROM blocks WHERE blocked_id = ?", startID)
-	if err != nil {
-		return false, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var blockerID int64
-		if err := rows.Scan(&blockerID); err != nil {
-			return false, err
-		}
-		found, err := walkBlockerChain(tx, blockerID, targetID, visited)
-		if err != nil {
-			return false, err
-		}
-		if found {
-			return true, nil
-		}
-	}
-	return false, rows.Err()
 }
 
 func RunUnblock(db *sql.DB, blockedShortID, blockerShortID, actor string) error {

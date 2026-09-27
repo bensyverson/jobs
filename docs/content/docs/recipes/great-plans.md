@@ -118,25 +118,17 @@ A block orders the frontier: [`next`](../../reference/observation/#next), `orien
 
 **Don't restate the tree as blocks.** Siblings under a parent aren't ordered by anything except `blockedBy`, but not every sibling needs an order. If the leaves could genuinely run in any order, leave them unblocked; list order is enough of a hint for a human.
 
-**Never block a leaf on its own ancestor.** A parent closes only when its last child closes, so a child blocked by its parent can never become available — and neither can the parent. Import does not currently refuse this, and the dry-run shows it plainly:
+**Never block a leaf on its own ancestor.** A parent closes only when its last child closes, so a child blocked by its parent can never become available — and neither can the parent. Import refuses it, dry run included, and names the loop:
 
 ```text
-- [ ] `<new-1>` Release 2.0
-  - [ ] `<new-2>` Tag the build
-  - [ ] `<new-3>` Announce it (blocked on <new-1>)
+Error: tasks[0].children[1]: blockedBy "release": would create a circular dependency: tasks[0].children[1] "Announce it" blocked by tasks[0] (ref release), tasks[0] (ref release) parent of tasks[0].children[1] "Announce it"
 ```
 
 Block on the sibling that actually has to finish (`blockedBy: [tag]`) instead.
 
-**Read the `blocked on` annotations for loops.** Two leaves blocked on each other form a cycle that no close can break. [`block add`](../../reference/planning/#block) refuses one, but at the time of writing `import` does not, so check the dry-run for leaves that name each other:
+**No loops.** Two leaves blocked on each other form a cycle that no close can break. Both [`block add`](../../reference/planning/#block) and `import` refuse one — including a longer loop that runs through a parent, since a parent waits on its children — and the error lists every step, so you can see which edge to drop.
 
-```text
-- [ ] `<new-1>` Rate-limit the public API
-  - [ ] `<new-2>` Token bucket (blocked on <new-3>)
-  - [ ] `<new-3>` Middleware (blocked on <new-2>)
-```
-
-If every leaf in a tree carries a `blocked on`, nothing in it can ever start.
+If every leaf in a tree carries a `blocked on`, nothing in it can ever start — check the dry-run for a tree with no unblocked leaf.
 
 **Blocking on a parent ref is fine** when the dependency really is "all of that subtree": `blockedBy: [rate-limit]` on a task outside the tree waits until the whole rate-limit parent auto-closes.
 

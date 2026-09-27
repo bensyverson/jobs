@@ -28,17 +28,25 @@ The verb is variadic — multiple blockers in one call run in a single transacti
 job block remove <blocked> by <blocker> [<blocker>...]
 ```
 
-Atomic and idempotent. Removing a non-existent edge is not an error — the post-call state is what you asked for.
+Atomic: if any named edge does not exist, the call fails with `<blocked> is not blocked by <blocker>` and removes nothing — a typo in one id is caught rather than silently ignored.
 
 ## Cycle detection
 
-Blockers form a directed graph. Cycles are detected across the **full input set** of a single `block add` call — so adding two edges that would together close a cycle is refused even when neither edge is individually problematic.
+Blockers form a directed graph, and the tree adds edges of its own: a parent closes only when its last open child does, so a parent waits on each open child. A loop in that combined graph is a deadlock no close can break, so `block add` refuses any edge that would close one. Cycles are detected across the **full input set** of a single call — so adding two edges that would together close a cycle is refused even when neither edge is individually problematic. The error walks the loop:
 
 ```text
-Error: cycle detected: A → B → A
+Error: cannot block B by A: would create a circular dependency: B blocked by A, A blocked by B
 ```
 
-The DB never holds a cyclic state. Refusal is the entire transaction's outcome — no partial application.
+Because containment counts, blocking a task on its own ancestor is refused too:
+
+```text
+Error: cannot block LPGHL0 by kCvL4D: would create a circular dependency: LPGHL0 blocked by kCvL4D, kCvL4D parent of LPGHL0
+```
+
+The reverse — a parent blocked by its own descendant — is allowed. It adds nothing a parent doesn't already wait for, and the edge drops when the child closes.
+
+[`import`](../../plan-grammar/) runs the same check over a whole plan. Refusal is the entire transaction's outcome — no partial application.
 
 ## Auto-unblock on done
 

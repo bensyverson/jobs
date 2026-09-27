@@ -381,6 +381,9 @@ func RunImport(db *sql.DB, filePath, parentShortID string, dryRun bool, actor st
 		}
 		blockedByResolved[p] = list
 	}
+	if err := checkImportCycles(db, tree, flat, parentTask, blockedByResolved); err != nil {
+		return nil, err
+	}
 
 	// foundIn resolves the same three ways, one value per task. Recorded in
 	// the same second pass as blockedBy so a plan can name a task the

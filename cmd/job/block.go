@@ -37,7 +37,7 @@ func newBlockAddCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "add <blocked> by <blocker> [blocker ...]",
 		Short: "Declare that one or more tasks block another",
-		Long:  "Declare that the blocked task cannot proceed until the listed blocker tasks are done. Multiple blockers in one call are atomic — all-or-nothing in a single transaction. Circular dependencies are detected (across the full input set) and rejected. Duplicate blockers in the input collapse to a single edge.",
+		Long:  "Declare that the blocked task cannot proceed until the listed blocker tasks are done. Multiple blockers in one call are atomic — all-or-nothing in a single transaction. Circular dependencies are detected (across the full input set) and rejected — a parent counts as waiting on its open children, so blocking a task on its own ancestor is refused too. Duplicate blockers in the input collapse to a single edge.",
 		Args:  blockEdgeArgs("add"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			blocked, blockers := parseBlockEdgeArgs(args)

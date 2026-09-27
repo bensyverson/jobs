@@ -50,6 +50,52 @@ func (ix importIndex) resolve(db *sql.DB, pathLabel, field, entry string) (resol
 	)
 }
 
+// checkImportCycles refuses a plan whose blockedBy edges would deadlock: a
+// loop among its own tasks, a task blocked on its own ancestor, or a loop
+// that runs through tasks already in the store. It is the check `block add`
+// runs, over the graph the import would leave behind, so it runs before any
+// write and on a dry run alike. Containment goes in first — a tree cannot
+// loop on its own — and then each block edge in document order, so the edge
+// that closes a loop is the one the error names.
+func checkImportCycles(tx dbtx, tree, flat []*parsedTask, parentTask *Task, blockedBy map[*parsedTask][]resolvedRef) error {
+	g := newWaitGraph(tx)
+	key := func(p *parsedTask) string { return fmt.Sprintf("new:%d", p.flatIndex) }
+	for _, p := range flat {
+		label := fmt.Sprintf("%s %q", p.pathLabel, p.Title)
+		if p.Ref != "" {
+			label = fmt.Sprintf("%s (ref %s)", p.pathLabel, p.Ref)
+		}
+		g.addUnsaved(key(p), label)
+		for _, c := range p.Children {
+			g.addEdge(key(p), key(c), waitParentOf)
+		}
+	}
+	if parentTask != nil {
+		for _, root := range tree {
+			g.addEdge(parentTask.ShortID, key(root), waitParentOf)
+		}
+	}
+	for _, p := range flat {
+		for i, r := range blockedBy[p] {
+			var to string
+			if r.local != nil {
+				to = key(r.local)
+			} else {
+				to = r.dbTask.ShortID
+			}
+			chain, circular, err := g.blockCycle(key(p), to)
+			if err != nil {
+				return err
+			}
+			if circular {
+				return circularError(fmt.Sprintf("%s: blockedBy %q", p.pathLabel, p.BlockedBy[i]), chain)
+			}
+			g.addEdge(key(p), to, waitBlockedBy)
+		}
+	}
+	return nil
+}
+
 // validateKinds enforces that `kind` appears only where it means something:
 // on a task that becomes a root. tree holds the import's top-level entries, so
 // anything outside it is a child of another imported task; underParent reports
