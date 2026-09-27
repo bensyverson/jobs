@@ -25,6 +25,8 @@ The first cut of the Home chart panel works, and review turned up four families 
 8. **Import ticks are links** with a real hit target: hover names the plan, click opens it in the peek sheet.
 9. **Hover and motion are progressive enhancement.** The server still renders the whole panel (no-JS, preview catalog, goldens); the fragment also carries the trace, the buckets and the imports as a JSON island. `<chart-panel>` uses it for a crosshair spanning both charts that updates the end figures to the state at that moment, a tooltip of that slice's events (created, claimed, done, blocked), and a Plerk-style animated range switch — x and y scales interpolated over the data, gridlines held still, instant under `prefers-reduced-motion`. Live refreshes and scrubber moves swap without animating. Touch: drag moves the crosshair, release clears it. This does not breach reporting decision 12: the browser draws server-counted samples and re-derives no count. It does mean JS draws the same geometry the Go layout draws; a shared fixture keeps the two from drifting.
 
+10. **The histogram counts what the labels count.** *(Added 2026-09-27, after review of the side-by-side panel.)* Its created and done segments are the window's `LeafFigures` transitions attributed to the bucket they fell in: leaves (as of Until) created there, and leaves done at Until whose final close fell there. Its claimed and blocked segments count those events on the same leaves. So the legend's totals equal the burn-up's "+N created" and "+N done" by construction; parents, and reopen→close cycles, no longer inflate the histogram. `job stats` shares the rule.
+
 ## Plan
 
 ```yaml
