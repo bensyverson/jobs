@@ -53,7 +53,9 @@ type Report struct {
 	// Series is one sample per bucket, oldest first; the last sample's
 	// End is Window.Until.
 	Series []Sample `json:"series"`
-	// Activity is event counts per bucket, aligned with Series.
+	// Activity is the window's leaf transitions and leaf events per bucket,
+	// aligned with Series; its created and done sum to Leaves.Created and
+	// Leaves.Done.
 	Activity []ActivityCount `json:"activity"`
 	// Trace is the burn-up at drawing resolution, present only when the
 	// query asked for it: the state as of Window.Since, then every
@@ -142,10 +144,20 @@ type Sample struct {
 	PlansDone int `json:"plans_done"`
 }
 
-// ActivityCount is the events of the histogram's four kinds that fell in
-// one bucket [Start, End). The first bucket starts at Window.Since rather
-// than its calendar floor, and the last is closed at Window.Until, so the
-// histogram counts exactly the window's events.
+// ActivityCount is what fell in one bucket [Start, End), counted over the
+// same tasks as LeafFigures: those that are leaves at Until (decision 10 of
+// project/2026-09-27-chart-panel-revision.md).
+//
+// Created and Done are the LeafFigures transitions attributed to the bucket
+// of their final occurrence: leaves created there, and leaves done at Until
+// whose last close fell there. Summed over the buckets they are exactly
+// Leaves.Created and Leaves.Done. Claimed and Blocked are claim and block
+// events there on those leaves; a parent's never count, nor does a claim on
+// a task split since.
+//
+// The first bucket starts at Window.Since rather than its calendar floor,
+// and the last is closed at Window.Until, so the buckets cover exactly the
+// window.
 type ActivityCount struct {
 	Start   time.Time `json:"start"`
 	End     time.Time `json:"end"`

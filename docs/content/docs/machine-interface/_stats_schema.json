@@ -85,7 +85,7 @@
     },
     "activity": {
       "type": "array",
-      "description": "Events per bucket [start, end), aligned with series.",
+      "description": "Per bucket [start, end), aligned with series, over tasks that are leaves at window.until: created is those leaves created there and done is those done at window.until whose last close fell there (they sum to leaves.created and leaves.done); claimed and blocked are claim and block events there on those leaves.",
       "items": {
         "type": "object",
         "required": ["start", "end", "created", "claimed", "done", "blocked"],

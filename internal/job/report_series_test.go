@@ -166,8 +166,8 @@ func TestReport_ScopeCoversSubtree(t *testing.T) {
 	for _, a := range r.Activity {
 		created += a.Created
 	}
-	if created != 3 {
-		t.Errorf("activity created = %d, want 3 (One, A, B)", created)
+	if created != 2 {
+		t.Errorf("activity created = %d, want 2 (A, B; One is a parent)", created)
 	}
 }
 
@@ -199,8 +199,8 @@ func TestReport_UnknownScopeIsAnError(t *testing.T) {
 	}
 }
 
-// Activity counts created, claimed, done and blocked events on every task in
-// scope, parents included, per bucket.
+// Activity counts, per bucket, leaves created and closed there and claim and
+// block events on leaves; the plan root is a parent and never counts.
 func TestReport_ActivityPerBucket(t *testing.T) {
 	f := newReportFixture(t)
 	f.at(day(0, time.Hour))
@@ -220,8 +220,8 @@ func TestReport_ActivityPerBucket(t *testing.T) {
 	if !a0.Start.Equal(day(0)) || !a0.End.Equal(day(1)) || !a1.End.Equal(day(2)) {
 		t.Errorf("activity bounds = [%s,%s) [%s,%s)", a0.Start, a0.End, a1.Start, a1.End)
 	}
-	if a0.Created != 3 || a0.Claimed+a0.Done+a0.Blocked != 0 {
-		t.Errorf("day 0 activity = %+v, want 3 created", a0)
+	if a0.Created != 2 || a0.Claimed+a0.Done+a0.Blocked != 0 {
+		t.Errorf("day 0 activity = %+v, want 2 created", a0)
 	}
 	if a1.Created != 0 || a1.Claimed != 1 || a1.Done != 1 || a1.Blocked != 1 {
 		t.Errorf("day 1 activity = %+v, want 1 claimed, 1 done, 1 blocked", a1)

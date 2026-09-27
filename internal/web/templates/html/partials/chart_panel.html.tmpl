@@ -100,7 +100,7 @@
       </ul>
       {{template "chart_axis" .ActivityAxis}}
       <div class="sr-only"><table>
-        <caption>Events per bucket over {{.RangePhrase}}</caption>
+        <caption>Leaf tasks created, claimed, done and blocked per bucket over {{.RangePhrase}}</caption>
         <thead><tr><th scope="col">Bucket start</th><th scope="col">Created</th><th scope="col">Claimed</th><th scope="col">Done</th><th scope="col">Blocked</th></tr></thead>
         <tbody>
           {{- range .Activity.Rows}}

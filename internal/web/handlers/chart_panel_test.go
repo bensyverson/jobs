@@ -205,7 +205,7 @@ func TestChartPanelTemplate_ShipsDataTablesForAssistiveTech(t *testing.T) {
 		t.Fatalf("sr-only tables = %d, want 2 (one per chart)", len(tables))
 	}
 	mustHave(t, out,
-		`<td>2026-09-26 17:00</td>`, `<td>1155</td>`, `<caption>Events per bucket`,
+		`<td>2026-09-26 17:00</td>`, `<td>1155</td>`, `<caption>Leaf tasks created, claimed, done and blocked per bucket`,
 		`in this window 20 created, 12 done and 3 canceled`,
 	)
 }

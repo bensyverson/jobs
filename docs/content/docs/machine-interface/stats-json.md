@@ -85,9 +85,9 @@ job stats --format=json --since 2026-09-26T18:49:00-05:00 --until 2026-09-26T18:
     {
       "start": "2026-09-26T18:49:00-05:00",
       "end": "2026-09-26T18:50:00-05:00",
-      "created": 6,
+      "created": 5,
       "claimed": 4,
-      "done": 3,
+      "done": 2,
       "blocked": 2
     },
     {
@@ -95,7 +95,7 @@ job stats --format=json --since 2026-09-26T18:49:00-05:00 --until 2026-09-26T18:
       "end": "2026-09-26T18:51:00-05:00",
       "created": 0,
       "claimed": 1,
-      "done": 3,
+      "done": 2,
       "blocked": 0
     }
   ],
@@ -113,7 +113,7 @@ job stats --format=json --since 2026-09-26T18:49:00-05:00 --until 2026-09-26T18:
 Worth reading closely:
 
 - **Five leaves created, scope four.** The plan's root is a parent, so it never counts; the canceled leaf left scope and is in `canceled`.
-- **Four done, not five.** The reopened leaf was closed twice, but it is one leaf, counted once at its last close. The activity histogram, which counts *events*, shows every `done` — including the parent's automatic close — which is why `activity` sums to six.
+- **Four done, not five.** The reopened leaf was closed twice, but it is one leaf, counted once at its last close. `activity` counts the same way, so its `done` sums to four and its `created` to five: the plan's automatic close and the plan's own creation are a parent's, and count nowhere.
 - **`done_by_actor` is two each.** `bob` closed the reopened leaf first, but `alice` ran the close that stuck.
 - **`done_per_week` is 20,160** because the window is two minutes long: four leaves per two minutes, extrapolated to a week.
 
@@ -161,7 +161,16 @@ Import figures come from [`imported` events](../../concepts/events/#event-types)
 | `canceled` | Leaves canceled as of `end`; they have left scope. |
 | `plans_done` | Plans in the done state as of `end`. |
 
-**`activity`** — `[{start, end, created, claimed, done, blocked}]`, one per bucket, aligned with `series`: the number of events of each type on any task in scope in `[start, end)`, parents included. These are events, not leaves.
+**`activity`** — `[{start, end, created, claimed, done, blocked}]`, one per bucket, aligned with `series`, counting in `[start, end)` over the same tasks as `leaves`: those in scope that are leaves at `until`.
+
+| Field | Meaning |
+|-------|---------|
+| `created` | Leaves created in the bucket. Summed over the buckets, exactly `leaves.created`. |
+| `done` | Leaves done at `until` whose last close fell in the bucket. A reopen→close cycle is one close, in the bucket of the final one; a close undone before `until` is none. Summed, exactly `leaves.done`. |
+| `claimed` | `claimed` events in the bucket on those leaves. |
+| `blocked` | `blocked` events in the bucket on those leaves (the task blocked, not its blocker). |
+
+Parents never count: not their creation, their automatic close, nor a claim or block on them. A task claimed as a leaf and split since is a parent at `until`, so its claim does not count either; its children's creation does.
 
 **`trace`** — never in `job stats` output. The schema lists it because the same report type feeds the dashboard, which asks for the burn-up at drawing resolution: a few hundred samples shaped like `series`, from the state as of `since` to `until` on a round step.
 

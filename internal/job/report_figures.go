@@ -12,7 +12,15 @@ import (
 // one, and a leaf closed in the window but reopened before Until was not
 // closed in it. That is what keeps Leaves.Done, Pace and DoneByActor agreeing
 // with the done line.
-func fillFigures(r *Report, fold *reportFold, u reportUniverse, w reportWindow, events []reportEvent, tasks map[string]reportStoreTask) {
+//
+// The activity histogram shares the judgement rather than restating it: its
+// created and done segments are counted at the same sites as Leaves.Created
+// and Leaves.Done, in the bucket of the transition's final occurrence, so they
+// sum to those figures by construction; its claimed and blocked segments are
+// the marks on tasks that are leaves at Until (decision 10 of
+// project/2026-09-27-chart-panel-revision.md). r.Activity must already hold
+// the window's empty buckets.
+func fillFigures(r *Report, fold *reportFold, u reportUniverse, w reportWindow, events []reportEvent, tasks map[string]reportStoreTask, marks []activityMark) {
 	final := r.Series[len(r.Series)-1]
 	r.Leaves.Open, r.Leaves.Blocked = final.Open, final.Blocked
 
@@ -39,6 +47,7 @@ func fillFigures(r *Report, fold *reportFold, u reportUniverse, w reportWindow, 
 		}
 		if w.inWindow(t.created) {
 			r.Leaves.Created++
+			r.Activity[w.bucketOf(t.created)].Created++
 		}
 		if t.state == stateCanceled && w.inWindow(t.lastCancel) {
 			r.Leaves.Canceled++
@@ -47,10 +56,24 @@ func fillFigures(r *Report, fold *reportFold, u reportUniverse, w reportWindow, 
 			continue
 		}
 		r.Leaves.Done++
+		r.Activity[w.bucketOf(t.lastDone)].Done++
 		actors[t.lastDoneActor]++
 		createdToDone = append(createdToDone, t.lastDone-t.created)
 		if t.claimBeforeDone > 0 {
 			claimedToDone = append(claimedToDone, t.lastDone-t.claimBeforeDone)
+		}
+	}
+
+	for _, m := range marks {
+		if !isLeaf(m.task) {
+			continue
+		}
+		a := &r.Activity[w.bucketOf(m.ts)]
+		switch m.typ {
+		case EventClaimed:
+			a.Claimed++
+		case EventBlocked:
+			a.Blocked++
 		}
 	}
 

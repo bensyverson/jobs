@@ -62,6 +62,25 @@ func resolveBuckets(since, until time.Time, bucket Bucket) (reportWindow, error)
 // [Since, Until].
 func (w reportWindow) inWindow(ts int64) bool { return ts >= w.sinceMS && ts <= w.untilMS }
 
+// bucketOf is the index of the bucket [Start, End) that holds ts
+// (milliseconds); the last bucket is closed at Until.
+func (w reportWindow) bucketOf(ts int64) int {
+	i, found := slices.BinarySearch(w.endsMS, ts)
+	if found {
+		i++
+	}
+	return min(i, len(w.endsMS)-1)
+}
+
+// activityBuckets is one empty ActivityCount per bucket, bounds set.
+func (w reportWindow) activityBuckets() []ActivityCount {
+	out := make([]ActivityCount, len(w.ends))
+	for i := range out {
+		out[i].Start, out[i].End = w.starts[i], w.ends[i]
+	}
+	return out
+}
+
 // weeks is the window's span in weeks, for DonePerWeek.
 func (w reportWindow) weeks() float64 {
 	return w.until.Sub(w.since).Hours() / (7 * 24)

@@ -186,7 +186,7 @@ The headline figures, line by line:
 - **Pace** — leaves done per week (done ÷ the window's length in weeks, so a window of a few hours extrapolates wildly), and the median created→done and claimed→done over leaves closed in the window. Claimed→done runs from the last claim before the final close; a leaf closed without a claim is left out of it. Spans under a minute print as `<1m`, and a median with nothing to measure prints `—`.
 - **Done by** — leaves closed in the window by the identity that ran the final `done`, most first; past five identities the rest fold into one count.
 
-The JSON and CSV also carry an **activity** count per bucket — events, not leaves: every `created`, `claimed`, `done` and `blocked` event on any task in scope, parents included. A leaf closed twice is two `done` events there and one done leaf everywhere else.
+The JSON and CSV also carry an **activity** count per bucket, over the same leaves the headline figures count — those that are leaves at `--until`. `created` and `done` are the Leaves transitions, each in the bucket of its final occurrence, so they sum exactly to the window's created and done leaves: a leaf closed, reopened and closed again is one `done`, in the bucket of the last close. `claimed` and `blocked` are those events on the same leaves. Parents never count.
 
 ## `next`
 

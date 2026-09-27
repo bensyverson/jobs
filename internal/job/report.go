@@ -64,7 +64,7 @@ func BuildReport(db *sql.DB, q ReportQuery) (Report, error) {
 	}
 
 	fold := newReportFold(existing)
-	series, activity, trace, err := replaySeries(fold, universe, w, events)
+	series, trace, marks, err := replaySeries(fold, universe, w, events)
 	if err != nil {
 		return Report{}, err
 	}
@@ -75,10 +75,10 @@ func BuildReport(db *sql.DB, q ReportQuery) (Report, error) {
 			Bucket: w.bucket, Timezone: locationName(loc),
 		},
 		Series:   series,
-		Activity: activity,
+		Activity: w.activityBuckets(),
 		Trace:    trace,
 	}
-	fillFigures(&r, fold, universe, w, events, tasks)
+	fillFigures(&r, fold, universe, w, events, tasks, marks)
 	return r, nil
 }
 
@@ -131,17 +131,16 @@ func firstEventIn(u reportUniverse, events []reportEvent, until time.Time) time.
 }
 
 // replaySeries folds events in order, sampling the state as of each bucket's
-// End and each trace instant (events at the instant included), and counting
-// the histogram's event kinds per bucket [Start, End), the last bucket closed
-// at Until. The series and the trace come from the one replay, so they agree
-// wherever their instants meet. trace is nil unless w carries trace instants.
-func replaySeries(fold *reportFold, u reportUniverse, w reportWindow, events []reportEvent) (series []Sample, activity []ActivityCount, trace []Sample, err error) {
+// End and each trace instant (events at the instant included). The series and
+// the trace come from the one replay, so they agree wherever their instants
+// meet. trace is nil unless w carries trace instants.
+//
+// It also keeps the window's claim and block events on tasks in the universe:
+// whether one counts in the histogram turns on whether its task is a leaf at
+// Until, which only the finished replay knows, so fillFigures attributes them.
+func replaySeries(fold *reportFold, u reportUniverse, w reportWindow, events []reportEvent) (series, trace []Sample, marks []activityMark, err error) {
 	n, m := len(w.ends), len(w.traceAt)
 	series = make([]Sample, 0, n)
-	activity = make([]ActivityCount, n)
-	for i := range activity {
-		activity[i].Start, activity[i].End = w.starts[i], w.ends[i]
-	}
 	if m > 0 {
 		trace = make([]Sample, 0, m)
 	}
@@ -170,34 +169,29 @@ func replaySeries(fold *reportFold, u reportUniverse, w reportWindow, events []r
 		}
 	}
 
-	bucket := 0
 	for _, e := range events {
 		flush(e.ts)
 		if err := fold.apply(e); err != nil {
 			return nil, nil, nil, err
 		}
 		dirty = true
-		if e.task == "" || !u.has(e.task) || !w.inWindow(e.ts) {
+		if (e.typ != EventClaimed && e.typ != EventBlocked) || !u.has(e.task) || !w.inWindow(e.ts) {
 			continue
 		}
-		for bucket < n-1 && e.ts >= w.endsMS[bucket] {
-			bucket++
+		// A task the fold does not hold was purged since and counts nowhere.
+		if t := fold.tasks[e.task]; t != nil {
+			marks = append(marks, activityMark{task: t, typ: e.typ, ts: e.ts})
 		}
-		countActivity(&activity[bucket], e.typ)
 	}
 	flush(math.MaxInt64)
-	return series, activity, trace, nil
+	return series, trace, marks, nil
 }
 
-func countActivity(a *ActivityCount, typ EventType) {
-	switch typ {
-	case EventCreated:
-		a.Created++
-	case EventClaimed:
-		a.Claimed++
-	case EventDone:
-		a.Done++
-	case EventBlocked:
-		a.Blocked++
-	}
+// activityMark is a claim or block event in the window, held until the replay
+// ends and the histogram can tell whether its task is a leaf at Until. A
+// blocked event is on the blocked task.
+type activityMark struct {
+	task *foldTask
+	typ  EventType
+	ts   int64
 }
