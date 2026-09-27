@@ -813,11 +813,11 @@ func ComputeDoneContext(db *sql.DB, closedShortID string, autoClosedSet map[stri
 		return nil, err
 	}
 	if root != nil {
-		allDone, doneCount, err := subtreeCompleteness(db, root.ID)
+		allSettled, doneCount, err := subtreeCompleteness(db, root.ID)
 		if err != nil {
 			return nil, err
 		}
-		if allDone {
+		if allSettled {
 			ctx.WholeTreeComplete = true
 			ctx.WholeTreeDoneCount = doneCount
 			ctx.WholeTreeRootID = root.ShortID
@@ -1097,8 +1097,11 @@ func findTopAncestor(db dbtx, task *Task) (*Task, error) {
 	return current, nil
 }
 
-// subtreeCompleteness returns whether every task under (and including) rootID is done, and the count of done tasks in that subtree.
-func subtreeCompleteness(db *sql.DB, rootID int64) (allDone bool, doneCount int, err error) {
+// subtreeCompleteness returns whether every task under (and including)
+// rootID is settled — "done" or "canceled", never open — and the count of
+// tasks in that subtree whose status is specifically "done" (the number the
+// done ack reports; a canceled task is settled but not counted as done).
+func subtreeCompleteness(db *sql.DB, rootID int64) (allSettled bool, doneCount int, err error) {
 	rows, err := db.Query(`
 		WITH RECURSIVE tree(id, status) AS (
 			SELECT id, status FROM tasks WHERE id = ? AND deleted_at IS NULL
@@ -1112,17 +1115,20 @@ func subtreeCompleteness(db *sql.DB, rootID int64) (allDone bool, doneCount int,
 	}
 	defer rows.Close()
 	total := 0
-	allDone = true
+	allSettled = true
 	for rows.Next() {
 		var status string
 		if err := rows.Scan(&status); err != nil {
 			return false, 0, err
 		}
 		total++
-		if status == "done" {
+		switch status {
+		case "done":
 			doneCount++
-		} else {
-			allDone = false
+		case "canceled":
+			// Settled, but not counted as done.
+		default:
+			allSettled = false
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -1131,7 +1137,7 @@ func subtreeCompleteness(db *sql.DB, rootID int64) (allDone bool, doneCount int,
 	if total == 0 {
 		return false, 0, nil
 	}
-	return allDone, doneCount, nil
+	return allSettled, doneCount, nil
 }
 
 // descendToClaimableLeaf resolves a "Next:" candidate to an actionable leaf.

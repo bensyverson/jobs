@@ -257,7 +257,11 @@ func RunDone(db *sql.DB, ids []string, cascade bool, note string, result json.Ra
 		var plans []plan
 		seenCascade := make(map[int64]bool)
 		for _, tgt := range targets {
-			incomplete, err := findIncompleteDescendants(tx, tgt.task.ID)
+			// findOpenDescendants (also used by cancel) already excludes both
+			// "done" and "canceled" — a canceled descendant is settled, not
+			// incomplete, so done neither refuses over it nor cascades a
+			// done event onto it.
+			incomplete, err := findOpenDescendants(tx, tgt.task.ID)
 			if err != nil {
 				return err
 			}

@@ -426,8 +426,12 @@ func findDoneDescendants(tx dbtx, taskID int64) ([]*Task, error) {
 }
 
 // findOpenDescendants returns every descendant of taskID whose status is
-// neither "done" nor "canceled". Used by `cancel --cascade` to walk the live
-// subtree under a task being canceled.
+// neither "done" nor "canceled" — the one definition of "open" shared by
+// `done` and `cancel`. Both treat a canceled descendant as settled: it never
+// appears in the result, and (since the underlying query filters at every
+// level) recursion never descends into a canceled subtree. Used by `done`'s
+// incomplete-subtask check and cascade, and by `cancel --cascade` to walk
+// the live subtree under a task being canceled.
 func findOpenDescendants(tx dbtx, taskID int64) ([]*Task, error) {
 	rows, err := tx.Query(`
 		SELECT id, short_id, parent_id, title, description, status, sort_key,
@@ -481,51 +485,6 @@ func findAllDescendants(tx dbtx, taskID int64) ([]*Task, error) {
 		result = append(result, desc...)
 	}
 	return result, rows.Err()
-}
-
-func findIncompleteDescendants(tx dbtx, taskID int64) ([]*Task, error) {
-	rows, err := tx.Query(`
-		SELECT id, short_id, parent_id, title, description, status, sort_key,
-		       claimed_by, claim_expires_at, completion_note, created_at, updated_at, deleted_at, kind
-		FROM tasks WHERE parent_id = ? AND status != 'done' AND deleted_at IS NULL
-	`, taskID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var result []*Task
-	for rows.Next() {
-		t, err := scanTask(rows)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, t)
-		desc, err := findIncompleteDescendants(tx, t.ID)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, desc...)
-	}
-	return result, rows.Err()
-}
-
-func childShortIDs(tx dbtx, parentID int64) ([]string, error) {
-	rows, err := tx.Query("SELECT short_id FROM tasks WHERE parent_id = ? AND status != 'done' AND deleted_at IS NULL", parentID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
 }
 
 // GetEventsForTaskTree returns events for the task identified by shortID and

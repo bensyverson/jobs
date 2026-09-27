@@ -454,6 +454,64 @@ func TestRunDone_IncompleteChildren(t *testing.T) {
 	}
 }
 
+// A canceled descendant is settled, not incomplete: `done` on the parent
+// must neither refuse over it nor cascade a done event onto it.
+// project/agents/jobs.md leaf Vxhv0d.
+func TestRunDone_CanceledChildIsNotIncomplete(t *testing.T) {
+	db := SetupTestDB(t)
+	pid := MustAdd(t, db, "", "Parent")
+	cid := MustAdd(t, db, pid, "Won't happen")
+	if _, _, _, err := RunCancel(db, []string{cid}, "not needed", false, false, false, TestActor); err != nil {
+		t.Fatalf("RunCancel: %v", err)
+	}
+
+	if _, _, err := RunDone(db, []string{pid}, false, "", nil, TestActor, false, ""); err != nil {
+		t.Fatalf("RunDone should not refuse over a settled (canceled) child: %v", err)
+	}
+
+	parent := MustGet(t, db, pid)
+	if parent.Status != "done" {
+		t.Errorf("parent status: got %q, want %q", parent.Status, "done")
+	}
+	child := MustGet(t, db, cid)
+	if child.Status != "canceled" {
+		t.Errorf("canceled child status: got %q, want it to stay %q", child.Status, "canceled")
+	}
+}
+
+// `done --cascade` must not flip a deliberately canceled descendant to done,
+// and must not list it in CascadeClosed.
+func TestRunDone_CascadeDoesNotFlipCanceledChild(t *testing.T) {
+	db := SetupTestDB(t)
+	pid := MustAdd(t, db, "", "Parent")
+	openChild := MustAdd(t, db, pid, "Open child")
+	canceledChild := MustAdd(t, db, pid, "Won't happen")
+	if _, _, _, err := RunCancel(db, []string{canceledChild}, "not needed", false, false, false, TestActor); err != nil {
+		t.Fatalf("RunCancel: %v", err)
+	}
+
+	closed, _, err := RunDone(db, []string{pid}, true, "", nil, TestActor, false, "")
+	if err != nil {
+		t.Fatalf("RunDone --cascade: %v", err)
+	}
+	if len(closed) != 1 {
+		t.Fatalf("closed: got %+v, want 1 target", closed)
+	}
+	for _, s := range closed[0].CascadeClosed {
+		if s == canceledChild {
+			t.Errorf("CascadeClosed should not list the canceled child: %v", closed[0].CascadeClosed)
+		}
+	}
+	if len(closed[0].CascadeClosed) != 1 || closed[0].CascadeClosed[0] != openChild {
+		t.Errorf("CascadeClosed: got %v, want [%s]", closed[0].CascadeClosed, openChild)
+	}
+
+	child := MustGet(t, db, canceledChild)
+	if child.Status != "canceled" {
+		t.Errorf("canceled child status: got %q, want it to stay %q (done --cascade must not flip it)", child.Status, "canceled")
+	}
+}
+
 func TestRunDone_CascadeClosesChildren(t *testing.T) {
 	db := SetupTestDB(t)
 	pid := MustAdd(t, db, "", "Parent")
