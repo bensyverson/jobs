@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/bensyverson/jobs/internal/eventlog"
@@ -140,15 +141,15 @@ type eventBatch struct {
 	rec    *recorder
 	events []eventlog.Envelope
 
-	// owed is the `replica` event commit found this replica's file owes,
-	// emitted lazily ahead of the first real event of the batch — so a
-	// command that decides to write nothing leaves the log untouched, and a
-	// reader of the file never meets the event before the declaration.
-	owed replicaOwed
+	// decl is what this replica's file declared when the batch began. The
+	// `replica` event it owes, if any (owedReplicaEvent), is emitted lazily
+	// ahead of the first real event of the batch — so a command that decides
+	// to write nothing leaves the log untouched, and a reader of the file
+	// never meets the event before the declaration.
+	decl replicaDeclaration
 
-	// owedLabel is the label a format re-declaration carries: the file's
-	// existing one, since re-declaring is not renaming.
-	owedLabel string
+	// settled is set once the first event has paid whatever decl owed.
+	settled bool
 }
 
 // replicaOwed names which `replica` event, if any, a batch must write before
@@ -180,21 +181,53 @@ func replicaOwedFor(decl replicaDeclaration) replicaOwed {
 	}
 }
 
+// owedReplicaEvent is the `replica` event a file declaring decl owes before
+// this binary appends an event of type next to it, and false when it owes
+// none. Every path that appends events this binary mints pays it — commit,
+// rekey and adoption — so a file never holds an event its declaration
+// predates. pendingLabel is the label an announcement carries (local.json's
+// ReplicaName); a re-declaration keeps the file's existing label, since
+// re-declaring is not renaming.
+func owedReplicaEvent(decl replicaDeclaration, next EventType, cachePath, pendingLabel string) (ReplicaPayload, bool) {
+	switch replicaOwedFor(decl) {
+	case owesAnnouncement:
+		return newReplicaPayload(cachePath, pendingLabel), true
+	case owesFormat:
+		// A `replica` event this binary writes declares the current format
+		// itself, so it settles a format debt on its own.
+		if next == EventReplica {
+			return ReplicaPayload{}, false
+		}
+		return newReplicaPayload(cachePath, decl.Label), true
+	default:
+		return ReplicaPayload{}, false
+	}
+}
+
+// readOwnDeclaration reads what a replica's log file declares from the file
+// itself, for a path that appends without a cache it can trust. A file that
+// does not exist yet declares nothing.
+func readOwnDeclaration(logPath string) (replicaDeclaration, error) {
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		return replicaDeclaration{}, nil
+	}
+	events, err := eventlog.ReadFile(logPath)
+	if err != nil {
+		return replicaDeclaration{}, err
+	}
+	return declarationOf(events), nil
+}
+
 // emit mints an envelope for the event and applies it.
 func (b *eventBatch) emit(tx dbtx, typ EventType, task, actor string, payload any) error {
-	owed := b.owed
-	// Cleared first: the owed event is emitted through this same method, and
-	// clearing is what stops it recurring. A `replica` event this binary
-	// writes declares the current format itself, so it settles a format debt.
-	b.owed = owesNothing
-	switch {
-	case owed == owesAnnouncement:
-		if err := b.emit(tx, EventReplica, "", actor, newReplicaPayload(b.rec.cachePath, b.rec.label)); err != nil {
-			return err
-		}
-	case owed == owesFormat && typ != EventReplica:
-		if err := b.emit(tx, EventReplica, "", actor, newReplicaPayload(b.rec.cachePath, b.owedLabel)); err != nil {
-			return err
+	if !b.settled {
+		// Set first: the owed event is emitted through this same method, and
+		// setting it is what stops it recurring.
+		b.settled = true
+		if owed, ok := owedReplicaEvent(b.decl, typ, b.rec.cachePath, b.rec.label); ok {
+			if err := b.emit(tx, EventReplica, "", actor, owed); err != nil {
+				return err
+			}
 		}
 	}
 	e, err := b.rec.envelope(typ, task, actor, payload)
@@ -265,7 +298,7 @@ func commit(db *sql.DB, fn func(tx dbtx, b *eventBatch) error) error {
 		return err
 	}
 
-	batch := &eventBatch{rec: rec, owed: replicaOwedFor(decl), owedLabel: decl.Label}
+	batch := &eventBatch{rec: rec, decl: decl}
 	if err := fn(tx, batch); err != nil {
 		return err
 	}

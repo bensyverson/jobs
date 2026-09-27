@@ -115,6 +115,10 @@ func freeShortID(used map[string]bool) (string, error) {
 // every ordinary write. Rekey cannot: the cache it would apply into is the one
 // that refused to build. The event goes to the file, and the rebuild that
 // follows is what puts it into the cache.
+//
+// It pays what the file owes first, as commit does — an announcement, or a
+// re-declaration of an older format — reading the declaration from the file
+// rather than from the cache, for the same reason.
 func appendOwnEvent(db *sql.DB, path, actor string, typ EventType, task string, payload any) error {
 	lock, err := eventlog.AcquireLock(path)
 	if err != nil {
@@ -137,11 +141,24 @@ func appendOwnEvent(db *sql.DB, path, actor string, typ EventType, task string, 
 	}
 	rec.primeSeq(last)
 
+	decl, err := readOwnDeclaration(appender.Path())
+	if err != nil {
+		return err
+	}
+	var batch []*eventlog.Envelope
+	if owed, ok := owedReplicaEvent(decl, typ, path, rec.label); ok {
+		marker, err := rec.envelope(EventReplica, "", actor, owed)
+		if err != nil {
+			return err
+		}
+		batch = append(batch, &marker)
+	}
 	e, err := rec.envelope(typ, task, actor, payload)
 	if err != nil {
 		return err
 	}
-	if err := appender.AppendLocked([]*eventlog.Envelope{&e}); err != nil {
+	batch = append(batch, &e)
+	if err := appender.AppendLocked(batch); err != nil {
 		return err
 	}
 	return rec.persistLocked()

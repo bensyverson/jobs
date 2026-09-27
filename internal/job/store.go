@@ -293,6 +293,17 @@ func bootstrapFiles(db *sql.DB, path string, reps []string) error {
 		if gapped {
 			continue
 		}
+		// The lines are copied verbatim, so the file declares exactly what
+		// they do; a declaration cannot be slipped in without renumbering
+		// them, and another replica's lines are not this binary's to
+		// re-declare. A run declaring less than it holds would be a file an
+		// older binary misreads, so it stays in the cache instead.
+		if declared, required := fileStoreFormat(events), storeFormatRequired(events); declared < required {
+			fmt.Fprintf(StoreNotices,
+				"note: this cache's events for replica %s declare store format %d but hold events that need format %d, so no log file was written for them\n",
+				rep, declared, required)
+			continue
+		}
 		if err := writeBootstrapFile(db, path, rep, events); err != nil {
 			return err
 		}

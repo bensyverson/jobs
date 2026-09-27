@@ -2,11 +2,13 @@ package job
 
 import (
 	"bytes"
+	"cmp"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -263,6 +265,14 @@ func mintAdoptionEnvelopes(db *sql.DB, path string, state *LocalState, existing 
 	for _, e := range legacy {
 		clock.Observe(e.TS)
 	}
+
+	// Stamped before the snapshot, so a snapshot that lands at the clock's
+	// now still sorts last.
+	marker, err := adoptionOwedReplicaEvent(path, state, existing, clock)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	payload, err := cacheSnapshot(db)
 	if err != nil {
 		return nil, nil, err
@@ -278,7 +288,7 @@ func mintAdoptionEnvelopes(db *sql.DB, path string, state *LocalState, existing 
 	if err != nil {
 		return nil, nil, err
 	}
-	minted := append(legacy, snap)
+	minted := append(append(marker, legacy...), snap)
 
 	// The seq the appender will assign, resolved under the lock this caller
 	// holds, so the candidate cache is built from the exact lines that land.
@@ -297,6 +307,39 @@ func mintAdoptionEnvelopes(db *sql.DB, path string, state *LocalState, existing 
 		minted[i].Seq = last + uint64(i) + 1
 	}
 	return minted, clock, nil
+}
+
+// adoptionOwedReplicaEvent is the `replica` line, if any, adoption writes
+// ahead of the lines it mints. Adoption mints them with this binary, so it
+// pays what this replica's file owes as commit would: an announcement for a
+// file adoption is about to open, a re-declaration for one written at an older
+// format. The declaration is read from the file's own lines — the cache being
+// adopted is the one thing that does not describe the log.
+func adoptionOwedReplicaEvent(path string, state *LocalState, existing []eventlog.Envelope, clock *eventlog.Clock) ([]eventlog.Envelope, error) {
+	var own []eventlog.Envelope
+	for _, e := range existing {
+		if e.Rep == state.Rep {
+			own = append(own, e)
+		}
+	}
+	// existing is in global order, and adoption's own historical stamps can
+	// make that differ from file order; the latest declaration is by seq.
+	slices.SortFunc(own, func(a, b eventlog.Envelope) int { return cmp.Compare(a.Seq, b.Seq) })
+	owed, ok := owedReplicaEvent(declarationOf(own), EventSnapshot, path, state.ReplicaName)
+	if !ok {
+		return nil, nil
+	}
+	data, err := json.Marshal(owed)
+	if err != nil {
+		return nil, fmt.Errorf("marshal replica payload: %w", err)
+	}
+	return []eventlog.Envelope{{
+		V:     eventlog.Version,
+		TS:    clock.Now(),
+		Actor: adoptActor,
+		Type:  eventlog.Type(EventReplica),
+		Data:  data,
+	}}, nil
 }
 
 // snapshotTS places the snapshot in the global order: immediately before the

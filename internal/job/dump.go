@@ -20,9 +20,11 @@ import (
 // that counted the position would always differ.
 func dumpCache(db *sql.DB) (string, error) { return dumpCacheWith(db, dumpEventsQuery) }
 
-// dumpHistory is dumpCache without the snapshot rows. A snapshot is state
-// rather than history — adoption adds exactly one, describing the very content
-// being compared — so counting it would make every adoption differ from itself.
+// dumpHistory is dumpCache without the snapshot and replica rows. A snapshot
+// is state rather than history — adoption adds exactly one, describing the
+// very content being compared — and a `replica` row is a file's declaration
+// about itself, which adoption writes ahead of its lines when the file owes
+// one. Counting either would make an adoption differ from itself.
 func dumpHistory(db *sql.DB) (string, error) { return dumpCacheWith(db, dumpHistoryQuery) }
 
 func dumpCacheWith(db *sql.DB, eventsQuery string) (string, error) {
@@ -78,7 +80,7 @@ const dumpEventsQuery = `
 const dumpHistoryQuery = `
 	SELECT COALESCE(t.short_id, ''), e.event_type, e.actor, COALESCE(e.detail, ''), e.created_at
 	FROM events e LEFT JOIN tasks t ON t.id = e.task_id
-	WHERE e.event_type != 'snapshot'
+	WHERE e.event_type NOT IN ('snapshot', 'replica')
 	ORDER BY e.created_at, COALESCE(t.short_id, ''), e.event_type, e.actor, e.detail`
 
 // dumpRows renders each row as its columns joined by a pipe, with NULL and the

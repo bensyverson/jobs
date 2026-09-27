@@ -84,7 +84,7 @@ func abbreviateHome(path string) string {
 }
 
 // replicaDeclaration is what one replica's own file has said about itself so
-// far, read from the cache's copy of its `replica` events.
+// far: its `replica` events, read from the cache or from the file itself.
 type replicaDeclaration struct {
 	// Announced is false until the replica has written any `replica` event.
 	Announced bool
@@ -94,13 +94,32 @@ type replicaDeclaration struct {
 	Label string
 }
 
+// declarationOf is what a replica's own lines, in seq order, declare about
+// their file. Lines of any other type are skipped, so the whole file will do.
+func declarationOf(events []eventlog.Envelope) replicaDeclaration {
+	var decl replicaDeclaration
+	for _, e := range events {
+		if EventType(e.Type) != EventReplica {
+			continue
+		}
+		decl.Announced = true
+		var p ReplicaPayload
+		if decodeEventPayload(e, &p) == nil {
+			decl.Label = p.Label
+		}
+	}
+	decl.Format = fileStoreFormat(events)
+	return decl
+}
+
 // loadReplicaDeclaration reads rep's `replica` events out of the cache. It is
 // the check every write makes: an indexed read of a handful of rows — one per
 // announcement, rename or format re-declaration the replica has ever written.
 //
 // The cache rather than the file: every line of this replica's own file was
 // applied by the command that wrote it (or by the rebuild that read it), and
-// the store lock the caller holds keeps it that way until the append.
+// the store lock the caller holds keeps it that way until the append. A path
+// that appends without a trustworthy cache reads the file (readOwnDeclaration).
 func loadReplicaDeclaration(tx dbtx, rep string) (replicaDeclaration, error) {
 	rows, err := tx.Query(
 		"SELECT COALESCE(detail, '') FROM events WHERE rep = ? AND event_type = ? ORDER BY seq",
@@ -110,26 +129,18 @@ func loadReplicaDeclaration(tx dbtx, rep string) (replicaDeclaration, error) {
 		return replicaDeclaration{}, err
 	}
 	defer rows.Close()
-	var decl replicaDeclaration
 	var lines []eventlog.Envelope
 	for rows.Next() {
 		var detail string
 		if err := rows.Scan(&detail); err != nil {
 			return replicaDeclaration{}, err
 		}
-		decl.Announced = true
-		e := eventlog.Envelope{Type: eventlog.Type(EventReplica), Data: json.RawMessage(detail)}
-		lines = append(lines, e)
-		var p ReplicaPayload
-		if decodeEventPayload(e, &p) == nil {
-			decl.Label = p.Label
-		}
+		lines = append(lines, eventlog.Envelope{Type: eventlog.Type(EventReplica), Data: json.RawMessage(detail)})
 	}
 	if err := rows.Err(); err != nil {
 		return replicaDeclaration{}, err
 	}
-	decl.Format = fileStoreFormat(lines)
-	return decl, nil
+	return declarationOf(lines), nil
 }
 
 // ReplicaNames resolves a replica id to the name a reader should see, and
