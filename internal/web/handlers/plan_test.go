@@ -210,11 +210,10 @@ func TestPlan_RollupDoesNotOverrideDoneParent(t *testing.T) {
 	// a closed branch visually.
 	parent := mustAdd(t, db, "claude", "Done parent", nil, nil)
 	child := mustAdd(t, db, "claude", "Reopened child", &parent, nil)
-	if _, _, err := job.RunDone(db, []string{child}, false, "", nil, "claude", false, ""); err != nil {
-		t.Fatalf("RunDone child: %v", err)
-	}
-	if _, _, err := job.RunDone(db, []string{parent}, false, "", nil, "claude", false, ""); err != nil {
-		t.Fatalf("RunDone parent: %v", err)
+	// Closed by hand with --cascade: a parent that merely auto-closed would
+	// reopen along with its child.
+	if _, _, err := job.RunDone(db, []string{parent}, true, "", nil, "claude", false, ""); err != nil {
+		t.Fatalf("RunDone parent --cascade: %v", err)
 	}
 	if _, err := job.RunReopen(db, child, false, "claude"); err != nil {
 		t.Fatalf("RunReopen child: %v", err)

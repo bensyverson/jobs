@@ -597,8 +597,8 @@ func TestRunReopen_DoneTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunReopen: %v", err)
 	}
-	if len(reopened) != 0 {
-		t.Errorf("reopened children: got %d, want 0", len(reopened))
+	if len(reopened.ReopenedChildren) != 0 {
+		t.Errorf("reopened children: got %d, want 0", len(reopened.ReopenedChildren))
 	}
 
 	task := MustGet(t, db, id)
@@ -623,8 +623,8 @@ func TestRunReopen_CascadeReopensChildren(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunReopen: %v", err)
 	}
-	if len(reopened) != 1 || reopened[0] != cid {
-		t.Errorf("reopened: got %v, want [%s]", reopened, cid)
+	if len(reopened.ReopenedChildren) != 1 || reopened.ReopenedChildren[0] != cid {
+		t.Errorf("reopened: got %v, want [%s]", reopened.ReopenedChildren, cid)
 	}
 
 	child := MustGet(t, db, cid)
@@ -684,8 +684,8 @@ func TestRunReopen_CascadeNested(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunReopen: %v", err)
 	}
-	if len(reopened) != 2 {
-		t.Errorf("reopened: got %d, want 2", len(reopened))
+	if len(reopened.ReopenedChildren) != 2 {
+		t.Errorf("reopened: got %d, want 2", len(reopened.ReopenedChildren))
 	}
 
 	for _, id := range []string{cid, gcid} {

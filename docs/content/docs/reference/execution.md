@@ -134,7 +134,23 @@ job reopen abc12 --no-claim                         # leave it unclaimed
 job reopen abc12 --cascade                          # also reopen done descendants
 ```
 
-The auto-claim default exists because reopening usually means "I'm picking this back up." `--no-claim` is the "I'm just resurrecting it for someone else" form. `--cascade` brings the whole subtree back; without it, only the named task is reopened.
+The auto-claim default exists because reopening usually means "I'm picking this back up." `--no-claim` is the "I'm just resurrecting it for someone else" form. `--cascade` brings the whole subtree back; without it, the task's closed descendants stay closed.
+
+Reopening reverses what the close did on its own, as well as the close itself:
+
+- **Auto-closed ancestors reopen.** If closing the task was what auto-closed its parent (and maybe the parent's parent), reopening it reopens them, so no closed parent is left with an open child. Each is reopened only if its most recent close was the automatic one; the walk up stops at the first ancestor that is open or that someone closed by hand, since that close was a decision.
+- **Removed blocks come back.** Closing a blocker removes its edges; reopening it puts them back, so the tasks that waited on it wait again. This holds for every task the command reopens — the named one, the auto-closed ancestors, and the descendants `--cascade` brings back. An edge is restored only if nobody has blocked or unblocked it since, its dependent still exists and is still open, and restoring it would not close a dependency cycle.
+
+The ack names both:
+
+```text
+Reopened: XRZTSR "Middleware returns 429 with Retry-After"
+  Auto-reopened: lQPrYh "Rate-limit the public API"
+  Re-blocked: qhjsJH "Expose a refused-requests counter on /metrics" (blocked by XRZTSR)
+  claimed by alice (expires in 30m)
+```
+
+The restoration is recorded as ordinary `reopened` and `blocked` events, so the log shows exactly what came back. Reopen works on `done` and `canceled` tasks alike; criteria keep their marks.
 
 ## `cancel`
 

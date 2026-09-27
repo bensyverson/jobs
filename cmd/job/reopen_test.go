@@ -227,3 +227,32 @@ func TestReopen_Output_IncludesTitle(t *testing.T) {
 		t.Errorf("output must include task title:\n%s", stdout)
 	}
 }
+
+// The ack names what reopen put back besides the task itself: the ancestors
+// the close had auto-closed, and the block edges it had removed.
+func TestReopen_Ack_NamesReopenedAncestorsAndRestoredBlocks(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	p := job.MustAdd(t, db, "", "Rate limiting")
+	leaf := job.MustAdd(t, db, p, "Middleware")
+	d := job.MustAdd(t, db, "", "Metrics counter")
+	if err := job.RunBlock(db, d, leaf, job.TestActor); err != nil {
+		t.Fatalf("block: %v", err)
+	}
+	job.MustDone(t, db, leaf)
+	db.Close()
+
+	stdout, _, err := runCLI(t, dbFile, "--as", "alice", "reopen", leaf, "--no-claim")
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	for _, want := range []string{
+		`Reopened: ` + leaf + ` "Middleware"`,
+		`  Auto-reopened: ` + p + ` "Rate limiting"`,
+		`  Re-blocked: ` + d + ` "Metrics counter" (blocked by ` + leaf + `)`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("ack missing %q:\n%s", want, stdout)
+		}
+	}
+}

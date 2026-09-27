@@ -29,49 +29,21 @@ job reopen XRZTSR
 
 ```text
 Reopened: XRZTSR "Middleware returns 429 with Retry-After"
+  Re-blocked: lcycGU "Document the limits in the API guide" (blocked by XRZTSR)
+  Re-blocked: qhjsJH "Expose a refused-requests counter on /metrics" (blocked by XRZTSR)
   claimed by alice (expires in 30m)
 ```
 
 `reopen` claims the task for you by default, on the theory that reopening means "I'm picking this back up". `--no-claim` leaves it available for someone else — use that when you reopen on an agent's behalf. `--cascade` also reopens the task's done and canceled descendants.
 
-Reopening restores the task, not everything around it. Three things to check afterwards:
+Reopening also undoes what the close did on its own. Closing a blocker removed its block edges, which left the leaves that waited on it available to claim against unfinished work; reopening puts those edges back — the `Re-blocked:` lines above. And if the leaf was the last one open under its parent, its close auto-closed the parent; reopening the leaf reopens the parent too, with an `Auto-reopened:` line in the ack.
 
-**1. Its blocks are gone.** Closing a blocker removed its edges, and reopening doesn't put them back — so the leaves that waited on it are now available, and an agent can claim them against unfinished work:
+It leaves alone anything a person did since the close: a parent someone closed by hand stays closed, and an edge someone re-added or removed, or whose dependent has since been closed, stays as it is. The [`reopen` reference](../../reference/execution/#reopen) has the exact rules.
 
-```sh
-job ls --all
-```
-
-```text
-- [ ] `lQPrYh` Rate-limit the public API (labels: api)
-  - [ ] `XRZTSR` Middleware returns 429 with Retry-After (claimed by alice, 29m left)
-  - [ ] `qhjsJH` Expose a refused-requests counter on /metrics
-  - [ ] `lcycGU` Document the limits in the API guide
-  - [x] `jxs6sI` Token bucket in internal/ratelimit
-```
-
-Put them back, one blocked task per call:
-
-```sh
-job block add qhjsJH by XRZTSR
-job block add lcycGU by XRZTSR
-```
-
-```text
-Blocked: qhjsJH (blocked by XRZTSR)
-Blocked: lcycGU (blocked by XRZTSR)
-```
-
-**2. Its criteria keep their marks.** The failed row still reads `[!]`. Set it back to pending so the next close has to account for it again:
+One thing reopen does not touch: **the criteria keep their marks.** The failed row still reads `[!]`. Set it back to pending so the next close has to account for it again:
 
 ```sh
 job edit XRZTSR --set-criterion n62=pending
-```
-
-**3. Its parent may still be closed.** If the leaf you reopen was the last one open, its parent auto-closed with it — and reopening the leaf does not reopen the parent. Reopen that too, without taking a claim on it:
-
-```sh
-job reopen <parent-id> --no-claim
 ```
 
 ## Cancel: it's not going to happen

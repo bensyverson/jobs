@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// Closing and reopening work: `done`, `cancel`'s shared leaf-frontier
-// cascade, the strict-criteria gate, and `reopen`.
+// Closing work: `done`, `cancel`'s shared leaf-frontier cascade, and the
+// strict-criteria gate. Reopening lives in reopen.go.
 //
 // Every state change here is an event. A cascade is not derived at apply
 // time — the handler decides which descendants and which ancestors close,
@@ -399,56 +399,4 @@ func RunDone(db *sql.DB, ids []string, cascade bool, note string, result json.Ra
 		return nil, nil, err
 	}
 	return closed, alreadyDone, nil
-}
-
-func RunReopen(db *sql.DB, shortID string, cascade bool, actor string) ([]string, error) {
-	var reopenedChildren []string
-	err := commit(db, func(tx dbtx, b *eventBatch) error {
-		reopenedChildren = nil
-		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
-			return err
-		}
-		if err := checkClaimOwnership(tx, shortID, actor); err != nil {
-			return err
-		}
-
-		task, err := GetTaskByShortID(tx, shortID)
-		if err != nil {
-			return err
-		}
-		if task == nil {
-			return fmt.Errorf("task %q not found", shortID)
-		}
-		if task.Status != "done" && task.Status != "canceled" {
-			return fmt.Errorf("task %s is not done or canceled (status: %s)", shortID, task.Status)
-		}
-		fromStatus := task.Status
-
-		if cascade {
-			descendants, err := findClosedDescendants(tx, task.ID)
-			if err != nil {
-				return err
-			}
-			for _, d := range descendants {
-				if err := b.emit(tx, EventReopened, d.ShortID, actor, ReopenedPayload{
-					Cascade:          false,
-					ReopenedChildren: []string{},
-					FromStatus:       d.Status,
-				}); err != nil {
-					return err
-				}
-				reopenedChildren = append(reopenedChildren, d.ShortID)
-			}
-		}
-
-		return b.emit(tx, EventReopened, shortID, actor, ReopenedPayload{
-			Cascade:          cascade,
-			ReopenedChildren: reopenedChildren,
-			FromStatus:       fromStatus,
-		})
-	})
-	if err != nil {
-		return nil, err
-	}
-	return reopenedChildren, nil
 }
