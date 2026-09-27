@@ -21,7 +21,7 @@ func newRebuildCmd() *cobra.Command {
 		Long: "Drop every table in .jobs.db and replay .jobs/log/*.jsonl into it, in (ts, rep, seq) order.\n\n" +
 			"The log is the record and the cache is disposable, so this is always safe and never loses anything: the cache holds nothing the log does not. Every open already rebuilds when a log file has grown, so this is the recovery verb rather than a routine one — reach for it after a crash, or when you suspect the cache.\n\n" +
 			"After a rebuild that ingested another replica's events, the reconcile pass repairs the invariants a single machine keeps: a parent whose last child closed elsewhere is closed, a child of a purged task is purged, and the later of two claims made while the machines were apart is released. Each repair is an ordinary event in the log, and each is printed.\n\n" +
-			"A database that predates the store is refused: its cache holds history no log line reproduces, so replaying would lose it. Adoption is what converts one.",
+			"A database that predates the store is refused: its cache holds history no log line reproduces, so replaying would lose it. Adoption is what converts one. So is a cache holding events for a replica whose log file is missing; restore that file and the next command rebuilds.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openDBFromCmd()

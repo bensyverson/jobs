@@ -146,7 +146,7 @@ Rebuilt the cache from 2 log file(s), 10 event(s). Replica 6oDqmc.
 
 `.jobs/log/*.jsonl` is the record; `.jobs.db` is a cache of it that can be deleted at any time. The cache records a **watermark** for each log file — the byte offset it has applied — and every `job` command checks it: sizes equal everywhere and no unknown file means there is nothing to do, which costs one `stat` per file. Anything else rebuilds automatically. So there is no `job sync`: sync is `git pull`, and the next command notices.
 
-`rebuild` forces that replay. Reach for it after a crash, or when you suspect the cache. It cannot lose anything, because the cache holds nothing the log does not.
+`rebuild` forces that replay. Reach for it after a crash, or when you suspect the cache. It cannot lose anything, because the cache holds nothing the log does not — and where it would, it refuses and says why: a database that [predates the store](#adoption), and a cache holding events for a replica whose log file is missing (`log incomplete` in `job status`). For the second, restore the named file from git or from the machine that wrote it; [The store](../../concepts/the-store/#rebuilds) has the whole rule, including why that replica's writes are refused meanwhile.
 
 **Reconcile.** A rebuild that ingested another replica's events also repairs the invariants a single machine would have kept. Applying an event never *derives* anything — a cascade close is an explicit event the handler emitted — so a trigger split across two machines leaves the invariant broken, because neither machine saw the other's half. Reconcile finds those and appends the repairing events, which propagate like any others:
 

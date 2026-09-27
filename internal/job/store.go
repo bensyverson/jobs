@@ -31,9 +31,10 @@ const (
 	// StoreLegacy means the cache holds pre-store history that no log line
 	// reproduces, so it is never rebuilt until adoption has run.
 	StoreLegacy StoreState = "predates the store"
-	// StoreIncomplete means a log file the cache has applied is not on disk
-	// and could not be written back out. Rebuilding would replay less than the
-	// cache already holds, so the cache is left exactly as it is.
+	// StoreIncomplete means the cache holds events for a replica whose log
+	// file is not on disk and could not be written back out. Rebuilding would
+	// replay less than the cache already holds, so the cache is left exactly
+	// as it is, and that replica's writes are refused (refuseSeqReuse).
 	StoreIncomplete StoreState = "log incomplete"
 )
 
@@ -196,15 +197,16 @@ func syncStore(db *sql.DB, path string) (*StoreSync, error) {
 			return nil, err
 		}
 	}
-	if inSync(files, marks) {
-		sync.State = StoreInSync
-		return sync, nil
-	}
+	// Before the in-sync test, not after: a replica whose file the bootstrap
+	// declined to write has no watermark either, so "every file matches its
+	// watermark" holds vacuously for it and would call this cache in sync.
 	if len(missing) > 0 {
 		sync.State = StoreIncomplete
-		fmt.Fprintf(StoreNotices,
-			"note: no log file for replica %s, whose events this cache holds; the cache was left as it is rather than rebuilt from less\n",
-			missing[0])
+		fmt.Fprintln(StoreNotices, "note: "+newLogIncompleteError(path, missing).Error())
+		return sync, nil
+	}
+	if inSync(files, marks) {
+		sync.State = StoreInSync
 		return sync, nil
 	}
 
@@ -264,7 +266,7 @@ func repsWithoutFiles(db *sql.DB, files []eventlog.File) ([]string, error) {
 // purge erases the purged subtree's event rows — cannot be turned back into an
 // append-only file, and inventing one would produce a log that reads as
 // truncated on every other machine. That case says so and leaves the cache
-// alone; adoption is what handles it properly.
+// alone, and syncStore then reports the log incomplete.
 func bootstrapFiles(db *sql.DB, path string, reps []string) error {
 	lock, err := eventlog.AcquireLock(path)
 	if err != nil {

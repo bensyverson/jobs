@@ -101,7 +101,10 @@ func (r *recorder) envelope(typ EventType, task, actor string, payload any) (eve
 // cache, and under the store lock the batch holds. The file is the record and
 // the appender re-scans it on every batch; the cache's seq has holes, because
 // purge erases the purged subtree's event rows. Priming from anything but the
-// file would mint a seq the appender then overwrote.
+// file would mint a seq the appender then overwrote. The one case the file
+// cannot answer — a cache holding more of this replica's run than its file —
+// is refused before priming (refuseSeqReuse), not papered over by priming
+// past the file, which would leave the file with a gap.
 func (r *recorder) nextSeq() uint64 {
 	r.seq++
 	return r.seq
@@ -282,6 +285,9 @@ func commit(db *sql.DB, fn func(tx dbtx, b *eventBatch) error) error {
 	// the append asserts that rather than trusting it.
 	last, err := appender.LastSeqLocked()
 	if err != nil {
+		return err
+	}
+	if err := refuseSeqReuse(db, path, rec.rep, last); err != nil {
 		return err
 	}
 	rec.primeSeq(last)

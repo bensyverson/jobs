@@ -3,6 +3,7 @@ package job
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/bensyverson/jobs/internal/eventlog"
@@ -48,7 +49,8 @@ type RebuildReport struct {
 	Files   int
 	Events  int
 	Repairs []string
-	// Refused is set when the legacy rule stopped the rebuild.
+	// Refused is set when the rebuild would have dropped history only the
+	// cache holds: pre-store rows, or a replica with no log file.
 	Refused bool
 	Notice  string
 }
@@ -58,6 +60,8 @@ type RebuildReport struct {
 // It refuses a cache that still holds pre-store history, for the same reason
 // the open path does: those rows carry state no log line reproduces, and
 // dropping the tables would destroy it. Adoption is what lifts the refusal.
+// It refuses a cache holding events for a replica with no log file for the
+// same reason; restoring the file lifts that one.
 func RunRebuild(db *sql.DB) (*RebuildReport, error) {
 	path, err := CachePathOf(db)
 	if err != nil {
@@ -84,6 +88,11 @@ func RunRebuild(db *sql.DB) (*RebuildReport, error) {
 		return nil, err
 	}
 	repairs, err := rebuildAndReconcile(db, path, marks, local.Rep)
+	if incomplete, ok := errors.AsType[*LogIncompleteError](err); ok {
+		report.Refused = true
+		report.Notice = incomplete.Error()
+		return report, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -149,6 +158,15 @@ func rebuildStore(db *sql.DB, path string) error {
 	files, err := eventlog.Files(eventlog.StoreDir(path))
 	if err != nil {
 		return err
+	}
+	// A replay drops every table, so a replica the cache holds and the files
+	// do not would vanish from it.
+	missing, err := repsWithoutFiles(db, files)
+	if err != nil {
+		return err
+	}
+	if len(missing) > 0 {
+		return newLogIncompleteError(path, missing)
 	}
 	var events []eventlog.Envelope
 	for _, f := range files {

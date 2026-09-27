@@ -139,6 +139,9 @@ func appendOwnEvent(db *sql.DB, path, actor string, typ EventType, task string, 
 	if err != nil {
 		return err
 	}
+	if err := refuseSeqReuse(db, path, rec.rep, last); err != nil {
+		return err
+	}
 	rec.primeSeq(last)
 
 	decl, err := readOwnDeclaration(appender.Path())
