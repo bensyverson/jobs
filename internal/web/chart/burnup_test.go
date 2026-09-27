@@ -29,7 +29,7 @@ func fourDays() job.Report {
 }
 
 func TestLayoutBurnup_EmptyWhenNoSamples(t *testing.T) {
-	b := LayoutBurnup(job.Report{}, time.UTC)
+	b := layoutTraced(job.Report{}, time.UTC)
 	if !b.Empty {
 		t.Fatalf("Empty = false for a report with no samples")
 	}
@@ -40,7 +40,7 @@ func TestLayoutBurnup_EmptyWhenNothingEverExisted(t *testing.T) {
 	for i := range rep.Series {
 		rep.Series[i] = job.Sample{End: rep.Series[i].End}
 	}
-	if b := LayoutBurnup(rep, time.UTC); !b.Empty {
+	if b := layoutTraced(rep, time.UTC); !b.Empty {
 		t.Fatalf("Empty = false for a series of all-zero samples")
 	}
 }
@@ -52,19 +52,20 @@ func TestLayoutBurnup_NotEmptyWhenOnlyCanceled(t *testing.T) {
 	for i := range rep.Series {
 		rep.Series[i] = job.Sample{End: rep.Series[i].End, Canceled: 3}
 	}
-	if b := LayoutBurnup(rep, time.UTC); b.Empty {
+	if b := layoutTraced(rep, time.UTC); b.Empty {
 		t.Fatalf("Empty = true for a series with canceled leaves")
 	}
 }
 
 // Decision 4: the end labels are the window's figures — leaves created
 // and closed in it, from the report's LeafFigures — with the absolute
-// total at the window's end beneath: scope under created, done under
-// done.
+// total at the window's end beneath: under created, the top of the
+// canceled band it sits beside (scope 40 plus 5 canceled in the
+// window); under done, done.
 func TestLayoutBurnup_EndLabelsAreWindowFigures(t *testing.T) {
-	b := LayoutBurnup(fourDays(), time.UTC)
-	if b.Created.Text != "+32" || b.Created.Word != "created" || b.Created.Total != "of 40" {
-		t.Errorf("created label = %+v, want +32 created, of 40", b.Created)
+	b := layoutTraced(fourDays(), time.UTC)
+	if b.Created.Text != "+32" || b.Created.Word != "created" || b.Created.Total != "of 45" {
+		t.Errorf("created label = %+v, want +32 created, of 45", b.Created)
 	}
 	if b.Done.Text != "+27" || b.Done.Word != "done" || b.Done.Total != "of 30" {
 		t.Errorf("done label = %+v, want +27 done, of 30", b.Done)
@@ -74,7 +75,7 @@ func TestLayoutBurnup_EndLabelsAreWindowFigures(t *testing.T) {
 // Open and blocked are the state at the window's end; canceled is the
 // window's, from LeafFigures, not the last sample's running total.
 func TestLayoutBurnup_CanceledIsTheWindows(t *testing.T) {
-	b := LayoutBurnup(fourDays(), time.UTC)
+	b := layoutTraced(fourDays(), time.UTC)
 	if b.Open != 10 || b.Blocked != 3 || b.Canceled != 2 {
 		t.Errorf("open/blocked/canceled = %d/%d/%d, want 10/3/2", b.Open, b.Blocked, b.Canceled)
 	}
@@ -82,9 +83,10 @@ func TestLayoutBurnup_CanceledIsTheWindows(t *testing.T) {
 
 func TestLayoutBurnup_EndLabelsUseThousandsSeparators(t *testing.T) {
 	rep := fourDays()
-	rep.Series[3].Scope, rep.Series[3].Done = 1155, 1080
+	// No canceled band, so created's total is scope's.
+	rep.Series[3].Scope, rep.Series[3].Done, rep.Series[3].Canceled = 1155, 1080, 0
 	rep.Leaves.Created, rep.Leaves.Done = 1155, 1080
-	b := LayoutBurnup(rep, time.UTC)
+	b := layoutTraced(rep, time.UTC)
 	if b.Created.Text != "+1,155" || b.Done.Text != "+1,080" || b.Created.Total != "of 1,155" || b.Done.Total != "of 1,080" {
 		t.Fatalf("end labels = %+v / %+v, want +1,155 of 1,155 / +1,080 of 1,080", b.Created, b.Done)
 	}
@@ -94,7 +96,7 @@ func TestLayoutBurnup_EndLabelsUseThousandsSeparators(t *testing.T) {
 func TestLayoutBurnup_QuietWindowReadsPlusZero(t *testing.T) {
 	rep := fourDays()
 	rep.Leaves = job.LeafFigures{Open: 10, Blocked: 3}
-	b := LayoutBurnup(rep, time.UTC)
+	b := layoutTraced(rep, time.UTC)
 	if b.Created.Text != "+0" || b.Done.Text != "+0" {
 		t.Errorf("end labels = %q / %q, want +0 / +0", b.Created.Text, b.Done.Text)
 	}
@@ -103,7 +105,7 @@ func TestLayoutBurnup_QuietWindowReadsPlusZero(t *testing.T) {
 // Points sit at each sample's End on a since→until scale, in a
 // 1000×1000 viewBox with y growing downward.
 func TestLayoutBurnup_PathsPlotSamplesOnTheWindow(t *testing.T) {
-	b := LayoutBurnup(fourDays(), time.UTC)
+	b := layoutTraced(fourDays(), time.UTC)
 	if !strings.HasPrefix(b.ScopePath, "M250 ") {
 		t.Errorf("ScopePath starts %q, want the first sample at x=250", b.ScopePath)
 	}
@@ -121,7 +123,7 @@ func TestLayoutBurnup_PathsPlotSamplesOnTheWindow(t *testing.T) {
 
 // The gap runs forward along scope and back along done, closed.
 func TestLayoutBurnup_GapIsClosedBetweenTheLines(t *testing.T) {
-	b := LayoutBurnup(fourDays(), time.UTC)
+	b := layoutTraced(fourDays(), time.UTC)
 	if !strings.HasPrefix(b.GapPath, "M250 ") || !strings.HasSuffix(b.GapPath, "Z") {
 		t.Fatalf("GapPath = %q, want a closed path starting at the first sample", b.GapPath)
 	}
@@ -143,7 +145,7 @@ func TestLayoutBurnup_BlockedBandIsClampedToScope(t *testing.T) {
 			{End: t0.Add(2 * time.Hour), Scope: 10, Done: 8, Blocked: 9},
 		},
 	}
-	b := LayoutBurnup(rep, time.UTC)
+	b := layoutTraced(rep, time.UTC)
 	top := b.y(10)
 	if strings.Contains(b.BlockedPath, " "+fmtNum(b.y(17))) {
 		t.Errorf("BlockedPath %q rises to done+blocked=17, above scope", b.BlockedPath)
@@ -158,7 +160,7 @@ func TestLayoutBurnup_BlockedBandIsClampedToScope(t *testing.T) {
 func TestLayoutBurnup_GridlinesAreSparseAndRound(t *testing.T) {
 	rep := fourDays()
 	rep.Series[3].Scope = 1155
-	b := LayoutBurnup(rep, time.UTC)
+	b := layoutTraced(rep, time.UTC)
 	var labels []string
 	for _, g := range b.Gridlines {
 		labels = append(labels, g.Label)
@@ -176,9 +178,11 @@ func TestLayoutBurnup_GridlinesAreSparseAndRound(t *testing.T) {
 func TestLayoutBurnup_SmallCountsGridOnWholeNumbers(t *testing.T) {
 	rep := fourDays()
 	for i := range rep.Series {
-		rep.Series[i].Scope, rep.Series[i].Done, rep.Series[i].Blocked = 3, 1, 0
+		// Canceled too: the fixture's canceled leaves would draw a band
+		// above scope and widen the span.
+		rep.Series[i].Scope, rep.Series[i].Done, rep.Series[i].Blocked, rep.Series[i].Canceled = 3, 1, 0, 0
 	}
-	b := LayoutBurnup(rep, time.UTC)
+	b := layoutTraced(rep, time.UTC)
 	var labels []string
 	for _, g := range b.Gridlines {
 		labels = append(labels, g.Label)
@@ -193,7 +197,7 @@ func TestLayoutBurnup_SmallCountsGridOnWholeNumbers(t *testing.T) {
 func TestLayoutBurnup_EndLabelsKeepApart(t *testing.T) {
 	rep := fourDays()
 	rep.Series[3].Scope, rep.Series[3].Done = 40, 39
-	b := LayoutBurnup(rep, time.UTC)
+	b := layoutTraced(rep, time.UTC)
 	gap := pct(b.Done.Y) - pct(b.Created.Y)
 	if gap < minEndLabelGapPct-0.01 {
 		t.Errorf("end labels %s and %s are %.2f%% apart, want at least %v%%", b.Created.Y, b.Done.Y, gap, minEndLabelGapPct)
@@ -201,7 +205,7 @@ func TestLayoutBurnup_EndLabelsKeepApart(t *testing.T) {
 }
 
 func TestLayoutBurnup_RowsTabulateEverySample(t *testing.T) {
-	b := LayoutBurnup(fourDays(), time.UTC)
+	b := layoutTraced(fourDays(), time.UTC)
 	if len(b.Rows) != 4 {
 		t.Fatalf("rows = %d, want 4", len(b.Rows))
 	}
@@ -214,7 +218,7 @@ func TestLayoutBurnup_RowsTabulateEverySample(t *testing.T) {
 // The <desc> leads with the window's figures, as the end labels do,
 // then the state at the window's end.
 func TestLayoutBurnup_SummaryStatesTheNumbers(t *testing.T) {
-	b := LayoutBurnup(fourDays(), time.UTC)
+	b := layoutTraced(fourDays(), time.UTC)
 	for _, want := range []string{"In this window, 32 created, 27 done and 2 canceled", "40 in scope", "30 done", "10 open", "3 blocked"} {
 		if !strings.Contains(b.Summary, want) {
 			t.Errorf("Summary %q lacks %q", b.Summary, want)
@@ -226,7 +230,7 @@ func TestLayoutBurnup_SummaryStatesTheNumbers(t *testing.T) {
 func TestLayoutBurnup_ReopenDipIsDrawn(t *testing.T) {
 	rep := fourDays()
 	rep.Series[2].Done = 5
-	b := LayoutBurnup(rep, time.UTC)
+	b := layoutTraced(rep, time.UTC)
 	if !strings.Contains(b.DonePath, " "+fmtNum(b.y(5))) {
 		t.Errorf("DonePath %q lacks the dip to 5", b.DonePath)
 	}
@@ -239,7 +243,7 @@ func TestLayoutBurnup_SingleSampleDrawsAPoint(t *testing.T) {
 		Window: job.ReportWindow{Since: t0, Until: t0.Add(8 * time.Hour), Bucket: job.BucketDay},
 		Series: []job.Sample{{End: t0.Add(8 * time.Hour), Scope: 4, Done: 1, Open: 3}},
 	}
-	b := LayoutBurnup(rep, time.UTC)
+	b := layoutTraced(rep, time.UTC)
 	if b.Empty || !strings.Contains(b.DonePath, "L") {
 		t.Fatalf("single sample: Empty=%v DonePath=%q, want a drawable segment", b.Empty, b.DonePath)
 	}
@@ -248,7 +252,7 @@ func TestLayoutBurnup_SingleSampleDrawsAPoint(t *testing.T) {
 // Each line ends in a dot at its last sample, so a one-sample series
 // (All over a young store) is still visible at a glance.
 func TestLayoutBurnup_EndDotsMarkTheLastSample(t *testing.T) {
-	b := LayoutBurnup(fourDays(), time.UTC)
+	b := layoutTraced(fourDays(), time.UTC)
 	if b.ScopeDot.X != "100%" || b.DoneDot.X != "100%" {
 		t.Errorf("dot X = %q / %q, want 100%%", b.ScopeDot.X, b.DoneDot.X)
 	}
@@ -283,7 +287,7 @@ func gridLabels(b Burnup) string {
 // that moved from 400 to 500 fills the full height rather than hugging
 // the top of a zero-based axis.
 func TestLayoutBurnup_DomainFitsThePlottedValues(t *testing.T) {
-	b := LayoutBurnup(windowOf([4]int{400, 450, 480, 500}, [4]int{410, 430, 460, 490}), time.UTC)
+	b := layoutTraced(windowOf([4]int{400, 450, 480, 500}, [4]int{410, 430, 460, 490}), time.UTC)
 	if !strings.HasPrefix(b.ScopePath, "M250 1000") {
 		t.Errorf("ScopePath starts %q, want the minimum (400) on the baseline", b.ScopePath)
 	}
@@ -297,7 +301,7 @@ func TestLayoutBurnup_DomainFitsThePlottedValues(t *testing.T) {
 
 // Done can be the minimum: the domain spans both lines.
 func TestLayoutBurnup_DomainSpansDoneToo(t *testing.T) {
-	b := LayoutBurnup(windowOf([4]int{400, 410, 420, 430}, [4]int{380, 390, 400, 410}), time.UTC)
+	b := layoutTraced(windowOf([4]int{400, 410, 420, 430}, [4]int{380, 390, 400, 410}), time.UTC)
 	if !strings.HasPrefix(b.DonePath, "M250 1000") {
 		t.Errorf("DonePath starts %q, want done's minimum (380) on the baseline", b.DonePath)
 	}
@@ -310,7 +314,7 @@ func TestLayoutBurnup_DomainSpansDoneToo(t *testing.T) {
 func TestLayoutBurnup_DomainIsFittedOnAllToo(t *testing.T) {
 	rep := windowOf([4]int{190, 250, 330, 402}, [4]int{190, 240, 320, 400})
 	rep.Window.Bucket = job.BucketWeek
-	b := LayoutBurnup(rep, time.UTC)
+	b := layoutTraced(rep, time.UTC)
 	if !strings.HasPrefix(b.DonePath, "M250 1000") {
 		t.Errorf("DonePath starts %q, want 190 on the baseline", b.DonePath)
 	}
@@ -319,7 +323,7 @@ func TestLayoutBurnup_DomainIsFittedOnAllToo(t *testing.T) {
 // A flat window gets a small symmetric pad, so the line sits mid-chart
 // rather than on an edge.
 func TestLayoutBurnup_FlatWindowSitsMidChart(t *testing.T) {
-	b := LayoutBurnup(windowOf([4]int{400, 400, 400, 400}, [4]int{400, 400, 400, 400}), time.UTC)
+	b := layoutTraced(windowOf([4]int{400, 400, 400, 400}, [4]int{400, 400, 400, 400}), time.UTC)
 	if b.ScopePath != "M250 500L500 500L750 500L1000 500" {
 		t.Errorf("ScopePath = %q, want a line at y=500", b.ScopePath)
 	}
@@ -338,7 +342,7 @@ func TestLayoutBurnup_FlatZeroHasNoNegativeGridlines(t *testing.T) {
 	for i := range rep.Series {
 		rep.Series[i].Canceled = 3
 	}
-	b := LayoutBurnup(rep, time.UTC)
+	b := layoutTraced(rep, time.UTC)
 	if b.Empty || b.ScopeDot.Y != "50%" {
 		t.Fatalf("Empty=%v scope dot Y=%q, want a drawn line mid-chart", b.Empty, b.ScopeDot.Y)
 	}
@@ -361,7 +365,7 @@ func TestLayoutBurnup_GridlinesAreRoundInsideTheSpan(t *testing.T) {
 		{[4]int{190, 250, 330, 402}, [4]int{190, 240, 320, 400}, "200,300,400"},
 	}
 	for _, c := range cases {
-		if got := gridLabels(LayoutBurnup(windowOf(c.scope, c.done), time.UTC)); got != c.want {
+		if got := gridLabels(layoutTraced(windowOf(c.scope, c.done), time.UTC)); got != c.want {
 			t.Errorf("scope %v done %v: gridlines %q, want %q", c.scope, c.done, got, c.want)
 		}
 	}
@@ -369,7 +373,7 @@ func TestLayoutBurnup_GridlinesAreRoundInsideTheSpan(t *testing.T) {
 
 // Each gridline sits where its value plots.
 func TestLayoutBurnup_GridlinesSitAtTheirValue(t *testing.T) {
-	b := LayoutBurnup(windowOf([4]int{400, 450, 480, 500}, [4]int{400, 430, 460, 490}), time.UTC)
+	b := layoutTraced(windowOf([4]int{400, 450, 480, 500}, [4]int{400, 430, 460, 490}), time.UTC)
 	if len(b.Gridlines) == 0 || b.Gridlines[1].Label != "450" || b.Gridlines[1].Y != "50%" {
 		t.Errorf("gridlines = %+v, want 450 at 50%%", b.Gridlines)
 	}
@@ -378,7 +382,7 @@ func TestLayoutBurnup_GridlinesSitAtTheirValue(t *testing.T) {
 // A flat window's gridlines keep clear of its line, so no label is
 // struck through by it (the 402 preview put "400" under the line).
 func TestLayoutBurnup_FlatGridlinesClearTheLine(t *testing.T) {
-	b := LayoutBurnup(windowOf([4]int{402, 402, 402, 402}, [4]int{402, 402, 402, 402}), time.UTC)
+	b := layoutTraced(windowOf([4]int{402, 402, 402, 402}, [4]int{402, 402, 402, 402}), time.UTC)
 	for _, g := range b.Gridlines {
 		if y := pct(g.Y); y > 40 && y < 60 {
 			t.Errorf("gridline %s at %s crowds the line at 50%%", g.Label, g.Y)

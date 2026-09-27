@@ -234,6 +234,26 @@ func LayoutAxis(rep job.Report, loc *time.Location, end WindowEnd) Axis {
 		last := Tick{X: "100%", Label: endLabel, Anchor: AnchorEnd}
 		a.Ticks = append(append([]Tick{first}, interiorTicks(sc, since, until, first, last)...), last)
 	}
+	for _, m := range importsIn(rep) {
+		a.Imports = append(a.Imports, ImportTick{
+			X: fmtPct(sc.frac(m.at) * 100), Href: m.href, Label: m.label,
+		})
+	}
+	return a
+}
+
+// importLink is one import in the window, as the axis links it and
+// the panel's data island carries it.
+type importLink struct {
+	at    time.Time
+	href  string
+	label string
+}
+
+// importsIn is rep's imports inside its window, each named for the
+// plan and the file it came from.
+func importsIn(rep job.Report) []importLink {
+	var out []importLink
 	for _, m := range rep.Imports {
 		if m.At.Before(rep.Window.Since) || m.At.After(rep.Window.Until) {
 			continue
@@ -242,11 +262,9 @@ func LayoutAxis(rep job.Report, loc *time.Location, end WindowEnd) Axis {
 		if m.Source != "" {
 			label += " from " + m.Source
 		}
-		a.Imports = append(a.Imports, ImportTick{
-			X: fmtPct(sc.frac(m.At) * 100), Href: "/tasks/" + m.TaskID, Label: label,
-		})
+		out = append(out, importLink{at: m.At, href: "/tasks/" + m.TaskID, label: label})
 	}
-	return a
+	return out
 }
 
 // interiorTicks picks the finest label unit whose boundaries strictly

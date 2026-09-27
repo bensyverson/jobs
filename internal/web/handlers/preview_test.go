@@ -114,6 +114,54 @@ func TestPreviewState_ParkedEndsAtTheCursor(t *testing.T) {
 	}
 }
 
+// The catalog's reports carry a trace as BuildReport's do, so the
+// burn-up is drawn from it in preview exactly as on Home: a week at
+// half-hour steps, not 28 six-hour points.
+func TestPreviewState_BurnupIsDrawnFromATrace(t *testing.T) {
+	_, body := fetchPreview(t, "chart-panel", "fitted-week")
+	d := panelIsland(t, body)
+	if n := len(d.Trace); n < 300 {
+		t.Errorf("fitted-week trace = %d samples, want a sample every 30 minutes (~337)", n)
+	}
+	if d.Trace[0].T != d.Since || d.Trace[len(d.Trace)-1].T != d.Until {
+		t.Errorf("trace runs %d..%d, want Since %d..Until %d", d.Trace[0].T, d.Trace[len(d.Trace)-1].T, d.Since, d.Until)
+	}
+}
+
+// Decision 6: mostly-canceled cancels mid-window, so its band starts
+// at zero at Since and grows.
+func TestPreviewState_MostlyCanceledDrawsTheBand(t *testing.T) {
+	_, body := fetchPreview(t, "chart-panel", "mostly-canceled")
+	mustContain(t, body, `class="c-burnup__canceled"`)
+	d := panelIsland(t, body)
+	if first, last := d.Trace[0].CanceledInWindow, d.Trace[len(d.Trace)-1].CanceledInWindow; first != 0 || last < 40 {
+		t.Errorf("canceled in window runs %d → %d, want 0 at Since growing past 40", first, last)
+	}
+}
+
+// Decision 10: the histogram counts what the end labels count, so in
+// every drawn state the buckets' created and done sum to the window's
+// figures — the fixtures derive one from the other, as a real report
+// does (crowded once read "+1,193 created" beside "1161 created").
+func TestPreviewStates_HistogramSumsToTheWindowFigures(t *testing.T) {
+	for _, s := range chartPanelStates {
+		_, body := fetchPreview(t, "chart-panel", s)
+		if !strings.Contains(body, "c-chart-panel__data") {
+			continue // empty and error draw no charts
+		}
+		d := panelIsland(t, body)
+		created, done := 0, 0
+		for _, b := range d.Buckets {
+			created += b.Created
+			done += b.Done
+		}
+		if created != d.Window.Created || done != d.Window.Done {
+			t.Errorf("%s: buckets sum to %d created / %d done, window figures %d / %d",
+				s, created, done, d.Window.Created, d.Window.Done)
+		}
+	}
+}
+
 func TestPreviewState_FetchingIsBusy(t *testing.T) {
 	_, body := fetchPreview(t, "chart-panel", "fetching")
 	mustContain(t, body, `aria-busy="true"`)

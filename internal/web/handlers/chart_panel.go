@@ -59,6 +59,9 @@ type ChartPanel struct {
 	Burnup   chart.Burnup
 	Activity chart.Activity
 	Axis     chart.Axis
+	// Data is the JSON island the panel's script hovers and redraws
+	// from; set only when State is PanelChart.
+	Data chart.PanelData
 }
 
 // ChartKind names one of the panel's two charts. Its value is the CSS
@@ -152,6 +155,7 @@ func buildChartPanel(id string, rep job.Report, repErr error, nav panelNav, end 
 	p.State = PanelChart
 	p.Activity = chart.LayoutActivity(rep, loc)
 	p.Axis = chart.LayoutAxis(rep, loc, end)
+	p.Data = chart.LayoutPanelData(rep, p.Burnup, p.Activity)
 	return p
 }
 
@@ -170,7 +174,7 @@ func loadChartPanel(ctx context.Context, deps Deps, q url.Values, now time.Time)
 	if rg.Bounded() {
 		since = time.Unix(rg.Cutoff, 0)
 	}
-	rep, repErr := job.BuildReport(deps.DB, job.ReportQuery{Since: since, Until: anchor, Location: time.Local})
+	rep, repErr := job.BuildReport(deps.DB, job.ReportQuery{Since: since, Until: anchor, Location: time.Local, Trace: true})
 	end := chart.EndsNow
 	if at != (eventlog.Position{}) {
 		end = chart.EndsAtCursor

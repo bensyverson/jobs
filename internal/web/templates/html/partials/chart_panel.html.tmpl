@@ -31,6 +31,9 @@
         {{- end}}
         <line class="c-burnup__baseline" x1="0" x2="100%" y1="100%" y2="100%" />
         <svg viewBox="0 0 1000 1000" preserveAspectRatio="none" width="100%" height="100%">
+          {{- with .Burnup.CanceledPath}}
+          <path class="c-burnup__canceled" d="{{.}}" />
+          {{- end}}
           <path class="c-burnup__gap" d="{{.Burnup.GapPath}}" />
           <path class="c-burnup__blocked" d="{{.Burnup.BlockedPath}}" />
           <path class="c-burnup__scope" d="{{.Burnup.ScopePath}}" vector-effect="non-scaling-stroke" />
@@ -80,17 +83,17 @@
       <p class="c-activity c-activity--empty">No activity in {{.RangePhrase}}.</p>
       {{- else}}
       <svg class="c-activity" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img"
-           aria-label="Activity over {{.RangePhrase}}: {{.Activity.Total}} events, stacked by kind">
+           aria-label="Activity over {{.RangePhrase}}: {{count .Activity.Total}} events, stacked by kind">
         {{- range .Activity.Bars}}{{$bar := .}}{{range .Segments}}
         <rect class="c-activity__seg c-activity__seg--{{.Kind}}" x="{{$bar.Left}}" width="{{$bar.Width}}" y="{{.Top}}" height="{{.Height}}" />
         {{- end}}{{end}}
       </svg>
       {{- end}}
       <ul class="c-activity-legend" aria-label="Activity totals">
-        <li><span class="c-activity__swatch c-activity__swatch--created"></span>{{.Activity.Created}} created</li>
-        <li><span class="c-activity__swatch c-activity__swatch--claimed"></span>{{.Activity.Claimed}} claimed</li>
-        <li><span class="c-activity__swatch c-activity__swatch--done"></span>{{.Activity.Done}} done</li>
-        <li><span class="c-activity__swatch c-activity__swatch--blocked"></span>{{.Activity.Blocked}} blocked</li>
+        <li><span class="c-activity__swatch c-activity__swatch--created"></span>{{count .Activity.Created}} created</li>
+        <li><span class="c-activity__swatch c-activity__swatch--claimed"></span>{{count .Activity.Claimed}} claimed</li>
+        <li><span class="c-activity__swatch c-activity__swatch--done"></span>{{count .Activity.Done}} done</li>
+        <li><span class="c-activity__swatch c-activity__swatch--blocked"></span>{{count .Activity.Blocked}} blocked</li>
         {{- with .Axis.Imports}}
         <li class="c-activity-legend__imports"><span class="c-activity__swatch c-activity__swatch--import"></span>{{len .}} imported</li>
         {{- end}}
@@ -107,6 +110,10 @@
       </table></div>
     </div>
   </div>
+  {{- /* The hover's data (chart.PanelData, decision 9). html/template
+       JSON-encodes it in this script context and escapes <, > and &,
+       so a title holding "</script>" cannot close the element. */}}
+  <script type="application/json" class="c-chart-panel__data">{{.Data}}</script>
   {{- else}}
   <p class="c-chart-panel__message{{if eq .State "error"}} c-chart-panel__message--error{{end}}">{{.Message}}</p>
   {{- end}}

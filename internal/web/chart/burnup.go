@@ -26,6 +26,10 @@ type Burnup struct {
 	// BlockedPath is the blocked share of the gap, stacked directly on
 	// the done line and never above scope.
 	BlockedPath string
+	// CanceledPath is the leaves canceled in the window, a band stacked
+	// on the scope line (chart panel revision, decision 6): scope that
+	// was cut. Empty when nothing was canceled in the window.
+	CanceledPath string
 
 	// ScopeDot and DoneDot mark each line's last sample, in percent of
 	// the plot, so even a one-sample series shows.
@@ -33,8 +37,10 @@ type Burnup struct {
 	DoneDot  Point
 
 	Gridlines []Gridline
-	// Created sits beside the scope line's end: the line is scope, the
-	// label is the window's creations. Done sits beside the done line's.
+	// Created sits beside the scope line's end — or the canceled band's
+	// top, when there is one, since what the window created includes
+	// what it then canceled. The line is scope, the label is the
+	// window's creations. Done sits beside the done line's end.
 	Created EndLabel
 	Done    EndLabel
 
@@ -47,9 +53,32 @@ type Burnup struct {
 	// Summary restates the window's figures and the end state in
 	// sentences, for the SVG's <desc>.
 	Summary string
-	Rows    []BurnupRow
+	// Rows are the per-bucket series, not the trace: a few dozen rows
+	// read as a table, a few hundred do not.
+	Rows []BurnupRow
 
-	dom domain // the values at the plot's bottom and top edges
+	dom   domain // the values at the plot's bottom and top edges
+	trace []traced
+}
+
+// traced is one trace sample with the leaves canceled in the window
+// by its instant: its Canceled less the first sample's, which is the
+// state as of Since. Never negative — restoring a leaf canceled before
+// the window does not cut into the band.
+type traced struct {
+	job.Sample
+	canceledInWindow int
+}
+
+// top is the band's upper edge: scope plus what the window canceled.
+func (s traced) top() int { return s.Scope + s.canceledInWindow }
+
+func traceOf(samples []job.Sample) []traced {
+	out := make([]traced, len(samples))
+	for i, s := range samples {
+		out[i] = traced{Sample: s, canceledInWindow: max(0, s.Canceled-samples[0].Canceled)}
+	}
+	return out
 }
 
 // domain is the burn-up's vertical extent: lo on the baseline, hi at
@@ -75,7 +104,7 @@ type Point struct {
 // EndLabel is a line's window figure (chart panel revision, decision
 // 4), placed at Y percent of the plot height beside the line's end:
 // Text ("+12") over Word ("created"), with Total ("of 358") — the
-// line's value at the window's end — beneath.
+// value at the window's end where the label sits — beneath.
 type EndLabel struct {
 	// Value is the window's delta Text spells.
 	Value int
@@ -130,15 +159,16 @@ func (b Burnup) yf(v float64) float64 {
 	return BurnupViewH - (v-b.dom.lo)/(b.dom.hi-b.dom.lo)*BurnupViewH
 }
 
-// fitDomain spans exactly the plotted values — scope and done across
-// every sample — so the chart fills its height on every range, All
-// included; nothing pins it at zero. A flat window (every value equal)
-// is padded symmetrically, so its line sits mid-chart, not on an edge.
-func fitDomain(series []job.Sample) domain {
+// fitDomain spans exactly the plotted values — scope, done and the
+// canceled band's top across every sample — so the chart fills its
+// height on every range, All included; nothing pins it at zero. A flat
+// window (every value equal) is padded symmetrically, so its line sits
+// mid-chart, not on an edge.
+func fitDomain(trace []traced) domain {
 	lo, hi := math.Inf(1), math.Inf(-1)
-	for _, s := range series {
+	for _, s := range trace {
 		lo = min(lo, float64(s.Scope), float64(s.Done))
-		hi = max(hi, float64(s.Scope), float64(s.Done))
+		hi = max(hi, float64(s.top()), float64(s.Done))
 	}
 	if hi > lo {
 		return domain{lo: lo, hi: hi}
@@ -196,15 +226,18 @@ func gridSteps(span float64) []float64 {
 	}
 }
 
-// LayoutBurnup lays out rep's series. loc is the calendar the table's
-// times read in.
+// LayoutBurnup lays out rep's trace — the fine samples the dashboard
+// asks BuildReport for (ReportQuery.Trace), from Since to Until — and
+// tabulates its per-bucket series. A report without a trace draws as
+// empty. loc is the calendar the table's times read in.
 func LayoutBurnup(rep job.Report, loc *time.Location) Burnup {
 	var b Burnup
-	if isEmptySeries(rep.Series) {
+	if isEmptySeries(rep.Trace) {
 		b.Empty = true
 		return b
 	}
-	b.dom = fitDomain(rep.Series)
+	b.trace = traceOf(rep.Trace)
+	b.dom = fitDomain(b.trace)
 	for _, v := range b.dom.gridlines() {
 		b.Gridlines = append(b.Gridlines, Gridline{
 			Y:     fmtPct(b.yf(v) / BurnupViewH * 100),
@@ -213,16 +246,22 @@ func LayoutBurnup(rep job.Report, loc *time.Location) Burnup {
 	}
 
 	sc := newTimeScale(rep.Window)
-	n := len(rep.Series)
+	n := len(b.trace)
 	xs := make([]float64, n)
 	scope := make([]float64, n)
 	done := make([]float64, n)
 	blockedTop := make([]float64, n)
-	for i, s := range rep.Series {
+	canceledTop := make([]float64, n)
+	canceled := false
+	for i, s := range b.trace {
 		xs[i] = sc.x(s.End)
 		scope[i] = b.y(s.Scope)
 		done[i] = b.y(s.Done)
 		blockedTop[i] = b.y(min(s.Done+s.Blocked, s.Scope))
+		canceledTop[i] = b.y(s.top())
+		canceled = canceled || s.canceledInWindow > 0
+	}
+	for _, s := range rep.Series {
 		b.Rows = append(b.Rows, BurnupRow{
 			When:  s.End.In(loc).Format(tableTimeLayout),
 			Scope: s.Scope, Done: s.Done, Open: s.Open, Blocked: s.Blocked, Canceled: s.Canceled,
@@ -232,15 +271,20 @@ func LayoutBurnup(rep job.Report, loc *time.Location) Burnup {
 	b.DonePath = linePath(xs, done)
 	b.GapPath = areaPath(xs, scope, done)
 	b.BlockedPath = areaPath(xs, blockedTop, done)
+	if canceled {
+		b.CanceledPath = areaPath(xs, canceledTop, scope)
+	}
 
 	endX := fmtPct(xs[n-1] / ViewW * 100)
 	b.ScopeDot = Point{X: endX, Y: fmtPct(scope[n-1] / BurnupViewH * 100)}
 	b.DoneDot = Point{X: endX, Y: fmtPct(done[n-1] / BurnupViewH * 100)}
 
-	last := rep.Series[n-1]
+	last := b.trace[n-1]
 	b.Open, b.Blocked, b.Canceled = last.Open, last.Blocked, rep.Leaves.Canceled
-	scopeY, doneY := endLabelPositions(scope[n-1]/BurnupViewH*100, done[n-1]/BurnupViewH*100)
-	b.Created = windowLabel(rep.Leaves.Created, "created", last.Scope, scopeY)
+	createdY, doneY := endLabelPositions(canceledTop[n-1]/BurnupViewH*100, done[n-1]/BurnupViewH*100)
+	// Each total is the value where its label sits: with a band,
+	// scope plus what the window canceled.
+	b.Created = windowLabel(rep.Leaves.Created, "created", last.top(), createdY)
 	b.Done = windowLabel(rep.Leaves.Done, "done", last.Done, doneY)
 	b.Summary = burnupSummary(rep.Leaves, last)
 	return b
@@ -339,9 +383,17 @@ func endLabelPositions(scopeY, doneY float64) (float64, float64) {
 }
 
 // burnupSummary says what the end labels and caption say: the window's
-// transitions first, then the state at its end.
-func burnupSummary(f job.LeafFigures, s job.Sample) string {
-	return fmt.Sprintf("In this window, %s created, %s done and %s canceled. At its end, %s in scope, %s done, %s open of which %s blocked.",
+// transitions first, then the state at its end, then the canceled
+// band when one is drawn.
+func burnupSummary(f job.LeafFigures, s traced) string {
+	out := fmt.Sprintf("In this window, %s created, %s done and %s canceled. At its end, %s in scope, %s done, %s open of which %s blocked.",
 		Count(f.Created), Count(f.Done), Count(f.Canceled),
 		Count(s.Scope), Count(s.Done), Count(s.Open), Count(s.Blocked))
+	switch n := s.canceledInWindow; {
+	case n == 1:
+		out += " 1 leaf canceled in this window is drawn as a band above scope."
+	case n > 1:
+		out += fmt.Sprintf(" %s leaves canceled in this window are drawn as a band above scope.", Count(n))
+	}
+	return out
 }

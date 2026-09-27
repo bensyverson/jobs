@@ -21,6 +21,7 @@ import (
 
 	"github.com/bensyverson/jobs/internal/job"
 	"github.com/bensyverson/jobs/internal/web/assets"
+	"github.com/bensyverson/jobs/internal/web/chart"
 )
 
 //go:embed all:html
@@ -152,6 +153,9 @@ func buildFuncMap(manifest *assets.Manifest) template.FuncMap {
 		"prose": func(text string, links job.ProseLinks) template.HTML {
 			return template.HTML(job.RenderProseHTML(text, links))
 		},
+		// count formats a count with thousands separators, as the chart
+		// panel's figures read: 1161 → "1,161".
+		"count": chart.Count,
 		"asset": func(logicalPath string) (string, error) {
 			u := manifest.URL(logicalPath)
 			if u == "" {

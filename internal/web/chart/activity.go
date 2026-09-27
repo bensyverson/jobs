@@ -30,6 +30,8 @@ type Activity struct {
 	Done    int
 	Blocked int
 	Total   int
+	// Peak is the busiest bucket's total: the bars' full height.
+	Peak int
 
 	Rows []ActivityRow
 }
@@ -78,6 +80,7 @@ func LayoutActivity(rep job.Report, loc *time.Location) Activity {
 		})
 	}
 	a.Total = a.Created + a.Claimed + a.Done + a.Blocked
+	a.Peak = busiest
 	if busiest == 0 {
 		a.Empty = true
 		return a

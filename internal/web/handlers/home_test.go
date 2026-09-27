@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http/httptest"
 	"regexp"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	job "github.com/bensyverson/jobs/internal/job"
+	"github.com/bensyverson/jobs/internal/web/chart"
 	"github.com/bensyverson/jobs/internal/web/handlers"
 )
 
@@ -240,6 +242,37 @@ func TestHomePanel_AxisEndReadsNowOrTheCursor(t *testing.T) {
 	if strings.Contains(parked, `>Now</text>`) {
 		t.Errorf("the panel parked under ?at= labels its end Now:\n%s", parked)
 	}
+}
+
+// Home's panel asks the report for the fine trace (decision 1 of the
+// chart panel revision): a day carries a sample every five minutes in
+// its data island, not one per hourly bucket.
+func TestHomePanel_CarriesTheFineTrace(t *testing.T) {
+	db := setupLogTestDB(t)
+	if _, err := job.RunAdd(db, "", "traced", "", "", nil, "alice"); err != nil {
+		t.Fatalf("RunAdd: %v", err)
+	}
+	code, body := fetchHomePanel(t, newLogDeps(t, db), "range=1d")
+	if code != 200 {
+		t.Fatalf("status %d\n%s", code, body)
+	}
+	if n := len(panelIsland(t, body).Trace); n < 280 {
+		t.Errorf("1D trace = %d samples, want about 289 (every 5 minutes)", n)
+	}
+}
+
+// panelIsland parses the first chart panel's JSON island out of body.
+func panelIsland(t *testing.T, body string) chart.PanelData {
+	t.Helper()
+	m := regexp.MustCompile(`(?s)<script type="application/json" class="c-chart-panel__data">(.*?)</script>`).FindStringSubmatch(body)
+	if m == nil {
+		t.Fatalf("no data island in\n%s", body)
+	}
+	var d chart.PanelData
+	if err := json.Unmarshal([]byte(m[1]), &d); err != nil {
+		t.Fatalf("island: %v\n%s", err, m[1])
+	}
+	return d
 }
 
 func TestHomePanel_RejectsAMalformedCursor(t *testing.T) {

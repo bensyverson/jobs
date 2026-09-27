@@ -29,6 +29,9 @@
   --color-status-active: #3dd280;
   --color-status-blocked: #e8b14a;
   --color-status-done: #5a6967;
+  /* Canceled — scope that was cut; a muted rose, apart from blocked's
+     amber and the alert red */
+  --color-status-canceled: #c9788a;
 
   /* Signals — aging / stuck warnings; distinct from status-blocked */
   --color-signal-warn: #e8865c;

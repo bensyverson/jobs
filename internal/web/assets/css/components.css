@@ -3066,6 +3066,13 @@ a.c-graph-node__bug:focus-visible {
   fill: color-mix(in srgb, var(--color-status-blocked) 40%, transparent);
 }
 
+/* Leaves canceled in the window: a band stacked on the scope line,
+   scope that was cut. Low alpha, so it reads as what is gone rather
+   than as work. */
+.c-burnup__canceled {
+  fill: color-mix(in srgb, var(--color-status-canceled) 30%, transparent);
+}
+
 .c-burnup__scope,
 .c-burnup__done {
   fill: none;

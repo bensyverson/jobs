@@ -37,7 +37,7 @@ var panelUntil = time.Date(2026, 9, 26, 17, 0, 0, 0, time.UTC)
 
 func panelReport() job.Report {
 	since := panelUntil.Add(-72 * time.Hour)
-	return job.Report{
+	rep := job.Report{
 		Schema: job.ReportSchema,
 		Window: job.ReportWindow{Since: since, Until: panelUntil, Bucket: job.BucketDay, Timezone: "UTC"},
 		Leaves: job.LeafFigures{Created: 20, Done: 12, Canceled: 3, Open: 75, Blocked: 12},
@@ -53,6 +53,10 @@ func panelReport() job.Report {
 		},
 		Imports: []job.ImportMarker{{At: since.Add(30 * time.Hour), TaskID: "abc12", Title: "Reporting", Source: "reporting.md"}},
 	}
+	// The trace starts with the state as of Since, then runs through
+	// the series' instants; three leaves were canceled in the window.
+	rep.Trace = append([]job.Sample{{End: since, Scope: 8, Done: 1, Open: 7, Canceled: 1}}, rep.Series...)
+	return rep
 }
 
 // livePanel is the panel over panelReport at 7D, live.
@@ -158,11 +162,13 @@ func TestChartPanelTemplate_BurnupIsAnAccessibleImage(t *testing.T) {
 }
 
 // Decision 4: "+N" over "created" and "+N" over "done", each with the
-// absolute total at the window's end beneath.
+// absolute total at the window's end beneath — under created, the top
+// of the canceled band it sits beside (scope 1,155 plus 3 canceled in
+// the window).
 func TestChartPanelTemplate_EndLabelsAreWindowFigures(t *testing.T) {
 	out := renderPanel(t, livePanel())
 	// html/template escapes "+" in text as &#43;; the browser reads "+20".
-	mustHave(t, out, `>&#43;20<`, `>created<`, `>of 1,155<`, `>&#43;12<`, `>done<`, `>of 1,080<`)
+	mustHave(t, out, `>&#43;20<`, `>created<`, `>of 1,158<`, `>&#43;12<`, `>done<`, `>of 1,080<`)
 	if strings.Contains(out, `>scope<`) {
 		t.Errorf("end labels still read scope:\n%s", out)
 	}

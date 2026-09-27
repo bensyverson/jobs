@@ -13,9 +13,9 @@ import (
 
 // The chart panel's catalog entry. Every state is a job.Report — the
 // wire type `job stats --format=json` also emits — shaped by
-// buildChartPanel exactly as Home shapes a live one. The reports are
-// constructed rather than replayed so the catalog needs no store; each
-// is one a real store produces.
+// buildChartPanel exactly as Home shapes a live one, trace included.
+// The reports are constructed rather than replayed so the catalog
+// needs no store; each is one a real store produces.
 
 // previewUntil pins every state's window end, so the axis dates in a
 // contact sheet never drift between runs.
@@ -42,7 +42,7 @@ func chartPanelPreview() previewComponent {
 			previewPanelState("imports", "Imports in the day", job.RangeDay, importsReport(), nil, "", false,
 				"Three plans imported in the day, two of them three minutes apart: each tick is a link with its own hover and focus ring, and the pair must not swallow each other."),
 			previewPanelState("one-sample", "One sample", job.RangeAll, oneSampleReport(), nil, "", false,
-				"All over a store a few hours old buckets by day, so the series is a single sample: it must still draw (as a dot), not vanish."),
+				"All over a store a few hours old buckets by day, so the series (the data table, the histogram) is a single sample; the burn-up draws the minute trace — a step at the first import, then flat — not a lone dot."),
 			previewPanelState("reopen-dip", "A reopen dip", job.Range14D, reopenDipReport(), nil, "", false,
 				"Each point is the state as of t (decision 2), so a reopen dips the done line and the next close restores it — the dip is honest, not a bug."),
 			previewPanelState("fitted-week", "A week near the top", job.Range7D, fittedWeekReport(), nil, "", false,
@@ -52,7 +52,7 @@ func chartPanelPreview() previewComponent {
 			previewPanelState("crowded", "Crowded history", job.RangeAll, crowdedReport(), nil, "", false,
 				"Five months in weekly buckets with two dozen imports: four-digit end labels and legend counts size their columns, gridlines stay sparse, import ticks stay quiet."),
 			previewPanelState("mostly-canceled", "Mostly canceled", job.Range30D, mostlyCanceledReport(), nil, "", false,
-				"Canceled leaves leave scope rather than drawing a line (decision 3): scope falls while the caption carries the canceled count for the 30 days."),
+				"Canceling starts mid-window: scope falls, and the canceled band (decision 6) grows from zero on top of it, so what was cut stays visible; the created figure sits at the top of the band with that value beneath."),
 			previewPanelState("parked", "Parked under the scrubber", job.RangeDay, singleDayReport(), nil, previewCursor, false,
 				"Rendered for ?at=: the right edge of the axis reads the time at the cursor instead of Now, and the range tabs keep the cursor."),
 			previewPanelState("fetching", "Fetching", job.Range14D, reopenDipReport(), nil, "", true,
@@ -84,7 +84,8 @@ func previewPanelState(slug, name string, key job.RangeKey, rep job.Report, err 
 }
 
 // bucketPoint is one bucket's sample and activity, as a generator
-// returns them.
+// returns them. Its activity carries claimed and blocked only:
+// withWindowFigures derives created and done from the series.
 type bucketPoint struct {
 	sample   job.Sample
 	activity job.ActivityCount
@@ -120,21 +121,111 @@ func previewReport(since, until time.Time, bucket job.Bucket, gen func(i, n int)
 	return withWindowFigures(rep, job.Sample{})
 }
 
-// withWindowFigures sets rep's LeafFigures the way BuildReport's would
-// read for this series: the state at the window's end, and each
-// transition as the change since base — the state at Since, zero for a
-// store born inside the window. Created counts leaves later canceled
-// too, since they were created in the window.
+// withWindowFigures derives from the series — base being the state at
+// Since, zero for a store born inside the window — everything a real
+// report counts from the same events, so no state can disagree with
+// itself:
+//
+//   - each bucket's created and done: the leaves the series gained in
+//     it (created counts leaves later canceled too), each counted once,
+//     where it last rose — a reopen takes back an earlier close;
+//   - LeafFigures: created and done as those buckets' sums (decision 10
+//     of the chart panel revision: the histogram counts what the labels
+//     count), canceled as the change since base, open and blocked as
+//     the state at the window's end;
+//   - the Trace, as BuildReport lays it when the dashboard asks: base
+//     at Since, then the series interpolated at TraceStepFor(span).
+//
+// Generators supply the rest of the activity (claimed, blocked).
 func withWindowFigures(rep job.Report, base job.Sample) job.Report {
+	created := make([]int, len(rep.Series))
+	done := make([]int, len(rep.Series))
+	for i, s := range rep.Series {
+		created[i], done[i] = s.Scope+s.Canceled, s.Done
+	}
+	created = risesPerBucket(base.Scope+base.Canceled, created)
+	done = risesPerBucket(base.Done, done)
 	last := rep.Series[len(rep.Series)-1]
 	rep.Leaves = job.LeafFigures{
-		Created:  max(0, last.Scope+last.Canceled-base.Scope-base.Canceled),
-		Done:     max(0, last.Done-base.Done),
 		Canceled: max(0, last.Canceled-base.Canceled),
 		Open:     last.Open,
 		Blocked:  last.Blocked,
 	}
+	for i := range rep.Activity {
+		rep.Activity[i].Created, rep.Activity[i].Done = created[i], done[i]
+		rep.Leaves.Created += created[i]
+		rep.Leaves.Done += done[i]
+	}
+	base.End = rep.Window.Since
+	rep.Trace = previewTrace(rep.Window, interpolate(append([]job.Sample{base}, rep.Series...)))
 	return rep
+}
+
+// risesPerBucket spreads a cumulative count's rise from base over the
+// buckets it rose in. A fall takes back the latest rises before it, so
+// each leaf is counted once, at its last rise: a leaf closed, reopened
+// and closed again counts in the bucket of the second close.
+func risesPerBucket(base int, vals []int) []int {
+	out := make([]int, len(vals))
+	prev := base
+	for i, v := range vals {
+		d := v - prev
+		prev = v
+		if d >= 0 {
+			out[i] = d
+			continue
+		}
+		for j := i - 1; j >= 0 && d < 0; j-- {
+			take := min(out[j], -d)
+			out[j] -= take
+			d += take
+		}
+	}
+	return out
+}
+
+// previewTrace samples state at the instants BuildReport's trace
+// takes: Since, every TraceStepFor(span) strictly inside the window,
+// then Until.
+func previewTrace(w job.ReportWindow, state func(time.Time) job.Sample) []job.Sample {
+	step := job.TraceStepFor(w.Until.Sub(w.Since))
+	at := []time.Time{w.Since}
+	for t := w.Since.Truncate(step).Add(step); t.Before(w.Until); t = t.Add(step) {
+		at = append(at, t)
+	}
+	if w.Until.After(w.Since) {
+		at = append(at, w.Until)
+	}
+	out := make([]job.Sample, len(at))
+	for i, t := range at {
+		s := state(t)
+		s.End, s.Open = t, s.Scope-s.Done
+		out[i] = s
+	}
+	return out
+}
+
+// interpolate is the state at any instant between samples (oldest
+// first), each count eased linearly from one sample to the next and
+// rounded to a whole leaf: a real store's changes land through a
+// bucket, not all at its end.
+func interpolate(samples []job.Sample) func(time.Time) job.Sample {
+	return func(t time.Time) job.Sample {
+		i := 1
+		for i < len(samples)-1 && samples[i].End.Before(t) {
+			i++
+		}
+		a, b := samples[i-1], samples[min(i, len(samples)-1)]
+		f := 1.0
+		if span := b.End.Sub(a.End); span > 0 {
+			f = math.Min(1, math.Max(0, float64(t.Sub(a.End))/float64(span)))
+		}
+		lerp := func(x, y int) int { return int(math.Round(float64(x) + f*float64(y-x))) }
+		return job.Sample{
+			Scope: lerp(a.Scope, b.Scope), Done: lerp(a.Done, b.Done), Blocked: lerp(a.Blocked, b.Blocked),
+			Canceled: lerp(a.Canceled, b.Canceled), PlansDone: lerp(a.PlansDone, b.PlansDone),
+		}
+	}
 }
 
 // wobble is a deterministic 0..1 texture so generated activity is not
@@ -164,10 +255,7 @@ func hourReport() job.Report {
 		if m >= 20 && m < 40 {
 			blocked = 1
 		}
-		act := job.ActivityCount{Claimed: int(2 * wobble(i)), Done: int(1.4 * wobble(i+2))}
-		if m%15 == 0 && m > 0 && i*60%n == 0 {
-			act.Created = 1
-		}
+		act := job.ActivityCount{Claimed: int(2 * wobble(i))}
 		return bucketPoint{sample: job.Sample{Scope: scope, Done: done, Blocked: blocked}, activity: act}
 	}))
 }
@@ -199,12 +287,7 @@ func singleDayReport() job.Report {
 			blocked = 2
 		}
 		pt := bucketPoint{sample: job.Sample{Scope: 14 + min(h, 3), Done: done, Blocked: blocked}}
-		pt.activity = job.ActivityCount{Claimed: 2 + h%2, Done: 2, Blocked: blocked / 2}
-		if h == 0 {
-			pt.activity.Created = 14
-		} else if h <= 3 {
-			pt.activity.Created = 1
-		}
+		pt.activity = job.ActivityCount{Claimed: 2 + h%2, Blocked: blocked / 2}
 		return pt
 	})
 	rep.Imports = []job.ImportMarker{{At: since.Add(16*time.Hour + 2*time.Minute), TaskID: "Pq3xT", Title: "Onboarding flow", Source: "onboarding.md"}}
@@ -216,10 +299,19 @@ func oneSampleReport() job.Report {
 	rep := previewReport(since, previewUntil, job.BucketDay, func(i, n int) bucketPoint {
 		return bucketPoint{
 			sample:   job.Sample{Scope: 9, Done: 3, Blocked: 1},
-			activity: job.ActivityCount{Created: 9, Claimed: 4, Done: 3, Blocked: 1},
+			activity: job.ActivityCount{Claimed: 4, Blocked: 1},
 		}
 	})
-	rep.Imports = []job.ImportMarker{{At: since.Add(time.Minute), TaskID: "Zr8Kd", Title: "First plan", Source: "plan.md"}}
+	// The store began with one import a minute in: nothing before it,
+	// its state after — a step, not the ramp interpolation would draw.
+	imported := since.Add(time.Minute)
+	rep.Trace = previewTrace(rep.Window, func(t time.Time) job.Sample {
+		if t.Before(imported) {
+			return job.Sample{}
+		}
+		return rep.Series[0]
+	})
+	rep.Imports = []job.ImportMarker{{At: imported, TaskID: "Zr8Kd", Title: "First plan", Source: "plan.md"}}
 	return rep
 }
 
@@ -227,11 +319,10 @@ func reopenDipReport() job.Report {
 	return startedBefore(previewReport(previewUntil.Add(-14*24*time.Hour), previewUntil, job.BucketDay, func(i, n int) bucketPoint {
 		scope := 40 + min(i, 10)*2
 		done := min(scope, 3+i*4)
-		act := job.ActivityCount{Claimed: 4 + i%3, Done: 4, Created: 2}
+		act := job.ActivityCount{Claimed: 4 + i%3}
 		switch i {
-		case 9: // three leaves reopened
+		case 9: // leaves reopened
 			done -= 7
-			act.Done = 1
 		case 10:
 			done -= 3
 		}
@@ -255,10 +346,7 @@ func fittedWeekReport() job.Report {
 		if i >= n/3 && i < n/2 {
 			blocked = 1
 		}
-		act := job.ActivityCount{Claimed: 1 + i%2, Done: i % 3 / 2}
-		if i%5 == 0 {
-			act.Created = 2
-		}
+		act := job.ActivityCount{Claimed: 1 + i%2}
 		return bucketPoint{sample: job.Sample{Scope: scope, Done: done, Blocked: blocked}, activity: act}
 	}))
 }
@@ -281,12 +369,9 @@ func crowdedReport() job.Report {
 		}
 		done = min(done, scope)
 		blocked := int(float64(scope-done) * 0.2)
-		created := 20 + int(60*wobble(i))
 		return bucketPoint{
-			sample: job.Sample{Scope: scope, Done: done, Blocked: blocked, Canceled: 38 * (i + 1) / n},
-			activity: job.ActivityCount{
-				Created: created, Claimed: 40 + int(50*wobble(i+3)), Done: 35 + int(45*wobble(i+5)), Blocked: 3 + int(8*wobble(i+7)),
-			},
+			sample:   job.Sample{Scope: scope, Done: done, Blocked: blocked, Canceled: 38 * (i + 1) / n},
+			activity: job.ActivityCount{Claimed: 40 + int(50*wobble(i+3)), Blocked: 3 + int(8*wobble(i+7))},
 		}
 	})
 	for k := range 24 {
@@ -306,13 +391,7 @@ func mostlyCanceledReport() job.Report {
 		}
 		scope := 60 - canceled
 		done := min(scope, i/3)
-		act := job.ActivityCount{Claimed: i % 2, Done: 0}
-		if i == 0 {
-			act.Created = 60
-		}
-		if i%3 == 0 && i > 0 {
-			act.Done = 1
-		}
+		act := job.ActivityCount{Claimed: i % 2}
 		return bucketPoint{sample: job.Sample{Scope: scope, Done: done, Canceled: canceled}, activity: act}
 	})
 }
