@@ -14,15 +14,17 @@ import (
 type Bucket string
 
 const (
-	BucketMinute   Bucket = "minute"
-	BucketHour     Bucket = "hour"
-	BucketSixHours Bucket = "6h"
-	BucketDay      Bucket = "day"
-	BucketWeek     Bucket = "week"
+	BucketMinute      Bucket = "minute"
+	BucketFiveMinutes Bucket = "5m"
+	BucketHour        Bucket = "hour"
+	BucketSixHours    Bucket = "6h"
+	BucketTwelveHours Bucket = "12h"
+	BucketDay         Bucket = "day"
+	BucketWeek        Bucket = "week"
 )
 
 // buckets is every bucket, narrowest first.
-var buckets = []Bucket{BucketMinute, BucketHour, BucketSixHours, BucketDay, BucketWeek}
+var buckets = []Bucket{BucketMinute, BucketFiveMinutes, BucketHour, BucketSixHours, BucketTwelveHours, BucketDay, BucketWeek}
 
 // Buckets returns every bucket, narrowest first.
 func Buckets() []Bucket { return slices.Clone(buckets) }
@@ -35,75 +37,85 @@ func ParseBucket(raw string) (b Bucket, ok bool) {
 	return b, slices.Contains(buckets, b)
 }
 
-// AllRangeWeeklyAfter is the span of history past which RangeAll
-// buckets by week instead of by day.
-const AllRangeWeeklyAfter = 90 * 24 * time.Hour
-
-// Span bands for BucketForSpan. Each named range key's span falls in the
-// band whose unit BucketFor gives it — 1h in the minute band, 1d in the hour
-// band, 7d in the six-hour band, 14d and 30d in the day band — and the edges
-// sit between those keys, so a span near one buckets like it.
-const (
-	spanMinuteUpTo   = 2 * time.Hour
-	spanHourUpTo     = 2 * 24 * time.Hour
-	spanSixHoursUpTo = 10 * 24 * time.Hour
-	spanDayUpTo      = AllRangeWeeklyAfter
-)
-
-// BucketForSpan is the bucket for a window of arbitrary span: the unit that
-// keeps it between about a dozen and a hundred samples.
-func BucketForSpan(span time.Duration) Bucket {
-	switch {
-	case span <= spanMinuteUpTo:
-		return BucketMinute
-	case span <= spanHourUpTo:
-		return BucketHour
-	case span <= spanSixHoursUpTo:
-		return BucketSixHours
-	case span <= spanDayUpTo:
-		return BucketDay
+// nominal is the bucket's usual length, for counting how many fit a span.
+// Calendar buckets vary around it across DST; the count only picks a unit.
+func (b Bucket) nominal() time.Duration {
+	switch b {
+	case BucketMinute:
+		return time.Minute
+	case BucketFiveMinutes:
+		return 5 * time.Minute
+	case BucketHour:
+		return time.Hour
+	case BucketSixHours:
+		return 6 * time.Hour
+	case BucketTwelveHours:
+		return 12 * time.Hour
+	case BucketDay:
+		return 24 * time.Hour
+	case BucketWeek:
+		return 7 * 24 * time.Hour
 	default:
-		return BucketWeek
+		return 0
 	}
 }
 
-// BucketFor returns the bucket a series over key uses: the natural
-// calendar unit for the window, which lands between about a dozen and
-// ninety samples. history is the span of events
-// available and only matters for RangeAll, whose window is that span.
-// An unrecognized key buckets like the default it would parse to.
-func BucketFor(key RangeKey, history time.Duration) Bucket {
-	switch key {
-	case RangeHour:
-		return BucketMinute
-	case RangeDay:
-		return BucketHour
-	case Range7D:
-		return BucketSixHours
-	case Range14D, Range30D:
-		return BucketDay
-	case RangeAll:
-		return BucketForSpan(history)
-	default:
-		return BucketFor(DefaultRangeKey, history)
+// maxBars is the most buckets the automatic choice lays over a span. The
+// narrowest unit within it lands every named range key on its decided bar
+// count — 1h in 12 five-minute bars, 1d in 24 hours, 7d in 28 six-hour bars,
+// 14d in 28 twelve-hour bars, 30d in 30 days — because the next unit down
+// would draw 60, 288, 168, 56 and 60. Between the named spans the calendar
+// units are too far apart to always land 25–30: past 45 days a history goes
+// weekly, and past 45 weeks it draws more than 45 bars, there being no month.
+const maxBars = 45
+
+// BucketForSpan is the bucket for a window of arbitrary span: the narrowest
+// unit that keeps it to maxBars. It is the single rule — BucketFor is this
+// over each key's span — so a window of any span agrees with the named key
+// it matches.
+func BucketForSpan(span time.Duration) Bucket {
+	for _, b := range buckets {
+		if span <= maxBars*b.nominal() {
+			return b
+		}
 	}
+	return BucketWeek
+}
+
+// BucketFor returns the bucket a series over key uses: BucketForSpan of the
+// key's window. history is the span of events available and only matters for
+// RangeAll, whose window is that span. An unrecognized key buckets like the
+// default it would parse to.
+func BucketFor(key RangeKey, history time.Duration) Bucket {
+	if key == RangeAll {
+		return BucketForSpan(history)
+	}
+	d, bounded := key.Duration()
+	if !bounded {
+		d, _ = DefaultRangeKey.Duration()
+	}
+	return BucketForSpan(d)
 }
 
 // Floor returns the start of the bucket holding t, aligned to the
-// local calendar of t's location: minutes and hours on the local
-// clock (so a +05:30 zone's hours start at :00 local), six-hour
-// buckets at local 00/06/12/18, days at local midnight, and weeks at
-// Monday's local midnight.
+// local calendar of t's location: minutes on the local clock (so a
+// +05:45 zone's five-minute buckets start at :00 local), hours
+// likewise, six- and twelve-hour buckets at local 00/06/12/18 and
+// 00/12, days at local midnight, and weeks at Monday's local midnight.
 func (b Bucket) Floor(t time.Time) time.Time {
 	loc := t.Location()
 	y, m, d := t.Date()
 	switch b {
 	case BucketMinute:
 		return floorOnLocalClock(t, time.Minute)
+	case BucketFiveMinutes:
+		return floorOnLocalClock(t, 5*time.Minute)
 	case BucketHour:
 		return floorOnLocalClock(t, time.Hour)
 	case BucketSixHours:
 		return time.Date(y, m, d, t.Hour()-t.Hour()%6, 0, 0, 0, loc)
+	case BucketTwelveHours:
+		return time.Date(y, m, d, t.Hour()-t.Hour()%12, 0, 0, 0, loc)
 	case BucketDay:
 		return time.Date(y, m, d, 0, 0, 0, 0, loc)
 	case BucketWeek:
@@ -116,16 +128,21 @@ func (b Bucket) Floor(t time.Time) time.Time {
 
 // Next returns the start of the bucket after the one starting at
 // start. start should come from Floor; calendar buckets step on the
-// local calendar, so a day after a DST change is still midnight.
+// local calendar, so a day after a DST change is still midnight and a
+// twelve-hour bucket still ends at local noon.
 func (b Bucket) Next(start time.Time) time.Time {
+	y, m, d := start.Date()
 	switch b {
 	case BucketMinute:
 		return start.Add(time.Minute)
+	case BucketFiveMinutes:
+		return start.Add(5 * time.Minute)
 	case BucketHour:
 		return start.Add(time.Hour)
 	case BucketSixHours:
-		y, m, d := start.Date()
 		return time.Date(y, m, d, start.Hour()+6, 0, 0, 0, start.Location())
+	case BucketTwelveHours:
+		return time.Date(y, m, d, start.Hour()+12, 0, 0, 0, start.Location())
 	case BucketDay:
 		return start.AddDate(0, 0, 1)
 	case BucketWeek:

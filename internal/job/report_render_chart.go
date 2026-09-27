@@ -122,9 +122,9 @@ func cellFor(s Sample, row, peak int) string {
 func dateAxis(samples []Sample, bucket Bucket, loc *time.Location, gutter, drawn int) string {
 	layout := "Jan 2"
 	switch bucket {
-	case BucketMinute, BucketHour:
+	case BucketMinute, BucketFiveMinutes, BucketHour:
 		layout = "15:04"
-	case BucketSixHours:
+	case BucketSixHours, BucketTwelveHours:
 		layout = "Jan 2 15:04"
 	}
 	first := samples[0].End.In(loc).Format(layout)

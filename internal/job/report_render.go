@@ -128,7 +128,7 @@ func reportHeader(win ReportWindow, loc *time.Location) string {
 	parts := []string{}
 	if !win.Until.IsZero() {
 		layout := "Jan 2 2006"
-		if win.Bucket == BucketMinute || win.Bucket == BucketHour {
+		if win.Bucket == BucketMinute || win.Bucket == BucketFiveMinutes || win.Bucket == BucketHour {
 			layout = "Jan 2 2006 15:04"
 		}
 		parts = append(parts, win.Since.In(loc).Format(layout)+" → "+win.Until.In(loc).Format(layout))

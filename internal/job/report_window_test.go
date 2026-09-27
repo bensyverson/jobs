@@ -109,13 +109,13 @@ func TestReport_AutomaticBucketAgreesWithBucketFor(t *testing.T) {
 			t.Errorf("%s: bucket = %q, want %q", key, r.Window.Bucket, want)
 		}
 	}
-	// All history: day up to 90 days, week past it.
+	// All history: day up to 45 days, week past it.
 	f.at(day(0)).add("", "first")
-	if r := f.report(ReportQuery{Until: day(89)}); r.Window.Bucket != BucketDay {
-		t.Errorf("all over 89 days: bucket = %q, want day", r.Window.Bucket)
+	if r := f.report(ReportQuery{Until: day(44)}); r.Window.Bucket != BucketDay {
+		t.Errorf("all over 44 days: bucket = %q, want day", r.Window.Bucket)
 	}
-	if r := f.report(ReportQuery{Until: day(91)}); r.Window.Bucket != BucketWeek {
-		t.Errorf("all over 91 days: bucket = %q, want week", r.Window.Bucket)
+	if r := f.report(ReportQuery{Until: day(46)}); r.Window.Bucket != BucketWeek {
+		t.Errorf("all over 46 days: bucket = %q, want week", r.Window.Bucket)
 	}
 	// A young store's all-history window buckets by its span, as BucketFor
 	// says, so a day-old store still draws a line rather than one point.
@@ -127,7 +127,7 @@ func TestReport_AutomaticBucketAgreesWithBucketFor(t *testing.T) {
 	}
 }
 
-// Arbitrary spans pick the unit of the nearest named window.
+// Arbitrary spans pick the narrowest unit that keeps the bars to the ceiling.
 func TestReport_AutomaticBucketForArbitrarySpans(t *testing.T) {
 	f := newReportFixture(t)
 	until := day(400)
@@ -135,11 +135,13 @@ func TestReport_AutomaticBucketForArbitrarySpans(t *testing.T) {
 		span time.Duration
 		want Bucket
 	}{
-		{90 * time.Minute, BucketMinute},
+		{30 * time.Minute, BucketMinute},
+		{90 * time.Minute, BucketFiveMinutes},
 		{6 * time.Hour, BucketHour},
 		{3 * 24 * time.Hour, BucketSixHours},
-		{60 * 24 * time.Hour, BucketDay},
-		{120 * 24 * time.Hour, BucketWeek},
+		{20 * 24 * time.Hour, BucketTwelveHours},
+		{40 * 24 * time.Hour, BucketDay},
+		{60 * 24 * time.Hour, BucketWeek},
 	}
 	for _, c := range cases {
 		r := f.report(ReportQuery{Since: until.Add(-c.span), Until: until})

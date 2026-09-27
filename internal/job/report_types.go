@@ -24,7 +24,7 @@ type ReportQuery struct {
 	// Bucket overrides the sample width; empty means the automatic choice
 	// for the window's span, which agrees with BucketFor for every named
 	// range key. A zero Since is RangeAll, which buckets by the history's
-	// span; every window uses the same bands (BucketForSpan in bucket.go).
+	// span; every window uses the same rule (BucketForSpan in bucket.go).
 	//
 	// Subtree membership for Scope is decided as of Until: a task moved
 	// into the subtree counts over its whole history, one moved out counts
@@ -32,6 +32,9 @@ type ReportQuery struct {
 	Bucket Bucket
 	// Location is the calendar that buckets align to; nil means time.Local.
 	Location *time.Location
+	// Trace asks for Report.Trace, the fine samples the dashboard draws
+	// the burn-up from. `job stats` does not ask for it.
+	Trace bool
 }
 
 // Report is the burn-up series and headline figures for one window. It is
@@ -52,6 +55,14 @@ type Report struct {
 	Series []Sample `json:"series"`
 	// Activity is event counts per bucket, aligned with Series.
 	Activity []ActivityCount `json:"activity"`
+	// Trace is the burn-up at drawing resolution, present only when the
+	// query asked for it: the state as of Window.Since, then every
+	// TraceStepFor(span) on the local clock, then Window.Until — a few
+	// hundred samples, from the same replay as Series and with the same
+	// meaning (decision 1 of project/2026-09-27-chart-panel-revision.md).
+	// Because the first sample is the state at Since, a window delta is
+	// last − first.
+	Trace []Sample `json:"trace,omitempty"`
 	// Imports marks each imported event in the window, oldest first.
 	Imports []ImportMarker `json:"imports"`
 }

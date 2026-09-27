@@ -80,7 +80,7 @@ var statsSchemaJSON = `{
         "scope": { "type": "string", "description": "Short id of the subtree the report covers. Absent for the whole forest." },
         "since": { "$ref": "#/$defs/timestamp", "description": "Window start; the first event in scope when none was asked for." },
         "until": { "$ref": "#/$defs/timestamp", "description": "Window end; the moment the report was built when none was asked for." },
-        "bucket": { "type": "string", "enum": ["minute", "hour", "6h", "day", "week"], "description": "Width of one sample, on the local calendar: days start at local midnight, weeks on Monday." },
+        "bucket": { "type": "string", "enum": ["minute", "5m", "hour", "6h", "12h", "day", "week"], "description": "Width of one sample, on the local calendar: days start at local midnight, weeks on Monday." },
         "timezone": { "type": "string", "description": "IANA zone the buckets align to." }
       }
     },
@@ -137,20 +137,12 @@ var statsSchemaJSON = `{
     "series": {
       "type": "array",
       "description": "One sample per bucket, oldest first; the last sample's end is window.until.",
-      "items": {
-        "type": "object",
-        "required": ["end", "scope", "done", "open", "blocked", "canceled", "plans_done"],
-        "additionalProperties": false,
-        "properties": {
-          "end": { "$ref": "#/$defs/timestamp", "description": "The instant this sample is the state as of." },
-          "scope": { "$ref": "#/$defs/count", "description": "Leaves that exist and are not canceled: the burn-up's upper line." },
-          "done": { "$ref": "#/$defs/count", "description": "Leaves done: the lower line. It dips when a leaf is reopened." },
-          "open": { "$ref": "#/$defs/count", "description": "scope minus done." },
-          "blocked": { "$ref": "#/$defs/count", "description": "The part of open with an unresolved blocker." },
-          "canceled": { "$ref": "#/$defs/count", "description": "Leaves canceled as of end; they have left scope." },
-          "plans_done": { "$ref": "#/$defs/count", "description": "Plans in the done state as of end." }
-        }
-      }
+      "items": { "$ref": "#/$defs/sample" }
+    },
+    "trace": {
+      "type": "array",
+      "description": "Present only when a caller asks for it (the dashboard does; job stats does not): the burn-up at drawing resolution, a few hundred samples from the state as of window.since, on a round step, to window.until. Same meaning as series, from the same replay.",
+      "items": { "$ref": "#/$defs/sample" }
     },
     "activity": {
       "type": "array",
@@ -187,6 +179,21 @@ var statsSchemaJSON = `{
   },
   "$defs": {
     "timestamp": { "type": "string", "format": "date-time" },
+    "sample": {
+      "type": "object",
+      "description": "The store's state as of end, in leaves.",
+      "required": ["end", "scope", "done", "open", "blocked", "canceled", "plans_done"],
+      "additionalProperties": false,
+      "properties": {
+        "end": { "$ref": "#/$defs/timestamp", "description": "The instant this sample is the state as of." },
+        "scope": { "$ref": "#/$defs/count", "description": "Leaves that exist and are not canceled: the burn-up's upper line." },
+        "done": { "$ref": "#/$defs/count", "description": "Leaves done: the lower line. It dips when a leaf is reopened." },
+        "open": { "$ref": "#/$defs/count", "description": "scope minus done." },
+        "blocked": { "$ref": "#/$defs/count", "description": "The part of open with an unresolved blocker." },
+        "canceled": { "$ref": "#/$defs/count", "description": "Leaves canceled as of end; they have left scope." },
+        "plans_done": { "$ref": "#/$defs/count", "description": "Plans in the done state as of end." }
+      }
+    },
     "count": { "type": "integer", "minimum": 0 },
     "seconds": { "type": ["integer", "null"], "minimum": 0 }
   }

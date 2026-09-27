@@ -6,7 +6,7 @@ import (
 )
 
 func TestParseBucket(t *testing.T) {
-	for raw, want := range map[string]Bucket{"minute": BucketMinute, "hour": BucketHour, "6h": BucketSixHours, " Day ": BucketDay, "week": BucketWeek} {
+	for raw, want := range map[string]Bucket{"minute": BucketMinute, "5m": BucketFiveMinutes, "12H": BucketTwelveHours, "hour": BucketHour, "6h": BucketSixHours, " Day ": BucketDay, "week": BucketWeek} {
 		if got, ok := ParseBucket(raw); !ok || got != want {
 			t.Errorf("ParseBucket(%q) = %q, %v; want %q, true", raw, got, ok, want)
 		}
@@ -19,7 +19,7 @@ func TestParseBucket(t *testing.T) {
 }
 
 func TestBuckets_ListsEveryBucketNarrowestFirst(t *testing.T) {
-	want := []Bucket{BucketMinute, BucketHour, BucketSixHours, BucketDay, BucketWeek}
+	want := []Bucket{BucketMinute, BucketFiveMinutes, BucketHour, BucketSixHours, BucketTwelveHours, BucketDay, BucketWeek}
 	if got := Buckets(); !slices.Equal(got, want) {
 		t.Errorf("Buckets() = %v, want %v", got, want)
 	}

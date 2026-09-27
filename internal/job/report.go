@@ -3,6 +3,7 @@ package job
 import (
 	"database/sql"
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -58,8 +59,12 @@ func BuildReport(db *sql.DB, q ReportQuery) (Report, error) {
 		return Report{}, err
 	}
 
+	if q.Trace {
+		w.withTrace()
+	}
+
 	fold := newReportFold(existing)
-	series, activity, err := replaySeries(fold, universe, w, events)
+	series, activity, trace, err := replaySeries(fold, universe, w, events)
 	if err != nil {
 		return Report{}, err
 	}
@@ -71,6 +76,7 @@ func BuildReport(db *sql.DB, q ReportQuery) (Report, error) {
 		},
 		Series:   series,
 		Activity: activity,
+		Trace:    trace,
 	}
 	fillFigures(&r, fold, universe, w, events, tasks)
 	return r, nil
@@ -125,38 +131,50 @@ func firstEventIn(u reportUniverse, events []reportEvent, until time.Time) time.
 }
 
 // replaySeries folds events in order, sampling the state as of each bucket's
-// End (events at End included) and counting the histogram's event kinds per
-// bucket [Start, End), the last bucket closed at Until.
-func replaySeries(fold *reportFold, u reportUniverse, w reportWindow, events []reportEvent) ([]Sample, []ActivityCount, error) {
-	n := len(w.ends)
-	series := make([]Sample, 0, n)
-	activity := make([]ActivityCount, n)
+// End and each trace instant (events at the instant included), and counting
+// the histogram's event kinds per bucket [Start, End), the last bucket closed
+// at Until. The series and the trace come from the one replay, so they agree
+// wherever their instants meet. trace is nil unless w carries trace instants.
+func replaySeries(fold *reportFold, u reportUniverse, w reportWindow, events []reportEvent) (series []Sample, activity []ActivityCount, trace []Sample, err error) {
+	n, m := len(w.ends), len(w.traceAt)
+	series = make([]Sample, 0, n)
+	activity = make([]ActivityCount, n)
 	for i := range activity {
 		activity[i].Start, activity[i].End = w.starts[i], w.ends[i]
 	}
+	if m > 0 {
+		trace = make([]Sample, 0, m)
+	}
 
 	// A sample only changes when an event was folded since the last one, and
-	// nothing in the state depends on the clock, so a quiet bucket copies its
+	// nothing in the state depends on the clock, so a quiet instant copies its
 	// predecessor rather than walking every task again.
 	dirty := true
 	var last Sample
-	emit := func() {
+	sampleAt := func(end time.Time) Sample {
 		if dirty {
 			last = fold.sample(u)
 			dirty = false
 		}
 		s := last
-		s.End = w.ends[len(series)]
-		series = append(series, s)
+		s.End = end
+		return s
+	}
+	// flush samples every instant before ts; math.MaxInt64 flushes the rest.
+	flush := func(ts int64) {
+		for len(series) < n && ts > w.endsMS[len(series)] {
+			series = append(series, sampleAt(w.ends[len(series)]))
+		}
+		for len(trace) < m && ts > w.traceMS[len(trace)] {
+			trace = append(trace, sampleAt(w.traceAt[len(trace)]))
+		}
 	}
 
 	bucket := 0
 	for _, e := range events {
-		for len(series) < n && e.ts > w.endsMS[len(series)] {
-			emit()
-		}
+		flush(e.ts)
 		if err := fold.apply(e); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		dirty = true
 		if e.task == "" || !u.has(e.task) || !w.inWindow(e.ts) {
@@ -167,10 +185,8 @@ func replaySeries(fold *reportFold, u reportUniverse, w reportWindow, events []r
 		}
 		countActivity(&activity[bucket], e.typ)
 	}
-	for len(series) < n {
-		emit()
-	}
-	return series, activity, nil
+	flush(math.MaxInt64)
+	return series, activity, trace, nil
 }
 
 func countActivity(a *ActivityCount, typ EventType) {

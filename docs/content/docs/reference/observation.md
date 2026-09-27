@@ -147,11 +147,21 @@ Burn-up  █ done  ▒ blocked  ░ open
 - **`[id]`** scopes the report to that task's subtree. Without it, the report covers the whole forest.
 - **`--since`** is the window's start: a range key (`1h`, `1d`, `7d`, `14d`, `30d`, `all`), a relative duration measured back from now (`90m`, `3d`), or an RFC3339 timestamp. The default, like `all`, is the first event in scope.
 - **`--until`** is the window's end: a relative duration (`7d` means a week ago) or an RFC3339 timestamp. The default is now; `all` is refused, since it names no end.
-- **`--by`** sets the bucket width — `minute`, `hour`, `6h`, `day` or `week` — overriding the automatic choice below.
+- **`--by`** sets the bucket width — `minute`, `5m`, `hour`, `6h`, `12h`, `day` or `week` — overriding the automatic choice below.
 - **`--timezone`** is the IANA zone buckets align to (`America/Chicago`, `Europe/Berlin`); the default is the machine's local zone. Days start at local midnight and weeks on Monday, in that zone.
 - **`--format`** is `md` (the default — plain text, despite the name, to match the other verbs), `json`, or `csv`. See [`job stats` JSON](../../machine-interface/stats-json/) for both machine shapes.
 
-**Buckets are chosen by the window's span** unless `--by` says otherwise: up to 2 hours by the minute, up to 2 days by the hour, up to 10 days by 6 hours, up to 90 days by the day, and weekly beyond that. So each range key gets its natural unit — `1h` by the minute, `1d` by the hour, `7d` by 6 hours, `14d` and `30d` by the day — and `all` buckets by the span of the store's history, so a day-old store still draws hourly points and an established one reads daily or weekly. The dashboard's range tabs make the same choice. Buckets sit on calendar boundaries in `--timezone`; the first is clipped to `--since` and the last ends exactly at `--until`, so either can be partial.
+**Buckets are chosen by the window's span** unless `--by` says otherwise: the narrowest unit that keeps the window to at most 45 buckets. So each range key gets its own bar count:
+
+| Range | Bucket | Buckets |
+|-------|--------|---------|
+| `1h` | `5m` | 12 |
+| `1d` | `hour` | 24 |
+| `7d` | `6h` | 28 |
+| `14d` | `12h` | 28 |
+| `30d` | `day` | 30 |
+
+`all` buckets by the span of the store's history the same way: a day-old store reads hourly, a fortnight-old one by 12 hours, and one older than 45 days weekly. Other spans follow the same rule, so they land between a handful and 45 buckets — the units are too far apart to always land near 30, and with no month unit, a history of more than 45 weeks draws a bucket per week. The dashboard's range tabs make the same choice. Buckets sit on calendar boundaries in `--timezone`; the first is clipped to `--since` and the last ends exactly at `--until`, so either can be partial.
 
 The burn-up is one column per sample, eight rows tall, from zero up to the window's largest scope: done from the floor, the blocked share above it, open up to scope. It fits `$COLUMNS` when set, else the terminal's width, else 80 columns; when there are more samples than columns, each column shows the last sample it covers.
 

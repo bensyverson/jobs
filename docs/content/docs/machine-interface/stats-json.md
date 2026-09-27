@@ -128,7 +128,7 @@ Times are RFC3339 with the offset of `window.timezone`, with a fractional second
 | `scope` | Short id of the subtree the report covers. **Absent** for the whole forest. |
 | `since` | Window start; the first event in scope when `--since` was not given. |
 | `until` | Window end; the moment the report was built when `--until` was not given. |
-| `bucket` | Width of one sample: `minute`, `hour`, `6h`, `day` or `week`. |
+| `bucket` | Width of one sample: `minute`, `5m`, `hour`, `6h`, `12h`, `day` or `week`. |
 | `timezone` | IANA zone the buckets align to. Days start at local midnight, weeks on Monday. |
 
 **`leaves`** — `created`, `done` and `canceled` are transitions inside the window, each leaf counted once by where it stands at `until`; `open` and `blocked` are the state at `until`.
@@ -162,6 +162,8 @@ Import figures come from [`imported` events](../../concepts/events/#event-types)
 | `plans_done` | Plans in the done state as of `end`. |
 
 **`activity`** — `[{start, end, created, claimed, done, blocked}]`, one per bucket, aligned with `series`: the number of events of each type on any task in scope in `[start, end)`, parents included. These are events, not leaves.
+
+**`trace`** — never in `job stats` output. The schema lists it because the same report type feeds the dashboard, which asks for the burn-up at drawing resolution: a few hundred samples shaped like `series`, from the state as of `since` to `until` on a round step.
 
 **`imports`** — `[{at, task_id, title, source}]`, each `imported` event in the window, oldest first: the top-level task the import created, its title now, and the base name of the plan file.
 

@@ -71,6 +71,32 @@ func TestBurnUp_XAxisLabelsFirstAndLastBucket(t *testing.T) {
 	mustContain(t, last, "Sep 7", "Sep 28")
 }
 
+// Sub-day buckets label the axis and header with the time of day: five-minute
+// buckets by the clock alone, twelve-hour ones with the date.
+func TestBurnUp_SubDayBucketsLabelTheTime(t *testing.T) {
+	start := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	cases := []struct {
+		b          Bucket
+		step       time.Duration
+		axis, head string
+	}{
+		{BucketFiveMinutes, 5 * time.Minute, "10:00", "Jan 1 2026 10:00"},
+		{BucketTwelveHours, 12 * time.Hour, "Jan 7 09:00", "Jan 1 2026 → Jan 7 2026"},
+	}
+	for _, c := range cases {
+		until := start.Add(12 * c.step)
+		r := Report{Schema: ReportSchema, Window: ReportWindow{Since: start, Until: until, Bucket: c.b, Timezone: "UTC"}}
+		for i := range 12 {
+			r.Series = append(r.Series, Sample{End: start.Add(time.Duration(i+1) * c.step), Scope: 3, Open: 3})
+		}
+		out := renderText(t, r, 80)
+		lines := chartLines(t, out)
+		mustContain(t, lines[len(lines)-1], c.axis)
+		first, _, _ := strings.Cut(out, "\n")
+		mustContain(t, first, c.head)
+	}
+}
+
 func TestBurnUp_FitsTheWidth(t *testing.T) {
 	for _, width := range []int{24, 40, 80, 132} {
 		for _, l := range chartLines(t, renderText(t, sampleReport(), width)) {

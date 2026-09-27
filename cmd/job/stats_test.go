@@ -50,7 +50,7 @@ func TestStats_RefusesBadFlags(t *testing.T) {
 		want string
 	}{
 		{[]string{"--format", "yaml"}, "md, json, csv"},
-		{[]string{"--by", "fortnight"}, "minute, hour, 6h, day, week"},
+		{[]string{"--by", "fortnight"}, "minute, 5m, hour, 6h, 12h, day, week"},
 		{[]string{"--since", "fortnight"}, "--since"},
 		{[]string{"--until", "all"}, "--until"},
 		{[]string{"--timezone", "Mars/Olympus"}, "--timezone"},
@@ -145,6 +145,19 @@ func TestStats_ByAndTimezone(t *testing.T) {
 	}
 	if r.Window.Timezone != "UTC" {
 		t.Errorf("window.timezone = %q, want UTC", r.Window.Timezone)
+	}
+}
+
+func TestStats_ByTakesFiveMinutesAndTwelveHours(t *testing.T) {
+	dbFile, _ := seedStats(t)
+	for _, b := range []job.Bucket{job.BucketFiveMinutes, job.BucketTwelveHours} {
+		r := statsJSON(t, dbFile, "--since", "1d", "--by", string(b))
+		if r.Window.Bucket != b {
+			t.Errorf("--by %s: window.bucket = %q", b, r.Window.Bucket)
+		}
+		if r.Trace != nil {
+			t.Errorf("--by %s: stats output carries a trace", b)
+		}
 	}
 }
 

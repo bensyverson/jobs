@@ -8,10 +8,6 @@ import (
 	"time"
 )
 
-// knownBuckets is every Bucket that Floor and Next understand. An unknown one
-// would never advance, so it is refused rather than looped on.
-var knownBuckets = []Bucket{BucketMinute, BucketHour, BucketSixHours, BucketDay, BucketWeek}
-
 // autoBucket chooses the sample width for a window from its span. An
 // unbounded window (no Since) is RangeAll, whose span is the history's.
 func autoBucket(span time.Duration) Bucket { return BucketForSpan(span) }
@@ -25,13 +21,19 @@ type reportWindow struct {
 	bucket           Bucket
 	starts, ends     []time.Time
 	endsMS           []int64
+	// traceAt is the trace's instants, Since through Until; empty unless
+	// the query asked for a trace.
+	traceAt []time.Time
+	traceMS []int64
 }
 
 // resolveBuckets lays buckets over [since, until] on the local calendar of
 // since's location. since == until yields one empty bucket, so a series
 // always has a last sample at Until.
 func resolveBuckets(since, until time.Time, bucket Bucket) (reportWindow, error) {
-	if !slices.Contains(knownBuckets, bucket) {
+	// Floor and Next leave an unknown bucket where it is, so it would never
+	// advance: refuse it rather than loop on it.
+	if !slices.Contains(buckets, bucket) {
 		return reportWindow{}, fmt.Errorf("report: unknown bucket %q", bucket)
 	}
 	if since.After(until) {
