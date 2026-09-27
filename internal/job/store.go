@@ -16,7 +16,8 @@ import (
 // Everything here answers one question, asked on every open: does this cache
 // still reflect the log? The answer is a stat per log file against the offset
 // the cache recorded when it applied that file. Equal everywhere, with no
-// unknown file, means yes and the open costs nothing more. Anything else means
+// unknown file, means yes and the open costs nothing more than the store format
+// check (checkCachedStoreFormat). Anything else means
 // rebuild (project/2026-09-01-git-native-event-log.md, "Rebuild, and when it
 // runs").
 
@@ -165,6 +166,18 @@ func syncStore(db *sql.DB, path string) (*StoreSync, error) {
 		return nil, err
 	}
 	sync.Files = len(files)
+
+	// Before anything trusts the cache — the hot path, the bootstrap that
+	// copies it into the log, the legacy and incomplete states that keep it
+	// as it is — refuse a cache holding declarations from a newer binary.
+	// Every one of those reads no log line, so the rebuild's own check never
+	// runs for them. It runs ahead of the rebuild too, which may refuse a
+	// cache whose log has since lost the newer lines; failing closed there
+	// costs an upgrade or a deleted cache, where the other order costs a
+	// misread log.
+	if err := checkCachedStoreFormat(db, storeDir); err != nil {
+		return nil, err
+	}
 
 	// The hot path: a stat per file against the offset the cache applied.
 	if len(files) > 0 && inSync(files, marks) {

@@ -1,6 +1,7 @@
 package job
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/bensyverson/jobs/internal/eventlog"
@@ -143,6 +144,61 @@ func checkStoreFormat(path string, events []eventlog.Envelope) error {
 func checkStoreFormatFor(binary StoreFormatVersion, path string, events []eventlog.Envelope) error {
 	if _, highest := declaredFormats(events); highest > binary {
 		return &StoreFormatAheadError{Path: path, LogFormat: highest, BinaryFormat: binary}
+	}
+	return nil
+}
+
+// checkCachedStoreFormat is checkStoreFormat for an open that does not read
+// the log. A cache a newer binary rebuilt in place has watermarks matching the
+// files, so syncStore's hot path never reads a line and the rebuild's check
+// never runs. But the cache holds every `replica` event it applied, file by
+// file, so it already records every declaration the log makes: this reads
+// them back — one query on the event_type index, a handful of rows per
+// replica — and refuses by the same rule.
+//
+// It records the log's formats, not the format of the binary that built the
+// cache. A newer binary rebuilding a log that declares only this binary's
+// format leaves nothing this binary cannot read — it re-declares only when it
+// appends — so refusing there would lock out a binary the log still fits. A
+// cache laid out in a way this binary cannot read is the schema check's to
+// refuse, and moving `replica` events out of the events table would be such a
+// change.
+func checkCachedStoreFormat(db dbtx, storeDir string) error {
+	rows, err := db.Query(
+		"SELECT rep, COALESCE(detail, '') FROM events WHERE event_type = ? ORDER BY rep, seq",
+		string(EventReplica),
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	byRep := map[string][]eventlog.Envelope{}
+	var reps []string
+	for rows.Next() {
+		var rep, detail string
+		if err := rows.Scan(&rep, &detail); err != nil {
+			return err
+		}
+		if _, ok := byRep[rep]; !ok {
+			reps = append(reps, rep)
+		}
+		e := eventlog.Envelope{Type: eventlog.Type(EventReplica)}
+		if detail != "" {
+			e.Data = json.RawMessage(detail)
+		}
+		byRep[rep] = append(byRep[rep], e)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, rep := range reps {
+		path := ""
+		if rep != "" {
+			path = eventlog.LogPath(storeDir, rep)
+		}
+		if err := checkStoreFormat(path, byRep[rep]); err != nil {
+			return err
+		}
 	}
 	return nil
 }

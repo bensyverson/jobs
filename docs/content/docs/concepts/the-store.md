@@ -62,7 +62,7 @@ Losing `local.json` costs nothing but the id — the next command mints a fresh 
 
 The cache records a **watermark** for each log file: the byte offset it has applied. Every `job` command checks it before doing anything else.
 
-- Every file's size equals its watermark and there is no unknown file: nothing to do. This is the hot path, and it costs one `stat` per file.
+- Every file's size equals its watermark and there is no unknown file: nothing to do. This is the hot path, and it costs one `stat` per file, plus the one indexed read that checks the cache's store format (see [below](#when-the-binary-is-older-than-the-store)).
 - Anything else — a file grew, a new file appeared, the cache is missing: **rebuild**. Drop every table, sort the union of every log file, apply in order, record the new watermarks.
 
 `job status` says which of the two happened:
@@ -178,6 +178,8 @@ the binary is older than the log. Rebuild it (make install) or upgrade job.
 ```
 
 It refuses for a sharper reason than the cache check. An event type a binary does not know applies as a no-op — that forward tolerance is deliberate, and it is what makes the silence dangerous: an old binary would render the record incompletely and then append events computed from that incomplete state. `job replicas` shows each replica's format beside its event count.
+
+The same refusal holds when no file is read at all. If a newer `job` has already rebuilt the cache from that file, every watermark matches and an older one would take the hot path straight past the rebuild. But the cache keeps every `replica` event it applied, so every open reads their declarations back — one indexed read — and refuses with the same message before it trusts the cache for anything. What counts is what the log declares, not which binary built the cache: a newer `job` that has only *read* a format-2 log leaves nothing a format-2 `job` cannot use, and it declares its own format only once it writes. Binaries built before this check (store format 2, before 2026-09-26) skip it; every later one refuses.
 
 **The rule for bumping it:** raise the format whenever a new event type lands or the meaning of applying an existing one changes. The constant sits beside the event type list in `internal/job/event_payloads.go`, and a test fails until the diff that adds a type also bumps it.
 

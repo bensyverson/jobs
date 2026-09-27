@@ -18,14 +18,6 @@ A line in `status` saying whether the database is ignored or tracked. Parked bec
 
 Once `.jobs/log/*.jsonl` is the record (see [2026-09-01-git-native-event-log.md](2026-09-01-git-native-event-log.md)), a long-lived repo's log grows without bound. The `snapshot` event that adoption writes is the primitive: `compact` would write one at the head and move the files it summarizes to an archive directory. Parked because the numbers say it is years away — this repo's whole history is about a megabyte of text — and git delta-compresses appends well. Un-parked when a rebuild is measurably slow or a clone's `.jobs/` is noticeably large.
 
-## 2026-09-02 — store format check on the sync hot path
-
-**What:** the store format guard (`checkStoreFormat`, `internal/job/store_format.go`) runs only when a rebuild reads the log files. If a newer binary has already rebuilt the cache in place, the watermarks match and an older binary takes `syncStore`'s hot path — one `stat` per file, no line read, no format check — so it opens a cache it did not build and appends under its older vocabulary. The cache it reads is correct, because the newer binary built it, which is why this is a small hole rather than a live bug; the schema check catches it only when the format bump also shipped a migration.
-
-**Why parked:** closing it means either recording the format in the cache (a migration plus a write on every rebuild) or reading each file's first line on every command. Neither is worth it while every checkout here runs a current binary.
-
-**Un-park when:** the format is first bumped past 1, or a second machine runs a binary that is routinely behind.
-
 ## 2026-09-02 — emphasis in dashboard prose
 
 Descriptions and notes render the block subset (paragraphs, lists, fenced code, hard breaks) plus an inline pass for code spans, `[text](url)` links and short-id autolinks (`internal/job/prose.go`, `internal/job/prose_inline.go`, `assets/js/prose.mjs`, project/2026-09-02-prose-rendering.md). Emphasis — `*bold*`, `_italic_` — is the one inline construct still left literal, and headings, block quotes, images and raw HTML remain out of scope.
