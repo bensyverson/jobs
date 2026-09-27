@@ -149,7 +149,7 @@ A criterion is `pending`, `passed`, `skipped` or `failed`. Only `pending` blocks
 - **`skipped`** — the criterion no longer applies: the plan changed, or a sibling leaf owns it now. Say why in the close note.
 - **`failed`** — you checked and it isn't true. `done` **will close** over a failed row; it renders as `[!]` in `show`. That's deliberate: sometimes you ship the part that works and file the rest. When you do, file the gap as an issue (`job issue "…"`) so it isn't just a glyph on a closed task. When the work simply isn't finished, don't close — keep the leaf open, or [reopen](../recovery/#reopen-the-work-wasnt-finished) it.
 
-`--force-close-with-pending` closes with rows still pending and records them as a waiver on the `done` event (`criteria_waived` in `job log --format=json`). It is for "we're shipping without verifying this, on purpose" — not for "I forgot to mark them".
+`--force-close-with-pending` closes with rows still pending and records them as a waiver on the `done` event — visible in both `job log` and `job log --format=json` as `criteria_waived`. It is for "we're shipping without verifying this, on purpose" — not for "I forgot to mark them".
 
 ## What makes a good criterion
 

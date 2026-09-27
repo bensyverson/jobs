@@ -223,7 +223,11 @@ func FormatDuration(seconds int64) string {
 		return fmt.Sprintf("%dm", seconds/60)
 	}
 	if seconds < 86400 {
-		return fmt.Sprintf("%dh", seconds/3600)
+		hours, minutes := seconds/3600, (seconds%3600)/60
+		if minutes == 0 {
+			return fmt.Sprintf("%dh", hours)
+		}
+		return fmt.Sprintf("%dh %dm", hours, minutes)
 	}
 	return fmt.Sprintf("%dd", seconds/86400)
 }
@@ -324,13 +328,23 @@ func RenderInfoMarkdown(w io.Writer, info *TaskInfo) {
 				pending++
 			}
 		}
-		// When pending > 0 the header line names the same constraint the
-		// operator will hit at close time (the strict-close gate), so the
-		// claim briefing primes them for the close shape rather than letting
-		// the count surprise them on `job done`.
-		if pending > 0 {
+		closed := info.Task.Status == "done" || info.Task.Status == "canceled"
+		switch {
+		case pending > 0 && !closed:
+			// The header line names the same constraint the operator will
+			// hit at close time (the strict-close gate), so the claim
+			// briefing primes them for the close shape rather than letting
+			// the count surprise them on `job done`.
 			fmt.Fprintf(w, "Criteria: %d pending — mark each before close, or use --force-close-with-pending\n", pending)
-		} else {
+		case pending > 0 && info.Task.Status == "done":
+			// The only way a done task still has pending rows is
+			// --force-close-with-pending: there is no "before close" left,
+			// so the hint would be meaningless — name what was waived instead.
+			fmt.Fprintf(w, "Criteria: %d left pending at close\n", pending)
+		default:
+			// Either nothing is pending, or the task was canceled — cancel
+			// was never criteria-gated, so pending rows there are
+			// unremarkable and get no special mention.
 			fmt.Fprintln(w, "Criteria:")
 		}
 		for _, c := range info.Criteria {
@@ -573,6 +587,9 @@ func FormatEventDescription(eventType, detailJSON string) string {
 			}
 			if note, ok := detail["note"].(string); ok && note != "" {
 				parts = append(parts, "note: "+note)
+			}
+			if waived := stringListFromDetail(detail, "criteria_waived"); len(waived) > 0 {
+				parts = append(parts, "waived: "+strings.Join(waived, ", "))
 			}
 			if children, ok := detail["cascade_closed"].([]any); ok && len(children) > 0 {
 				parts = append(parts, fmt.Sprintf("and %d subtasks", len(children)))

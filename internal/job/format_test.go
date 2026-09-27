@@ -123,3 +123,89 @@ func TestRenderListEmpty_AllDone(t *testing.T) {
 		t.Errorf("got %q, want %q", buf.String(), want)
 	}
 }
+
+// A `--force-close-with-pending` close records the deferred labels under
+// "criteria_waived" (event_payloads.go, DonePayload.CriteriaWaived) — they
+// show in `job log --format=json` today, but the text renderer silently
+// dropped them, so a reviewer reading the text log has no way to tell a
+// close waived anything.
+func TestFormatEvent_Done_CriteriaWaived_Renders(t *testing.T) {
+	detailJSON := `{"note":"shipping anyway","criteria_waived":["tests pass","docs updated"],"was_status":"available"}`
+	out := FormatEventDescription("done", detailJSON)
+	if !strings.Contains(out, "waived: tests pass, docs updated") {
+		t.Errorf("done should render waived criteria, got %q", out)
+	}
+}
+
+// No criteria_waived key: the ordinary close renders exactly as before, with
+// no "waived" clause at all.
+func TestFormatEvent_Done_NoWaivedCriteria_OmitsClause(t *testing.T) {
+	detailJSON := `{"note":"all green","was_status":"available"}`
+	out := FormatEventDescription("done", detailJSON)
+	if strings.Contains(out, "waived") {
+		t.Errorf("done with no waived criteria should not mention waiving, got %q", out)
+	}
+}
+
+// TestFormatDuration pins leaf TUVIbz(2): FormatDuration truncated to whole
+// hours, so a 2h claim read "expires in 1h" a minute after it was taken —
+// the 59 remaining minutes were silently dropped. Below an hour and at/above
+// a day the existing granularity (whole minutes, whole days) is unchanged;
+// only the hours bucket gains a minutes remainder.
+func TestFormatDuration(t *testing.T) {
+	cases := []struct {
+		seconds int64
+		want    string
+	}{
+		{0, "0s"},
+		{45, "45s"},
+		{59, "59s"},
+		{60, "1m"},
+		{90, "1m"},
+		{1799, "29m"},
+		{1800, "30m"},
+		{3599, "59m"},
+		{3600, "1h"},
+		{3660, "1h 1m"},
+		{7140, "1h 59m"},
+		{7200, "2h"},
+		{86399, "23h 59m"},
+		{86400, "1d"},
+		{90000, "1d"},
+		{172800, "2d"},
+	}
+	for _, c := range cases {
+		if got := FormatDuration(c.seconds); got != c.want {
+			t.Errorf("FormatDuration(%d) = %q, want %q", c.seconds, got, c.want)
+		}
+	}
+}
+
+// TestList_ClaimedParens_ShowsMinutesRemainder is the reported symptom end to
+// end: a 2h claim, a minute later, reads "1h 59m left" in `job ls`, not the
+// truncated "1h left".
+func TestList_ClaimedParens_ShowsMinutesRemainder(t *testing.T) {
+	origNow := CurrentNowFunc
+	defer func() { CurrentNowFunc = origNow }()
+	baseTime := time.Unix(1_700_000_000, 0)
+	CurrentNowFunc = func() time.Time { return baseTime }
+
+	db := SetupTestDB(t)
+	id := MustAdd(t, db, "", "Claim me")
+	if err := RunClaim(db, id, "2h", "", "alice", false); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	CurrentNowFunc = func() time.Time { return baseTime.Add(time.Minute) }
+
+	nodes, err := runList(db, "", "", true)
+	if err != nil {
+		t.Fatalf("runList: %v", err)
+	}
+	blockers, _ := CollectBlockers(db, nodes)
+	got := renderListString(db, nodes, blockers)
+	want := "- [ ] `" + id + "` Claim me (claimed by alice, 1h 59m left)\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
