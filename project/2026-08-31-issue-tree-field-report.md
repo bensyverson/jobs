@@ -6,6 +6,12 @@
 
 The pile grew to 24 open issues before the sweep, all children of one issue root, filed by five different identities. The sweep session's whole triage ran off the tracker: `job ls --issues` for the list, `job show <id>` per issue for descriptions, eight `job note` calls to record pre-dispatch decisions, one `job split`, one `job done` for an issue that turned out to be already fixed, then 17 `job claim`s by seven agents. No side documents were needed to run a 17-leaf batch.
 
+> **Incorporated into the shared rules 2026-10-15** (agents-md 8dabf52): the jobs and
+> delegation modules now say an issue pile is filed one per defect and grouped at claim
+> time, and that an integrator filing from an agent's report passes `--found-in`. The
+> tooling fixes below (the silent no-edge default, `--status`, JSON shape) are not covered
+> by that change.
+
 ## What worked
 
 - **Demotion plus the trailer is the right shape.** `job ls` ends with `Issues: 24 open · job ls --issues`, which is exactly how the sweep found the pile; and while ~20 issues accumulated during the design fan-out, `orient` and `next` never once dragged the plan into them. The 2026-08-28 decision to summarize rather than mix held up under real load.
