@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Break down where the bytes in a `job orient` YAML dump go.
+
+Usage: job orient [flags] > orient.yaml; scripts/orient-weight orient.yaml
+
+Prints the total size, the header's size, a node count per status and shape,
+the bytes each field takes per status and shape, and the open nodes with the
+most note bytes. Needs PyYAML.
+"""
+
+import collections
+import sys
+
+import yaml
+
+
+def size(value):
+    return len(yaml.safe_dump(value, allow_unicode=True)) if value else 0
+
+
+def main(path):
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    doc = yaml.safe_load(text)
+    nodes = collections.Counter()
+    fields = collections.Counter()
+    heavy = []
+
+    def walk(node):
+        shape = "container" if node.get("children") else "leaf"
+        key = f"{node.get('status')}/{shape}"
+        nodes[key] += 1
+        for field in ("desc", "notes", "criteria", "completion_note"):
+            fields[(key, field)] += size(node.get(field))
+        notes = node.get("notes") or []
+        if notes and node.get("status") != "done":
+            heavy.append((size(notes), len(notes), node["id"], node["title"]))
+        for child in node.get("children") or []:
+            walk(child)
+
+    for root in doc.get("tasks") or []:
+        walk(root)
+
+    print(f"total {len(text.encode('utf-8'))} B, header {size(doc.get('orient'))} B")
+    for key, count in sorted(nodes.items()):
+        print(f"  {key}: {count} nodes")
+    for (key, field), count in sorted(fields.items(), key=lambda kv: -kv[1]):
+        if count:
+            print(f"  {key} {field}: {count} B")
+    print("open nodes by note bytes:")
+    for note_bytes, count, short_id, title in sorted(heavy, reverse=True)[:10]:
+        print(f"  {short_id} {note_bytes} B in {count} notes: {title[:60]}")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        sys.exit(__doc__)
+    main(sys.argv[1])
