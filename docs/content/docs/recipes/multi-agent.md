@@ -27,6 +27,14 @@ Store: replica wK3IT6 · 1 log file, 18 events · cache rebuilt on open
 
 A write made there — `job note LqnaMT -m "…" --as wt-agent` succeeds — lands in `.jobs/log/wK3IT6.jsonl` inside the worktree. The integrator's store never sees it, and nobody watching `job tail` sees it either, until that branch is merged. (Without a committed log the same call fails with `no job database found`, which is at least loud.)
 
+The first write that mints the worktree's replica says so on stderr, once:
+
+```text
+warning: this git worktree is now its own replica; its writes stay invisible to the main checkout's store until the branch merges. Pass --db /abs/path/to/repo/.jobs.db to write to the shared store instead.
+```
+
+The path is the main checkout's store, derived from `git rev-parse --git-common-dir`. Later writes from the same worktree, the main checkout, and a directory outside git print nothing, and stdout is unchanged. The warning is a prompt to switch to the shared store, not a refusal: the write has already happened, in the worktree's own log.
+
 So every subagent call names the shared store by absolute path:
 
 ```sh

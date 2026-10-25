@@ -63,6 +63,7 @@ func newRecorderLocked(path string) (*recorder, error) {
 		if err := state.Save(path); err != nil {
 			return nil, err
 		}
+		warnIfWorktreeReplica(StoreNotices, path)
 	}
 	// CurrentNowFunc rather than time.Now: it is the seam the whole package's
 	// tests move time with, and task timestamps now come from this clock.

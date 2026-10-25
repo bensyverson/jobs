@@ -46,7 +46,9 @@ The `*` is doing the work — one pattern for the cache and everything that sits
 
 ## Replicas
 
-**A replica is one checkout on one machine.** Two clones of the same repo are two replicas; so is a git worktree, since it has its own working directory. A replica's id is six base62 characters, minted the first time a store is opened there and kept in `local.json`.
+**A replica is one checkout on one machine.** Two clones of the same repo are two replicas; so is a git worktree, since it has its own working directory. A replica's id is six base62 characters, minted the first time this checkout writes and kept in `local.json`.
+
+Because a worktree is its own replica, the first write that mints one inside a linked git worktree prints a one-time warning on stderr, naming the main checkout's store and the `--db` that writes there instead (see [Multi-agent](../../recipes/multi-agent/#pass-an-absolute---db)). It never fires again for that replica, and not at all in a main checkout or outside git.
 
 The id decides one thing: which file this checkout appends to. Nobody ever writes another replica's file, so two machines can work at the same time and git never sees a conflict in the log.
 
