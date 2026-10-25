@@ -201,6 +201,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newUnclaimCmd())
 	cmd.AddCommand(newLabelCmd())
 	cmd.AddCommand(newIdentityCmd())
+	cmd.AddCommand(newConfigCmd())
 	cmd.AddCommand(newNextCmd())
 	cmd.AddCommand(newLogCmd())
 	cmd.AddCommand(newTailCmd())
@@ -340,15 +341,26 @@ func renderClaimBriefing(w io.Writer, db *sql.DB, shortID string) {
 }
 
 func openDBFromCmd() (*sql.DB, error) {
+	path, err := existingDBPath()
+	if err != nil {
+		return nil, err
+	}
+	return job.OpenDB(path)
+}
+
+// existingDBPath resolves --db and refuses when neither a cache nor a store
+// is there, so a verb run in the wrong directory says so instead of creating
+// files.
+func existingDBPath() (string, error) {
 	path := job.ResolveDBPath(dbPath)
 	if _, err := os.Stat(path); err != nil {
 		// A clone carries .jobs/log and no cache: the log is the record, so
 		// the first command builds the cache rather than refusing.
 		if !job.HasStore(path) {
-			return nil, fmt.Errorf("no job database found in %s. Run `job init` or specify a database with --db", path)
+			return "", fmt.Errorf("no job database found in %s. Run `job init` or specify a database with --db", path)
 		}
 	}
-	return job.OpenDB(path)
+	return path, nil
 }
 
 // requireAs resolves the writer identity for this call. Precedence:

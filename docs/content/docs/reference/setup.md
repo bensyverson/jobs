@@ -3,7 +3,7 @@ title: Setup
 weight: 1
 ---
 
-The verbs that bring a store into existence, govern who is allowed to write to it, and put one back together: `init`, `gitignore`, `identity`, `replicas`, `replica rename`, `schema`, `merge`, `rebuild`, `rekey` and `version`. Only `merge`, `rebuild` and `rekey` touch tasks, and only to rebuild them from the log or reconcile two copies of the same ones. [The store](../../concepts/the-store/) is the model those three assume.
+The verbs that bring a store into existence, govern who is allowed to write to it, set its shared settings, and put one back together: `init`, `gitignore`, `identity`, `config`, `replicas`, `replica rename`, `schema`, `merge`, `rebuild`, `rekey` and `version`. Only `merge`, `rebuild` and `rekey` touch tasks, and only to rebuild them from the log or reconcile two copies of the same ones. [The store](../../concepts/the-store/) is the model those three assume.
 
 ## `init`
 
@@ -35,7 +35,7 @@ job gitignore --dry-run   # or -n: print what it would write, write nothing
 
 Idempotent and additive — it appends only the patterns that aren't already present, so it's safe to re-run. `--dry-run`/`-n` prints the same report as a real run (`Would write 2 entries…`) and leaves the file untouched, so you can see the change before it lands. No `--as` (it isn't a database write) and no requirement that `.jobs.db` exist yet, so it works before or after `init`.
 
-Two patterns, not three, and the `*` is doing the work. `.jobs.db` is a disposable cache rebuilt from `.jobs/log`, and everything that sits beside it under the same name — the WAL sidecars `-shm` and `-wal`, the store lock `.jobs.db.lock`, the adoption backup `.jobs.db.pre-adopt` — is local too. `.jobs/local.json` holds this machine's replica id, clock, default identity, strict flag and focus, and no other checkout should ever see it. Everything else under `.jobs/` — the log files that are the actual record — is meant to be committed.
+Two patterns, not three, and the `*` is doing the work. `.jobs.db` is a disposable cache rebuilt from `.jobs/log`, and everything that sits beside it under the same name — the WAL sidecars `-shm` and `-wal`, the store lock `.jobs.db.lock`, the adoption backup `.jobs.db.pre-adopt` — is local too. `.jobs/local.json` holds this machine's replica id, clock, default identity, strict flag and focus, and no other checkout should ever see it. Everything else under `.jobs/` — the log files that are the actual record, and the repo's shared settings in `.jobs/config.json` — is meant to be committed.
 
 A `.gitignore` written by an older Jobs carries `.jobs.db`, `.jobs.db-shm` and `.jobs.db-wal` instead. Nothing rewrites those: `job gitignore` appends the two current patterns alongside them, and the old lines are harmless.
 
@@ -52,6 +52,33 @@ job identity strict off --as claude       # restore the convenience of a default
 The `--as` requirement is bootstrap discipline: the change is itself a write, so it needs attribution. Otherwise an unattributed `identity set` could quietly relabel every following commit.
 
 Toggling strict *off* does **not** revive a prior default — it leaves the default unset until you run `identity set` explicitly. Plan accordingly.
+
+## `config`
+
+Reads and changes the repo's shared settings. They live in `.jobs/config.json`, beside `.jobs/log/`, and are committed with it: every checkout and worktree of the repo gets the same settings on checkout. They are not machine-local — that is [`identity`](#identity) and `.jobs/local.json` — and they never enter the event log, because a setting is not task history. No `--as` is needed; the commit that changes the file is what attributes it.
+
+```sh
+job config                                 # every setting and its effective value
+job config claim-duration                  # claim-duration: 30m (default)
+job config claim-duration 2h               # claim-duration: 2h (set in .jobs/config.json)
+job config claim-duration --unset          # remove it; the default applies again
+```
+
+| Setting | Default | What it does |
+|---|---|---|
+| `claim-duration` | `30m` | The window a claim gets when no duration is passed — `claim`, `claim --next`, `done --claim-next`, `reopen`'s auto-claim — and the window a heartbeat or a holder's write renews a claim to. An explicit duration always wins. See [the default claim duration](../execution/#the-default-claim-duration). |
+
+The file is plain JSON and can be edited by hand:
+
+```json
+{
+  "claim_duration": "2h"
+}
+```
+
+A value is checked when it is written and every time it is read: an invalid duration, an unknown key or malformed JSON is an error naming the file, from `config` and from every verb that claims. A missing file means every setting is at its default.
+
+The file is found the same way the log is: in the `.jobs/` directory beside the database `--db` names. A worktree that uses its own store reads its own checked-out copy; an agent in a worktree that passes `--db <main checkout>/.jobs.db` reads the main checkout's `config.json`, matching the store it writes to. Commit a change to the setting for other checkouts to see it.
 
 ## `replicas`
 

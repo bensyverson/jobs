@@ -19,12 +19,12 @@ func newClaimCmd() *cobra.Command {
 	var noteFile string
 	cmd := &cobra.Command{
 		Use:   "claim <id> [duration]",
-		Short: "Claim a task (duration optional, default 30m)",
-		Long: `Claim a task, marking it as in-progress. Duration defaults to 30m. Supported units: s, m, h, d. Use --force to override an existing claim.
+		Short: "Claim a task (duration optional, default 30m or the repo's claim-duration)",
+		Long: `Claim a task, marking it as in-progress. Duration defaults to the repo's claim-duration setting, or 30m when the repo sets none (see 'job config'). An explicit duration always wins. Supported units: s, m, h, d. Use --force to override an existing claim.
 
 The ack's first line is the scriptable signal ("Claimed: <id> '<title>' (expires in <dur>) as=<actor>") followed by the full 'show <id>' briefing — claiming is the moment you want every detail you'd otherwise have to fetch with a follow-up 'show'.
 
-Long-running claim example: ` + "`job claim abc12 2h`" + ` extends the default 30m TTL to 2 hours for work that genuinely needs the lock held longer than a typical session.
+Long-running claim example: ` + "`job claim abc12 2h`" + ` holds the claim for 2 hours for work that genuinely needs the lock held longer than a typical session. A repo whose builds routinely outlast 30m can make that the default for everyone instead: ` + "`job config claim-duration 2h`" + ` writes .jobs/config.json, which is committed so every checkout and worktree shares it.
 
 Tip: use 'job claim --next [parent] [duration]' to find and claim the next available leaf in one step, and 'job done <id> --claim-next' for the close-and-advance loop ('done <id>' followed atomically by claiming the next leaf).`,
 		Args: cobra.RangeArgs(0, 2),
@@ -74,18 +74,19 @@ Tip: use 'job claim --next [parent] [duration]' to find and claim the next avail
 				prevClaimedBy = *pre.ClaimedBy
 			}
 
-			if err := job.RunClaim(db, shortID, duration, resolved, actor, force); err != nil {
+			// Resolved here rather than left to RunClaim so the ack prints
+			// the window the claim actually got.
+			durStr, err := job.ResolveClaimDuration(db, duration)
+			if err != nil {
+				return err
+			}
+			if err := job.RunClaim(db, shortID, durStr, resolved, actor, force); err != nil {
 				return err
 			}
 
 			title := ""
 			if pre != nil {
 				title = pre.Title
-			}
-
-			durStr := job.FormatDuration(job.DefaultClaimTTLSeconds)
-			if duration != "" {
-				durStr = duration
 			}
 
 			if force && prevClaimedBy != "" {
@@ -120,7 +121,11 @@ Tip: use 'job claim --next [parent] [duration]' to find and claim the next avail
 // runClaimNext is the body of `claim --next [parent] [duration]`.
 func runClaimNext(cmd *cobra.Command, db *sql.DB, args []string, note, actor string, force, includeParents, issues, quiet bool, format string) error {
 	parentShortID, duration := job.ParseNextParentAndDuration(args)
-	task, err := job.RunClaimNextFiltered(db, parentShortID, duration, note, actor, force, includeParents, issues)
+	durStr, err := job.ResolveClaimDuration(db, duration)
+	if err != nil {
+		return err
+	}
+	task, err := job.RunClaimNextFiltered(db, parentShortID, durStr, note, actor, force, includeParents, issues)
 	if err != nil {
 		return err
 	}
@@ -128,10 +133,6 @@ func runClaimNext(cmd *cobra.Command, db *sql.DB, args []string, note, actor str
 		job.RenderTaskJSON(cmd.OutOrStdout(), task)
 		fmt.Fprintln(cmd.OutOrStdout())
 		return nil
-	}
-	durStr := job.FormatDuration(job.DefaultClaimTTLSeconds)
-	if duration != "" {
-		durStr = duration
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Claimed: %s %q (expires in %s) as=%s\n", task.ShortID, task.Title, durStr, actor)
 	if !quiet {

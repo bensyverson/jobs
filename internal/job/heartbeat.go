@@ -15,7 +15,7 @@ type HeartbeatResult struct {
 }
 
 // RunHeartbeat extends the caller's live claims on each id to at least
-// DefaultClaimTTLSeconds from now, never shortening a claim that already
+// the repo's claim window (default 30m) from now, never shortening a claim that already
 // runs longer. Validates all ids first; commits atomically.
 // Errors strictly if the caller does not currently hold the claim
 // (including expired-was-mine).
@@ -120,13 +120,17 @@ func heartbeatInTx(tx dbtx, b *eventBatch, ids []string, actor string, out *[]*H
 	// mix a two-hour claim with a short one), but the clock read is one for
 	// the whole call so every result in a batch reports against the same
 	// instant.
+	window, err := claimWindowSeconds(tx)
+	if err != nil {
+		return err
+	}
 	now := CurrentNowFunc().Unix()
 	for _, tg := range targets {
 		var current int64
 		if tg.task.ClaimExpiresAt != nil {
 			current = *tg.task.ClaimExpiresAt
 		}
-		newExpiresAt := extendedClaimExpiry(now, current)
+		newExpiresAt := extendedClaimExpiry(now, current, window)
 		if err := b.emit(tx, EventHeartbeat, tg.shortID, actor, HeartbeatPayload{
 			NewExpiresAt: newExpiresAt,
 		}); err != nil {

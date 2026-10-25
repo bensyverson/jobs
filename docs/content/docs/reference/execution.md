@@ -7,10 +7,10 @@ The active-work loop: `claim`, `release` (alias `unclaim`), `note`, `done`, `reo
 
 ## `claim`
 
-Grabs a task and holds it for a TTL (default 30m, supported units `s|m|h|d`). The first line of the ack is a one-liner suitable for parsing; the rest is the same briefing `show` would print, so a follow-up `show` is rarely needed.
+Grabs a task and holds it for a TTL (supported units `s|m|h|d`). With no duration, the claim gets the repo's [default claim duration](#the-default-claim-duration) — 30m unless the repo sets one. The first line of the ack is a one-liner suitable for parsing; the rest is the same briefing `show` would print, so a follow-up `show` is rarely needed.
 
 ```sh
-job claim abc12                            # 30m default
+job claim abc12                            # the repo's default (30m unless set)
 job claim abc12 2h                         # long-running claim
 job claim --next                           # find and claim the next available leaf
 job claim --next infra-root                # restrict the search to a subtree
@@ -28,6 +28,18 @@ The `--next` modes:
 - `--include-parents` widens the walk to include any available task, not only leaves. Reach for it only when you genuinely want to claim a task that has open children — usually you don't.
 - `--issues` points the no-argument walk at [issue-trees](../../concepts/tree-kinds/) instead of task-trees. Without it, `claim --next` never hands you a bug — it answers "what is next in my plan". Like `next --issues`, it scopes to your [issue focus](#focus) when you have one and walks every issue-tree when you don't. An explicit parent argument overrides the default without the flag.
 - `-m "<text>"` / `-F <path>` work the same under `--next` as on `claim <id>`: the starting note is recorded on whichever leaf the walk picks, in the same transaction as the claim. A malformed body aborts before anything is claimed.
+
+### The default claim duration
+
+A claim with no duration gets the repo's `claim-duration` setting, or 30m when the repo sets none. A repo whose builds routinely outlast 30 minutes sets it once instead of every agent passing `2h`:
+
+```sh
+job config claim-duration 2h               # every claim without a duration now gets 2h
+job config claim-duration                  # claim-duration: 2h (set in .jobs/config.json)
+job config claim-duration --unset          # back to 30m
+```
+
+The setting lives in `.jobs/config.json`, which is committed with the log, so every checkout and worktree of the repo shares it. An explicit duration always wins: `job claim abc12 10m` is 10 minutes whatever the setting. The same default applies everywhere a claim is taken without a duration — `claim --next`, `done --claim-next`, `reopen`'s auto-claim — and it is also the window a [heartbeat](#heartbeat) or a holder's write renews a claim to. The `claimed` event records the duration the claim actually got, so `job log` keeps reporting it correctly after the setting changes. See [`config`](../setup/#config).
 
 Idiomatic combination: `job claim --next 1h && do-the-work && job done <id> --claim-next`. See `done --claim-next` below.
 
@@ -90,7 +102,7 @@ job note abc12 -m "ack" --result '{"errors":0}'      # attach structured JSON
 
 The `--result` payload rides on the `noted` event and is preserved in JSON output of `log` and `tail` — that's how an agent passes a structured handoff to whatever's watching.
 
-If the caller currently holds a claim on the task, the note extends the claim's TTL to at least 30 minutes from now — never shortening a longer claim. Heartbeat is for genuine pauses; if you're writing notes, you don't need to heartbeat.
+If the caller currently holds a claim on the task, the note extends the claim's TTL to at least the repo's [default claim duration](#the-default-claim-duration) (30m unless set) from now — never shortening a longer claim. Heartbeat is for genuine pauses; if you're writing notes, you don't need to heartbeat.
 
 ## `done`
 
@@ -171,7 +183,7 @@ Canceling a parent refuses if it has any open (not done, not canceled) descendan
 
 ## `heartbeat`
 
-Refreshes one or more live claims and emits a `heartbeat` event. Each claim's deadline moves to at least 30 minutes from now, and never earlier than the deadline it already has — heartbeating a claim taken for two hours does not shorten it to 30 minutes. The contract is strict: every named task must currently be claimed by the caller, or the entire call rolls back.
+Refreshes one or more live claims and emits a `heartbeat` event. Each claim's deadline moves to at least the repo's [default claim duration](#the-default-claim-duration) (30m unless set) from now, and never earlier than the deadline it already has — heartbeating a claim taken for two hours does not shorten it to 30 minutes. The contract is strict: every named task must currently be claimed by the caller, or the entire call rolls back.
 
 ```sh
 job heartbeat abc12

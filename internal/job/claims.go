@@ -47,17 +47,21 @@ func openLeavesUnder(tx dbtx, taskID int64, limit int) ([]string, error) {
 	return out, rows.Err()
 }
 
+// DefaultClaimTTLSeconds is the built-in claim window, used when the repo's
+// .jobs/config.json sets no claim-duration. Claim paths ask
+// ResolveClaimDuration rather than reading it directly.
 const DefaultClaimTTLSeconds int64 = 1800
 
 // extendedClaimExpiry is the deadline a liveness signal (an explicit
 // heartbeat, or a write by the claim's holder) moves a claim to: at least
-// DefaultClaimTTLSeconds from now, and never earlier than the deadline the
-// claim already has. A claim taken for two hours therefore keeps its two
-// hours when it is heartbeated early; one with less than the default left is
-// pushed out to the default window. current is 0 when the task carries no
-// deadline. now is passed in so the caller can report against the same read.
-func extendedClaimExpiry(now, current int64) int64 {
-	return max(now+DefaultClaimTTLSeconds, current)
+// window from now, and never earlier than the deadline the claim already
+// has. window is the repo's default claim window (claimWindowSeconds). A
+// claim taken for longer than the window therefore keeps its deadline when it
+// is heartbeated early; one with less left is pushed out to the window.
+// current is 0 when the task carries no deadline. now is passed in so the
+// caller can report against the same read.
+func extendedClaimExpiry(now, current, window int64) int64 {
+	return max(now+window, current)
 }
 
 func ParseDuration(s string) (int64, error) {
@@ -150,7 +154,7 @@ func checkClaimOwnership(tx dbtx, shortID, caller string) error {
 // heartbeat explicitly. Rules:
 //   - Only extend when the caller IS the current claim holder.
 //   - Only extend; never shorten. If the existing claim_expires_at is
-//     further in the future than now + DefaultClaimTTLSeconds, leave it.
+//     further in the future than now + the repo's claim window, leave it.
 //   - The TTL bump is a state change, so it is an event: a `heartbeat`
 //     carrying the new absolute expiry, emitted through the caller's batch.
 //     It used to move the column silently, which made it a change no rebuild
@@ -168,7 +172,11 @@ func maybeExtendClaim(tx dbtx, b *eventBatch, shortID, actor string) error {
 	if !claimedBy.Valid || claimedBy.String != actor || !claimExpiresAt.Valid {
 		return nil
 	}
-	newExpiry := extendedClaimExpiry(CurrentNowFunc().Unix(), claimExpiresAt.Int64)
+	window, err := claimWindowSeconds(tx)
+	if err != nil {
+		return err
+	}
+	newExpiry := extendedClaimExpiry(CurrentNowFunc().Unix(), claimExpiresAt.Int64, window)
 	if newExpiry <= claimExpiresAt.Int64 {
 		return nil
 	}
@@ -361,6 +369,13 @@ func RunClaim(db *sql.DB, shortID, duration, note, actor string, force bool) err
 				shortID, holder, expires, holder)
 		}
 
+		// The resolved duration, not the empty string, goes in the payload:
+		// the event records the window this claim got, which a later change
+		// to the repo's setting must not rewrite.
+		duration, err = ResolveClaimDuration(tx, duration)
+		if err != nil {
+			return err
+		}
 		seconds, err := ParseDuration(duration)
 		if err != nil {
 			return err

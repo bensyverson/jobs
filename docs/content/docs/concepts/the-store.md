@@ -10,6 +10,7 @@ Jobs keeps two things on disk, and only one of them is the record.
   log/
     785RLT.jsonl      the record — one file per replica, append-only, tracked
     unFNeC.jsonl
+  config.json         the repo's shared settings — tracked
   local.json          this machine's own state — ignored
 .jobs.db              the cache — ignored, disposable
 ```
@@ -22,11 +23,12 @@ The design and the reasoning behind every rule on this page are in [`project/202
 
 ## What to commit
 
-Commit **`.jobs/log/`**. Everything else Jobs writes is local:
+Commit **`.jobs/log/`**, and **`.jobs/config.json`** if the repo has one. Everything else Jobs writes is local:
 
 | Path | Commit? | What it is |
 |---|---|---|
 | `.jobs/log/*.jsonl` | **yes** | The record. One file per replica. |
+| `.jobs/config.json` | **yes** | The repo's shared settings, written by [`job config`](../../reference/setup/#config). Not history, so not in the log. |
 | `.jobs.db` | no | The cache. Rebuilt on demand. |
 | `.jobs.db-wal`, `.jobs.db-shm` | no | SQLite's write-ahead sidecars. |
 | `.jobs.db.lock` | no | The store lock, taken around append-then-apply. |

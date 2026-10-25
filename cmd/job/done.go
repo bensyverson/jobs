@@ -154,6 +154,17 @@ Tip: pass --claim-next to atomically close this task and claim the next availabl
 			// notices but the close still proceeds.
 			pendingByID, _ := job.PendingCriteriaByShortID(db, args)
 
+			// The follow-on claim's window is resolved before the close, so
+			// an invalid repo config aborts here instead of after the task
+			// is already done.
+			var claimDur string
+			if claimNext {
+				claimDur, err = job.ResolveClaimDuration(db, "")
+				if err != nil {
+					return err
+				}
+			}
+
 			closed, alreadyDone, err := job.RunDone(db, args, cascade, note, resultRaw, actor, forceCloseWithPending, bulkCriteriaState)
 			if err != nil {
 				return err
@@ -211,11 +222,11 @@ Tip: pass --claim-next to atomically close this task and claim the next availabl
 				var cerr error
 				switch {
 				case claimUnder != "":
-					t, cerr = job.RunClaimNextFiltered(db, claimUnder, "", "", actor, false, false, false)
+					t, cerr = job.RunClaimNextFiltered(db, claimUnder, claimDur, "", actor, false, false, false)
 				case claimAny:
-					t, cerr = job.RunClaimNextFiltered(db, "", "", "", actor, false, false, false)
+					t, cerr = job.RunClaimNextFiltered(db, "", claimDur, "", actor, false, false, false)
 				default:
-					t, cerr = job.RunClaimNextUnderRootOf(db, lastCtxID, "", actor, false)
+					t, cerr = job.RunClaimNextUnderRootOf(db, lastCtxID, claimDur, actor, false)
 				}
 				if cerr == nil {
 					claimed = t
@@ -252,7 +263,7 @@ Tip: pass --claim-next to atomically close this task and claim the next availabl
 
 			if claimed != nil {
 				fmt.Fprintf(cmd.OutOrStdout(), "Claimed: %s %q (expires in %s) as=%s\n",
-					claimed.ShortID, claimed.Title, job.FormatDuration(job.DefaultClaimTTLSeconds), actor)
+					claimed.ShortID, claimed.Title, claimDur, actor)
 				if !quiet {
 					renderClaimBriefing(cmd.OutOrStdout(), db, claimed.ShortID)
 				}

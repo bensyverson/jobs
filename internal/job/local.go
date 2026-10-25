@@ -82,36 +82,11 @@ func LoadLocalState(cachePath string) (*LocalState, error) {
 // mid-write cannot leave a half-written local.json.
 func (s *LocalState) Save(cachePath string) error {
 	path := LocalStatePath(cachePath)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create %s: %w", filepath.Dir(path), err)
-	}
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", path, err)
 	}
-	b = append(b, '\n')
-
-	tmp, err := os.CreateTemp(filepath.Dir(path), localStateFileName+".*")
-	if err != nil {
-		return fmt.Errorf("create temp beside %s: %w", path, err)
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if _, err := tmp.Write(b); err != nil {
-		tmp.Close()
-		return fmt.Errorf("write %s: %w", tmpName, err)
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return fmt.Errorf("sync %s: %w", tmpName, err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close %s: %w", tmpName, err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("rename onto %s: %w", path, err)
-	}
-	return nil
+	return writeFileAtomic(path, append(b, '\n'))
 }
 
 // UpdateLocalState applies fn to the local state and saves the result, with

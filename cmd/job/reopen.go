@@ -47,10 +47,13 @@ func newReopenCmd() *cobra.Command {
 			writeReopenAck(out, args[0], title, cascade, reopened)
 
 			if !noClaim && !cascade {
-				if err := job.RunClaim(db, args[0], "", "", actor, false); err != nil {
+				durStr, err := job.ResolveClaimDuration(db, "")
+				if err != nil {
 					return err
 				}
-				durStr := job.FormatDuration(job.DefaultClaimTTLSeconds)
+				if err := job.RunClaim(db, args[0], durStr, "", actor, false); err != nil {
+					return err
+				}
 				fmt.Fprintf(out, "  claimed by %s (expires in %s)\n", actor, durStr)
 			}
 			return nil
