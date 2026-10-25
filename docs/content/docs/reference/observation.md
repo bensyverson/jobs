@@ -226,7 +226,7 @@ Output is a top-level `orient:` header followed by the `tasks:` tree, in **readi
 
 1. **The target in full.** `target` / `title` / `root` / `status` say which leaf you're oriented on and the root of its tree. Then `desc`, `criteria` (each `{text, state}`), and `notes` — *every* substantive note on the target, never truncated.
 2. **Its dependencies.** `blockedBy` lists the open tasks that must finish first; `blocks` lists the open tasks finishing it unblocks. Each entry is `{id, title, status, latest_note}`, so you can judge a neighbor without a `job show`.
-3. **Its siblings.** `siblings` has one line per same-parent sibling leaf — `{id, title, status, notes}`, where `notes` is a count — so you can pick which `job show` to run. Branch siblings (those with children) are not listed; they're whole slices of the plan, already in the tree.
+3. **Its siblings.** `siblings` has one line per open same-parent sibling leaf — `{id, title, status, notes}`, where `notes` is a count — so you can pick which `job show` to run. Closed siblings are not listed (the tree shows them as one-line rows), nor are branch siblings (those with children), which are whole slices of the plan, already in the tree.
 4. **The tree.** The target's node in it carries only its identity and `target: true`; its content is the header.
 
 A `status` anywhere in the output is the *rendered* status: an available task with an open blocker reads `blocked` and names its blockers under `blockedBy`, so the frontier can be read straight off the tree.

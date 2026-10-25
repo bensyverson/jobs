@@ -68,9 +68,11 @@ func orientDeps(db *sql.DB, tasks []*Task) ([]OrientDep, error) {
 	return out, nil
 }
 
-// orientSiblings returns the target's same-parent sibling leaves in plan
+// orientSiblings returns the target's open same-parent sibling leaves in plan
 // order. Branch siblings (those with children) are excluded: they are whole
-// slices of the plan, already in the tree, not neighbors to weigh.
+// slices of the plan, already in the tree, not neighbors to weigh. So are
+// closed ones, which the tree already shows as one-line rows; listing them
+// here too doubled the done rows under a wide container.
 func orientSiblings(db *sql.DB, target *Task) ([]OrientSibling, error) {
 	if target.ParentID == nil {
 		return nil, nil
@@ -81,7 +83,7 @@ func orientSiblings(db *sql.DB, target *Task) ([]OrientSibling, error) {
 	}
 	var out []OrientSibling
 	for _, s := range siblings {
-		if s.ID == target.ID {
+		if s.ID == target.ID || isClosedStatus(s.Status) {
 			continue
 		}
 		children, err := getChildren(db, s.ID)

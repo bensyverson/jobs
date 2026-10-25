@@ -211,3 +211,29 @@ func TestRunOrient_TreeTarget_NotDuplicatedFromHeader(t *testing.T) {
 		t.Errorf("--full tree target must stay whole: desc=%q notes=%d criteria=%d", node.Desc, len(node.Notes), len(node.Criteria))
 	}
 }
+
+// Closed siblings are already one-line rows in the tree below; listing them
+// in the header too doubled the done rows under a wide container.
+func TestRunOrient_Header_ListsOnlyOpenSiblings(t *testing.T) {
+	db := SetupTestDB(t)
+	f := seedHeaderFixture(t, db)
+	if _, _, err := RunDone(db, []string{f.quiet}, false, "", nil, TestActor, false, ""); err != nil {
+		t.Fatalf("close quiet sibling: %v", err)
+	}
+	if _, _, _, err := RunCancel(db, []string{f.sibling}, "obsolete", false, false, false, TestActor); err != nil {
+		t.Fatalf("cancel noted sibling: %v", err)
+	}
+
+	view, err := RunOrient(db, f.target, "", TestActor)
+	if err != nil {
+		t.Fatalf("RunOrient: %v", err)
+	}
+	for _, s := range view.Header.Siblings {
+		if s.ID == f.quiet || s.ID == f.sibling {
+			t.Errorf("closed sibling %s (%s) listed in the header", s.ID, s.Status)
+		}
+	}
+	if len(view.Header.Siblings) != 2 {
+		t.Errorf("siblings: got %d %+v, want 2 (blocker, blocked)", len(view.Header.Siblings), view.Header.Siblings)
+	}
+}

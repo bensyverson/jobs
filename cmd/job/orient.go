@@ -19,7 +19,7 @@ func newOrientCmd() *cobra.Command {
 		Long: "Orient a fresh agent on a single leaf. Output is in reading order, so any prefix of it carries " +
 			"the most useful context available at that length: the `orient:` header holds the target in full " +
 			"(desc, criteria with state, every note), then its blockedBy and blocks (each with status and " +
-			"latest note), then one line per sibling leaf (id, title, status, note count); the target's whole " +
+			"latest note), then one line per open sibling leaf (id, title, status, note count); the target's whole " +
 			"root tree follows. An available task with an open blocker renders `status: blocked` and names " +
 			"its blockers.\n\n" +
 			"The default output is the context-budget view: an open task prints only its latest note, with " +

@@ -32,6 +32,8 @@ The output is ordered so that reading any prefix of it gives the most useful con
 1. **The target in full**, in the `orient:` header: description, criteria with their text and state, and *all* of its notes. The target is the work; its history is the context it needs. (Today the header carries a tally and `own_notes`; the description and criteria text are only in the tree.)
 2. **Its dependencies**: the leaves it is blocked by and the leaves it blocks, each with status and its latest note inline. These are explicit links, not just neighbors.
 3. **Its siblings**, replacing `weigh_notes`' bare ids: one line each with id, title, status and note count, so a reader can choose which `job show` to run. Sibling-hood is a mechanical rule (a wide container gives fifteen siblings of uneven relevance), so their notes are not inlined.
+
+   > **Revised 2026-10-25 (Ben):** only *open* siblings are listed. Closed ones are already one-line rows in the tree, and listing them here too grew the output under a wide container (a leaf under the 41-leaf Issues root: 10,909 → 13,257 bytes, ~4.2 KB of it repeated sibling rows). Issue 3bDt2f.
 4. **The tree.**
 
 ### Bounded history in the tree
