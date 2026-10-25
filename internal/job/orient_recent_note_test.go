@@ -65,10 +65,13 @@ func TestRunOrient_CompletionNote_SkipsNotelessLaterClose(t *testing.T) {
 	if got := findOrientNode(view.Tree, noted).CompletionNote; got != "the real breadcrumb" {
 		t.Errorf("note-bearing close CompletionNote: got %q, want %q", got, "the real breadcrumb")
 	}
-	for _, id := range []string{container, child} {
-		if got := findOrientNode(view.Tree, id).CompletionNote; got != "" {
-			t.Errorf("noteless close %s CompletionNote: got %q, want empty", id, got)
-		}
+	if got := findOrientNode(view.Tree, container).CompletionNote; got != "" {
+		t.Errorf("noteless close %s CompletionNote: got %q, want empty", container, got)
+	}
+	// The fully done container collapses (gphmMz); its noteless child keeps
+	// no row unless it carried the breadcrumb, which it must not.
+	if n := findOrientNode(view.Tree, child); n != nil {
+		t.Errorf("noteless child %s must collapse away, got CompletionNote %q", child, n.CompletionNote)
 	}
 }
 

@@ -3,9 +3,10 @@
 
 Usage: job orient [flags] > orient.yaml; scripts/orient-weight orient.yaml
 
-Prints the total size, the header's size, a node count per status and shape,
-the bytes each field takes per status and shape, and the open nodes with the
-most note bytes. Needs PyYAML.
+Prints the total size, the header's size and each header field's, a node
+count per status and shape (leaf, container, line, collapsed), the bytes each
+field takes per status and shape (`row` is the whole node minus its
+children), and the open nodes with the most note bytes. Needs PyYAML.
 """
 
 import collections
@@ -27,13 +28,24 @@ def main(path):
     heavy = []
 
     def walk(node):
-        shape = "container" if node.get("children") else "leaf"
-        key = f"{node.get('status')}/{shape}"
+        # A one-line closed leaf has no status key: its close date sits
+        # under `done` or `canceled`. A collapsed container carries leaf
+        # counts in place of its leaf rows.
+        status = node.get("status")
+        if status is None:
+            status = "done" if "done" in node else "canceled" if "canceled" in node else None
+            shape = "line"
+        elif "done_leaves" in node or "canceled_leaves" in node:
+            shape = "collapsed"
+        else:
+            shape = "container" if node.get("children") else "leaf"
+        key = f"{status}/{shape}"
         nodes[key] += 1
+        fields[(key, "row")] += size({k: v for k, v in node.items() if k != "children"})
         for field in ("desc", "notes", "criteria", "completion_note"):
             fields[(key, field)] += size(node.get(field))
         notes = node.get("notes") or []
-        if notes and node.get("status") != "done":
+        if notes and status not in ("done", "canceled"):
             heavy.append((size(notes), len(notes), node["id"], node["title"]))
         for child in node.get("children") or []:
             walk(child)
@@ -42,6 +54,9 @@ def main(path):
         walk(root)
 
     print(f"total {len(text.encode('utf-8'))} B, header {size(doc.get('orient'))} B")
+    for field, value in (doc.get("orient") or {}).items():
+        if size(value):
+            print(f"  header {field}: {size(value)} B")
     for key, count in sorted(nodes.items()):
         print(f"  {key}: {count} nodes")
     for (key, field), count in sorted(fields.items(), key=lambda kv: -kv[1]):

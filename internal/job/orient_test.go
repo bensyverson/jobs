@@ -116,61 +116,8 @@ func TestRunOrient_Scope_LimitsToSubtree(t *testing.T) {
 	}
 }
 
-// w4K — Header criteria tally reports passed/total for the target.
-func TestRunOrient_CriteriaTally(t *testing.T) {
-	db := SetupTestDB(t)
-	root := MustAdd(t, db, "", "Root")
-	leaf := MustAdd(t, db, root, "Leaf")
-	if _, err := RunAddCriteria(db, leaf, []Criterion{
-		{Label: "a"}, {Label: "b"}, {Label: "c"}, {Label: "d"},
-	}, TestActor); err != nil {
-		t.Fatalf("RunAddCriteria: %v", err)
-	}
-	if _, err := RunSetCriterion(db, leaf, "a", CriterionPassed, TestActor); err != nil {
-		t.Fatalf("RunSetCriterion: %v", err)
-	}
-
-	view, err := RunOrient(db, leaf, "", TestActor)
-	if err != nil {
-		t.Fatalf("RunOrient: %v", err)
-	}
-	if view.Header.Criteria.Passed != 1 || view.Header.Criteria.Total != 4 {
-		t.Errorf("criteria tally: got {passed:%d total:%d}, want {passed:1 total:4}",
-			view.Header.Criteria.Passed, view.Header.Criteria.Total)
-	}
-}
-
-// ba8 — weigh_notes lists the target's same-parent sibling-leaf ids that
-// carry notes.
-func TestRunOrient_WeighNotes_SiblingLeavesWithNotes(t *testing.T) {
-	db := SetupTestDB(t)
-	root := MustAdd(t, db, "", "Root")
-	parent := MustAdd(t, db, root, "Parent")
-	target := MustAdd(t, db, parent, "Target leaf")
-	notedLeaf := MustAdd(t, db, parent, "Sibling leaf with note")
-	MustAdd(t, db, parent, "Sibling leaf without note")
-	branchSibling := MustAdd(t, db, parent, "Sibling branch with note")
-	MustAdd(t, db, branchSibling, "Child of branch sibling")
-
-	if err := RunNote(db, notedLeaf, "weigh this", nil, TestActor); err != nil {
-		t.Fatalf("note notedLeaf: %v", err)
-	}
-	if err := RunNote(db, branchSibling, "non-leaf note", nil, TestActor); err != nil {
-		t.Fatalf("note branchSibling: %v", err)
-	}
-
-	view, err := RunOrient(db, target, "", TestActor)
-	if err != nil {
-		t.Fatalf("RunOrient: %v", err)
-	}
-	got := view.Header.WeighNotes
-	if len(got) != 1 || got[0] != notedLeaf {
-		t.Errorf("weigh_notes: got %v, want [%s] (only the noted sibling leaf)", got, notedLeaf)
-	}
-}
-
-// UkH — own_notes inlines the target's own prior notes (empty when none).
-func TestRunOrient_OwnNotes_InlinesTargetNotes(t *testing.T) {
+// UkH — the header inlines the target's own prior notes (empty when none).
+func TestRunOrient_HeaderNotes_InlinesTargetNotes(t *testing.T) {
 	db := SetupTestDB(t)
 	root := MustAdd(t, db, "", "Root")
 	leaf := MustAdd(t, db, root, "Leaf")
@@ -185,13 +132,13 @@ func TestRunOrient_OwnNotes_InlinesTargetNotes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunOrient: %v", err)
 	}
-	texts := noteTexts(view.Header.OwnNotes)
+	texts := noteTexts(view.Header.Notes)
 	if len(texts) != 2 || texts[0] != "own progress one" || texts[1] != "own progress two" {
-		t.Errorf("own_notes: got %v, want [own progress one, own progress two]", texts)
+		t.Errorf("header notes: got %v, want [own progress one, own progress two]", texts)
 	}
 }
 
-func TestRunOrient_OwnNotes_EmptyWhenNone(t *testing.T) {
+func TestRunOrient_HeaderNotes_EmptyWhenNone(t *testing.T) {
 	db := SetupTestDB(t)
 	root := MustAdd(t, db, "", "Root")
 	leaf := MustAdd(t, db, root, "Leaf")
@@ -200,8 +147,8 @@ func TestRunOrient_OwnNotes_EmptyWhenNone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunOrient: %v", err)
 	}
-	if len(view.Header.OwnNotes) != 0 {
-		t.Errorf("own_notes: got %v, want empty", noteTexts(view.Header.OwnNotes))
+	if len(view.Header.Notes) != 0 {
+		t.Errorf("header notes: got %v, want empty", noteTexts(view.Header.Notes))
 	}
 }
 

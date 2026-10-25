@@ -3,14 +3,15 @@ package job
 import (
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 )
 
 // OrientView is the assembled, notes-enriched regeneration of a plan tree
 // around a target leaf. It pairs a synthesized Header (the actionable
 // punchline an agent would otherwise compute) with the full Tree of the
-// target's root (or a narrower --scope subtree), each node carrying its
-// status, full description, criteria with state, and substantive notes.
+// target's root (or a narrower --scope subtree), each node carrying what
+// the elision policy keeps of its description, criteria and notes.
 //
 // RunOrient assembles the view; rendering (YAML, later markdown) is a
 // separate concern handled by the renderer behind its own interface.
@@ -19,60 +20,100 @@ type OrientView struct {
 	Tree   *OrientNode
 }
 
-// OrientHeader is the first-class `orient:` block: synthesis the agent would
-// otherwise have to compute. It does not duplicate note bodies (those live in
-// the tree) except for OwnNotes, the target's own prior progress notes, which
-// are hoisted for primacy.
+// OrientHeader is the first-class `orient:` block, in reading order: the
+// target in full (identity, description, criteria with state, every note),
+// then its dependencies, then its sibling leaves. Output is often cut short —
+// a truncated tool result, a reader who stops early — so whatever survives
+// the cut must be the work.
 type OrientHeader struct {
-	Target     string      // target short id
-	Title      string      // target title
-	Root       string      // short id of the target's true root
-	Status     string      // target status
-	BlockedBy  []string    // blocker short ids
-	Blocks     []OrientRef // tasks finishing the target unblocks
-	Criteria   CriteriaTally
-	OwnNotes   []NoteEntry // target's own prior notes, inlined (empty when none)
-	WeighNotes []string    // same-parent sibling-leaf ids that carry notes
+	Target    string // target short id
+	Title     string // target title
+	Root      string // short id of the target's true root
+	Status    string // target status as rendered (see OrientNode.Status)
+	Desc      string
+	Criteria  []Criterion
+	Notes     []NoteEntry // every substantive note on the target
+	BlockedBy []OrientDep // open blockers of the target
+	Blocks    []OrientDep // open tasks the target blocks
+	Siblings  []OrientSibling
 }
 
-// OrientRef is a short id + title pair, used for the header's Blocks list.
-type OrientRef struct {
-	ID    string
-	Title string
+// OrientDep is a task the target is linked to by a block edge, with enough
+// inline to judge it without a `job show`.
+type OrientDep struct {
+	ID         string
+	Title      string
+	Status     string // as rendered (see OrientNode.Status)
+	LatestNote string // newest substantive note; "" when none
 }
 
-// CriteriaTally is the passed/total acceptance-criteria count for the target.
-type CriteriaTally struct {
-	Passed int
-	Total  int
+// OrientSibling is one of the target's same-parent sibling leaves. Siblings
+// are neighbors by position, not by link, so only a note count is inlined —
+// enough to choose which `job show` to run.
+type OrientSibling struct {
+	ID     string
+	Title  string
+	Status string // as rendered (see OrientNode.Status)
+	Notes  int    // substantive note count
 }
 
 // OrientNode is one task in the rendered tree, in identity → spec → history
 // field order: the task itself, its outbound blocks, criteria with state, and
-// substantive notes (history) last. Target marks the orient target. Closed is
-// the close timestamp (Unix seconds) for done nodes, 0 otherwise.
+// substantive notes (history) last. Target marks the orient target.
 //
 // Desc is the assembly-owned projection of Task.Description: renderers must
 // read Desc, never Task.Description, so history elision stays an assembly
-// decision. In the default (elided) view, done leaves drop desc, and done
-// nodes of any shape drop notes and criteria; done containers keep desc
-// because that's where the plan narrative lives.
+// decision. In the default (elided) view, closed (done or canceled) leaves
+// drop desc, closed nodes of any shape drop notes and criteria, open nodes
+// keep only their newest note, and the target keeps only its identity (the
+// header carries it in full); closed containers keep desc because that's
+// where the plan narrative lives.
 type OrientNode struct {
-	Task     *Task
-	Target   bool
-	Closed   int64    // close timestamp for done nodes; 0 when not done
-	Desc     string   // renderable description; "" when elided
-	Labels   []string // the node's own labels
-	Blocks   []string // outbound block target short ids
-	Criteria []Criterion
+	Task   *Task
+	Target bool
+	// Status is the status to render: the task's own, except that an
+	// available task with an open blocker reads "blocked". Renderers read
+	// Status, never Task.Status.
+	Status    string
+	BlockedBy []string // open blocker short ids
+	Closed    int64    // close timestamp (Unix seconds) for closed nodes; 0 when open
+	Desc      string   // renderable description; "" when elided
+	Labels    []string // the node's own labels
+	Blocks    []string // outbound block target short ids
+	Criteria  []Criterion
 	// CompletionNote is the single "what just happened" breadcrumb of the
 	// elided view: set on exactly one node in the tree — the most recently
 	// closed done task that has a completion note — and empty everywhere
 	// else. The full view leaves it empty (completion notes fold into Notes).
 	CompletionNote string
 	Notes          []NoteEntry
+	// EarlierNotes counts the substantive notes the elided view dropped from
+	// an open node, which keeps only its latest; 0 when none were dropped.
+	EarlierNotes int
+	// Shape is how much of the node the elided view renders; --full renders
+	// every node as OrientShapeBlock.
+	Shape OrientShape
+	// DoneLeaves and CanceledLeaves count the closed leaves a collapsed
+	// container stands in for; 0 unless Shape is OrientShapeCollapsed.
+	DoneLeaves     int
+	CanceledLeaves int
 	Children       []*OrientNode
 }
+
+// OrientShape is how much of a node the tree renders.
+type OrientShape int
+
+const (
+	// OrientShapeBlock renders every field assembly kept.
+	OrientShapeBlock OrientShape = iota
+	// OrientShapeLine renders a closed leaf on one line: title, id and the
+	// close date under its status's key.
+	OrientShapeLine
+	// OrientShapeCollapsed renders a closed container whose whole subtree is
+	// closed: its desc and leaf counts, and no leaf rows except the path to
+	// the completion-note breadcrumb.
+	OrientShapeCollapsed
+)
 
 // RunOrient assembles an OrientView for a target leaf. An empty targetShortID
 // resolves the target to the next available leaf (matching RunNext). The
@@ -80,16 +121,16 @@ type OrientNode struct {
 // optional scopeShortID narrows rendering to that subtree. Target and scope
 // are orthogonal: scope only bounds what is rendered, never what is targeted.
 //
-// The default view elides done-node history (see OrientNode) so orient output
-// stays within an agent's context budget as a plan accumulates history; use
-// RunOrientOpts with full=true for the unelided view.
+// The default view bounds history (see OrientNode and collapseClosedWork) so
+// orient output stays within an agent's context budget as a plan accumulates
+// history; use RunOrientOpts with full=true for the unelided view.
 func RunOrient(db *sql.DB, targetShortID, scopeShortID, actor string) (*OrientView, error) {
 	return RunOrientOpts(db, targetShortID, scopeShortID, actor, false, false)
 }
 
 // RunOrientOpts is RunOrient with the elision policy and the tree-kind scope
-// explicit: full=true keeps desc, notes, and criteria on every node regardless
-// of status; issues=true targets the issue-tree frontier instead of the
+// explicit: full=true keeps desc, every note, and criteria on every node
+// regardless of status; issues=true targets the issue-tree frontier instead of the
 // task-tree one. Both are ignored when an explicit target id is given.
 func RunOrientOpts(db *sql.DB, targetShortID, scopeShortID, actor string, full, issues bool) (*OrientView, error) {
 	target, err := resolveOrientTarget(db, targetShortID, actor, issues)
@@ -128,6 +169,7 @@ func RunOrientOpts(db *sql.DB, targetShortID, scopeShortID, actor string, full, 
 		if err := annotateRecentCompletionNote(db, tree); err != nil {
 			return nil, err
 		}
+		collapseClosedWork(tree)
 	}
 
 	header, err := buildOrientHeader(db, target, root)
@@ -197,6 +239,9 @@ func RunOrientNoTasks(db *sql.DB, actor, message string, full, issues bool) (*Or
 		if err != nil {
 			return nil, err
 		}
+		if !full {
+			collapseClosedWork(tree)
+		}
 		trees = append(trees, tree)
 	}
 
@@ -220,17 +265,26 @@ func resolveOrientTarget(db *sql.DB, targetShortID, actor string, issues bool) (
 }
 
 // buildOrientNode recursively assembles the subtree rooted at t, flagging the
-// node whose id matches targetID. Unless full is set, done nodes are elided:
-// notes and criteria are dropped outright, and desc survives only on done
-// containers (children carry the plan narrative; done leaves are reduced to
-// title/id/status/closed).
+// node whose id matches targetID. Unless full is set, closed (done or
+// canceled) nodes are elided: notes and criteria are dropped outright, and
+// desc survives only on closed containers (children carry the plan narrative;
+// closed leaves are reduced to identity). Open nodes keep only their newest
+// note, and the target keeps nothing but identity — the header carries it in
+// full.
 func buildOrientNode(db *sql.DB, t *Task, targetID int64, full bool) (*OrientNode, error) {
-	elide := t.Status == "done" && !full
-
 	node := &OrientNode{
 		Task:   t,
 		Target: t.ID == targetID,
 	}
+	inHeader := node.Target && !full
+	elide := (isClosedStatus(t.Status) && !full) || inHeader
+
+	status, blockedBy, err := orientStatus(db, t)
+	if err != nil {
+		return nil, err
+	}
+	node.Status = status
+	node.BlockedBy = blockedBy
 
 	if !elide {
 		notes, err := substantiveNotes(db, t)
@@ -240,6 +294,12 @@ func buildOrientNode(db *sql.DB, t *Task, targetID int64, full bool) (*OrientNod
 		criteria, err := GetCriteria(db, t.ID)
 		if err != nil {
 			return nil, err
+		}
+		// An open node's history is bounded to its newest note: a root used
+		// as a session log otherwise grows the output every session.
+		if !full && len(notes) > 1 {
+			node.EarlierNotes = len(notes) - 1
+			notes = notes[len(notes)-1:]
 		}
 		node.Notes = notes
 		node.Criteria = criteria
@@ -258,9 +318,14 @@ func buildOrientNode(db *sql.DB, t *Task, targetID int64, full bool) (*OrientNod
 	}
 	node.Labels = labels
 
-	// Done nodes carry their close timestamp, sourced from the `done` event.
-	if t.Status == "done" {
-		_, ts, err := doneEventMeta(db, t.ID)
+	// Closed nodes carry their close timestamp, sourced from the event that
+	// closed them.
+	if isClosedStatus(t.Status) {
+		closeEvent := EventDone
+		if t.Status == "canceled" {
+			closeEvent = EventCanceled
+		}
+		_, ts, err := closeEventMeta(db, t.ID, closeEvent)
 		if err != nil {
 			return nil, err
 		}
@@ -281,95 +346,33 @@ func buildOrientNode(db *sql.DB, t *Task, targetID int64, full bool) (*OrientNod
 
 	// Desc is decided after children are known: an elided done leaf drops
 	// it; a done container keeps it (the slice-level narrative).
-	if !elide || len(node.Children) > 0 {
+	if !inHeader && (!elide || len(node.Children) > 0) {
 		node.Desc = t.Description
 	}
 	return node, nil
 }
 
-// buildOrientHeader synthesizes the orient header for the target, leaning on
-// RunInfo for the bundled blockers/blocked/criteria. OwnNotes is computed via
-// substantiveNotes so a completion note folds in when the target is itself
-// done (RunInfo.Notes carries only `noted` events).
-func buildOrientHeader(db *sql.DB, target, root *Task) (*OrientHeader, error) {
-	info, err := RunInfo(db, target.ShortID)
+// orientStatus returns the status orient renders for t and the short ids of
+// its open blockers. The stored status of a blocked task is still
+// "available"; orient names it "blocked" so the frontier reads off the tree.
+// A closed task has no blockers worth naming.
+func orientStatus(db *sql.DB, t *Task) (string, []string, error) {
+	if isClosedStatus(t.Status) {
+		return t.Status, nil, nil
+	}
+	blockers, err := GetBlockers(db, t.ShortID)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
-
-	var blockedBy []string
-	for _, b := range info.Blockers {
-		blockedBy = append(blockedBy, b.ShortID)
+	var ids []string
+	for _, b := range blockers {
+		ids = append(ids, b.ShortID)
 	}
-
-	var blocks []OrientRef
-	for _, b := range info.Blocked {
-		blocks = append(blocks, OrientRef{ID: b.ShortID, Title: b.Title})
+	slices.Sort(ids)
+	if t.Status == "available" && len(ids) > 0 {
+		return "blocked", ids, nil
 	}
-
-	tally := CriteriaTally{Total: len(info.Criteria)}
-	for _, c := range info.Criteria {
-		if c.State == CriterionPassed {
-			tally.Passed++
-		}
-	}
-
-	ownNotes, err := substantiveNotes(db, target)
-	if err != nil {
-		return nil, err
-	}
-
-	weigh, err := weighNotes(db, target)
-	if err != nil {
-		return nil, err
-	}
-
-	return &OrientHeader{
-		Target:     target.ShortID,
-		Title:      target.Title,
-		Root:       root.ShortID,
-		Status:     target.Status,
-		BlockedBy:  blockedBy,
-		Blocks:     blocks,
-		Criteria:   tally,
-		OwnNotes:   ownNotes,
-		WeighNotes: weigh,
-	}, nil
-}
-
-// weighNotes returns the short ids of the target's same-parent sibling leaves
-// that carry substantive notes. Their bodies stay folded into the tree; the
-// header only points at them. Branch siblings (those with children) are
-// excluded — weigh_notes is a leaf-to-leaf signal.
-func weighNotes(db *sql.DB, target *Task) ([]string, error) {
-	if target.ParentID == nil {
-		return nil, nil
-	}
-	siblings, err := getChildren(db, *target.ParentID)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, s := range siblings {
-		if s.ID == target.ID {
-			continue
-		}
-		children, err := getChildren(db, s.ID)
-		if err != nil {
-			return nil, err
-		}
-		if len(children) > 0 {
-			continue // leaves only
-		}
-		notes, err := substantiveNotes(db, s)
-		if err != nil {
-			return nil, err
-		}
-		if len(notes) > 0 {
-			out = append(out, s.ShortID)
-		}
-	}
-	return out, nil
+	return t.Status, ids, nil
 }
 
 // substantiveNotes returns a task's notes filtered to substance: the `noted`
@@ -394,9 +397,6 @@ func substantiveNotes(db *sql.DB, t *Task) ([]NoteEntry, error) {
 	return out, nil
 }
 
-// doneEventMeta returns the actor and timestamp of a task's most recent `done`
-// event, used to attribute its completion note. Returns zero values when no
-// `done` event exists.
 // annotateRecentCompletionNote sets CompletionNote on the single done node in
 // the assembled tree whose note-bearing close is the most recent (done-event
 // recency, ties broken by event id). Noteless closes — cascade-closed
@@ -445,14 +445,24 @@ func annotateRecentCompletionNote(db *sql.DB, tree *OrientNode) error {
 	return nil
 }
 
+// doneEventMeta returns the actor and timestamp of a task's most recent `done`
+// event, used to attribute its completion note. Returns zero values when no
+// `done` event exists.
 func doneEventMeta(db *sql.DB, taskID int64) (string, int64, error) {
+	return closeEventMeta(db, taskID, EventDone)
+}
+
+// closeEventMeta returns the actor and timestamp of a task's most recent
+// close event of the given type (EventDone or EventCanceled). Returns zero
+// values when no such event exists.
+func closeEventMeta(db *sql.DB, taskID int64, closeEvent EventType) (string, int64, error) {
 	row := db.QueryRow(`
 		SELECT actor, created_at
 		FROM events
-		WHERE task_id = ? AND event_type = 'done'
+		WHERE task_id = ? AND event_type = ?
 		ORDER BY created_at DESC, id DESC
 		LIMIT 1
-	`, taskID)
+	`, taskID, string(closeEvent))
 	var actor string
 	var ts int64
 	if err := row.Scan(&actor, &ts); err != nil {

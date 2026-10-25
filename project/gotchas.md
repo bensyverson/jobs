@@ -93,3 +93,7 @@ Two worktree-isolation refusals worth knowing while doing that: a command whose 
 ## 2026-10-25 — tests that run real git fail only inside the pre-commit hook
 
 **git exports `GIT_DIR` and `GIT_INDEX_FILE` to its hooks, and every `git` a test spawns obeys them over `-C <dir>`**, so a test that does `git init` + `git worktree add` in `t.TempDir()` passes from the shell and fails in the hook with `fatal: .git/index: index file open failed: Not a directory`. Shell out through `gitCommand` (`internal/job/worktree_replica.go`), which clears the repository-locating variables, and reproduce a hook run with `GIT_DIR=$PWD/.git GIT_INDEX_FILE=$PWD/.git/index go test …`.
+
+## 2026-10-25 — in a worktree, a compound command naming the scratchpad is refused
+
+**The session scratchpad's path contains `-Users-ben-git-Jobs`, and the worktree-isolation check reads that as naming git**, so a compound Bash command or heredoc that mentions it is refused as unverifiable; a plain single command, or the Write/Edit tools, work. Found by the orient agent; brief worktree agents to write scratch files with Write and keep scratchpad commands simple.

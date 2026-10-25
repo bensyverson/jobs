@@ -211,33 +211,78 @@ Four facts to keep straight:
 
 ## `orient`
 
-The worker's session-opener. Where `status` hands the orchestrator a forest-wide landscape, `orient` regenerates the full plan tree around a *single leaf* — the one you're about to work on — with live nodes carrying their complete descriptions, substantive notes, and criteria as a checklist. It replaces the old habit of pasting a whole plan doc at a fresh agent: the tree is live, so the current state of the plan comes along for free.
+The worker's session-opener. Where `status` hands the orchestrator a forest-wide landscape, `orient` regenerates the full plan tree around a *single leaf* — the one you're about to work on — with that leaf in full at the top and live nodes carrying their descriptions, latest note, and criteria as a checklist. It replaces the old habit of pasting a whole plan doc at a fresh agent: the tree is live, so the current state of the plan comes along for free.
 
 ```sh
 job orient                                 # target the next available leaf
 job orient abc12                           # target a specific task
 job orient abc12 --scope def34             # render only the def34 subtree
-job orient --full                          # keep done-task history (unelided)
+job orient --full                          # every node, every note (unelided)
 job orient --format yaml                   # explicit default
 job orient --issues                        # target the next open issue instead
 ```
 
-Output is a top-level `orient:` header followed by the `tasks:` tree. The header is the synthesized punchline — what an agent would otherwise compute by hand before starting:
+Output is a top-level `orient:` header followed by the `tasks:` tree, in **reading order**: whatever prefix of it you read — an agent that stops after forty lines, a tool result cut short — carries the most useful context available at that length. So the work comes first and the plan around it last:
 
-- `target` / `title` / `root` / `status` — which leaf you're oriented on, and the root of its tree.
-- `blockedBy` / `blocks` — what must finish before this task, and what finishing it unblocks (each `blocks` entry carries `{id, title}`).
-- `criteria` — a `{passed, total}` tally over the target's acceptance criteria.
-- `own_notes` — the target's *own* prior progress notes, inlined for primacy (often empty on a fresh leaf).
-- `weigh_notes` — a pointer list of node ids whose notes bear on this task: the target's same-parent sibling leaves that carry notes. Their bodies stay folded in the tree; the header just points at them.
+1. **The target in full.** `target` / `title` / `root` / `status` say which leaf you're oriented on and the root of its tree. Then `desc`, `criteria` (each `{text, state}`), and `notes` — *every* substantive note on the target, never truncated.
+2. **Its dependencies.** `blockedBy` lists the open tasks that must finish first; `blocks` lists the open tasks finishing it unblocks. Each entry is `{id, title, status, latest_note}`, so you can judge a neighbor without a `job show`.
+3. **Its siblings.** `siblings` has one line per same-parent sibling leaf — `{id, title, status, notes}`, where `notes` is a count — so you can pick which `job show` to run. Branch siblings (those with children) are not listed; they're whole slices of the plan, already in the tree.
+4. **The tree.** The target's node in it carries only its identity and `target: true`; its content is the header.
 
-Six things to keep straight:
+A `status` anywhere in the output is the *rendered* status: an available task with an open blocker reads `blocked` and names its blockers under `blockedBy`, so the frontier can be read straight off the tree.
+
+```yaml
+orient:
+  target: Qm3x9
+  title: Lead the header with the target
+  root: exASO
+  status: available
+  desc: |
+    The orient header carries the target in full…
+  criteria:
+    - text: The header carries the target's description
+      state: pending
+  notes:
+    - First pass at the header shape; see the design doc.
+  blockedBy: []
+  blocks:
+    - id: yo1dK
+      title: Document the new orient shape
+      status: blocked
+      latest_note: Waiting on the header.
+  siblings:
+    - {id: y9yCy, title: Bound note history on open nodes, status: done, notes: 2}
+    - {id: yo1dK, title: Document the new orient shape, status: blocked, notes: 1}
+tasks:
+  - title: '`orient` in reading order'
+    id: exASO
+    status: available
+    notes:
+      - Session 41 starts here.
+    earlier_notes: '+40 earlier: job show exASO'
+    children:
+      - {title: Bound note history on open nodes, id: y9yCy, done: "2026-10-25"}
+      - title: Lead the header with the target
+        id: Qm3x9
+        status: available
+        target: true
+      - title: Document the new orient shape
+        id: yo1dK
+        status: blocked
+        blockedBy:
+          - Qm3x9
+```
+
+Eight things to keep straight:
 
 - **The default target skips issue-trees.** With no id, orient targets the next available leaf in a *task-tree*; `--issues` targets the [issue-tree](../../concepts/tree-kinds/) frontier instead. An explicit id always wins over both.
 - **The default target respects your focus.** With no id and a [focus](../execution/#focus) set, orient targets the next available leaf *inside your focused root* — your task focus by default, your issue focus with `--issues`. An explicit id ignores focus entirely.
 - **An empty tree is a valid answer, not an error.** When there's nothing available to target — the focused root is exhausted, or the whole repo is (with no focus) — orient still exits **0**. It prints the same guidance `next` would have failed with (naming the root and the escapes when a focus is exhausted) under `orient.target: null` and `orient.message`, in place of the usual synthesized header, and `tasks:` still renders whatever's in scope: the focused root's tree, or every root in the forest with no focus. `--issues` scopes this the same way it scopes the target — the focused *issue* root, or every issue root with no issue focus, never a task-tree. `next` and `claim --next` keep their non-zero exit for this same condition — there the caller explicitly asked for a task and didn't get one.
 - **Target and scope are orthogonal.** The positional id (or the next leaf) is *what you're working on*; `--scope` only bounds *what gets rendered*. By default the scope is the target's whole root tree — the full context the plan doc used to supply. `--scope <id>` narrows it to a subtree for very large plans, but `root` in the header still names the true root.
-- **Done tasks are elided to stay in context.** A plan accumulates history monotonically, and re-emitting all of it eventually pushes orient output past what an agent can read in one gulp (a real 90-task tree measured 231KB, 91% of it done-task history). So the default view reduces done tasks to `title / id / status / closed`: their notes and criteria are dropped, and their `desc` is dropped too *unless the done task has children* — container descriptions carry the slice-level plan narrative and are kept. The shape and order of finished work stays visible; any elided history is one `job show <id>` away. One breadcrumb survives: the most recently closed task with a completion note carries it as `completion_note`, so a fresh agent sees what just happened. `--full` restores the unelided view.
-- **Notes are filtered to substance.** Each live node folds in its `noted` events and completion note; churn — heartbeats, claims, releases, moves, label edits, block/unblock — is excluded. The raw trail is always there in `job log`.
+- **Finished work is collapsed to stay in context.** A plan accumulates history monotonically, and re-emitting all of it eventually pushes orient output past what an agent can read in one gulp (a real 90-task tree measured 231KB, 91% of it done-task history). So the default view treats closed tasks — done *and* canceled — as identity only: their notes and criteria are dropped. A closed leaf renders on one line, `{title, id, done: <date>}` (or `canceled: <date>`). A closed container whose whole subtree is closed keeps its `desc` — the slice-level plan narrative — plus a `done_leaves` count (and `canceled_leaves`, when any), and renders no leaf rows. Closed leaves under a container that is still open keep their one-line rows: they're the target's neighbors and say what already exists. Any elided history is one `job show <id>` away. One breadcrumb survives: the most recently closed task with a completion note carries it as `completion_note`, keeping its row even inside a collapsed container, so a fresh agent sees what just happened.
+- **Open tasks show their latest note.** Every open task other than the target prints only its newest substantive note, followed by `earlier_notes: '+N earlier: job show <id>'` when it has more. A root kept as a session log would otherwise grow the output every session; this way only the newest breadcrumb prints. A ruling other work builds on belongs in a design doc, with the note pointing there — a note alone falls out of view behind the next one.
+- **`--full` is the unelided view**: every node in block form with its `desc`, criteria and every note, and the target's tree node whole.
+- **Notes are filtered to substance.** Notes are a task's `noted` events and its completion note; churn — heartbeats, claims, releases, moves, label edits, block/unblock — is excluded. The raw trail is always there in `job log`.
 
 `orient` is read-only and never requires `--as`. `--format` defaults to `yaml`; a leaner `--format md` (YAML front-matter plus a markdown checklist tree) is planned and currently returns a not-yet-implemented message.
 

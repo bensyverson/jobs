@@ -104,12 +104,13 @@ func TestRunOrient_DoneContainer_KeepsDescDropsHistory(t *testing.T) {
 	if len(node.Criteria) != 0 {
 		t.Errorf("done container Criteria: got %d, want none", len(node.Criteria))
 	}
-	child := findOrientNode(view.Tree, containerChild)
-	if child == nil {
-		t.Fatalf("done container's child %s missing from tree (shape must survive)", containerChild)
+	// A fully done container collapses: its leaf rows give way to a count
+	// (gphmMz), so the child no longer renders a row of its own.
+	if child := findOrientNode(view.Tree, containerChild); child != nil {
+		t.Errorf("fully done container's child %s must collapse into the count", containerChild)
 	}
-	if child.Desc != "" {
-		t.Errorf("done child leaf Desc: got %q, want elided", child.Desc)
+	if node.DoneLeaves != 1 {
+		t.Errorf("done container DoneLeaves: got %d, want 1", node.DoneLeaves)
 	}
 }
 
@@ -129,8 +130,11 @@ func TestRunOrient_OpenAndClaimedNodes_Unelided(t *testing.T) {
 		}
 	}
 	MustClaim(t, db, claimed, "1h")
+	// The target's content moves to the header, so the nodes under test are
+	// both non-target open nodes.
+	target := MustAdd(t, db, root, "Target leaf")
 
-	view, err := RunOrient(db, open, "", TestActor)
+	view, err := RunOrient(db, target, "", TestActor)
 	if err != nil {
 		t.Fatalf("RunOrient: %v", err)
 	}

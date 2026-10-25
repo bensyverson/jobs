@@ -17,21 +17,28 @@ import (
 // rtDoc mirrors the rendered document for round-trip decode assertions.
 type rtDoc struct {
 	Orient struct {
-		Target    string   `yaml:"target"`
-		Title     string   `yaml:"title"`
-		Root      string   `yaml:"root"`
-		Status    string   `yaml:"status"`
-		BlockedBy []string `yaml:"blockedBy"`
-		Blocks    []struct {
+		Target   string `yaml:"target"`
+		Title    string `yaml:"title"`
+		Root     string `yaml:"root"`
+		Status   string `yaml:"status"`
+		Desc     string `yaml:"desc"`
+		Criteria []struct {
+			Text  string `yaml:"text"`
+			State string `yaml:"state"`
+		} `yaml:"criteria"`
+		Notes     []string `yaml:"notes"`
+		BlockedBy []struct {
+			ID    string `yaml:"id"`
+			Title string `yaml:"title"`
+		} `yaml:"blockedBy"`
+		Blocks []struct {
 			ID    string `yaml:"id"`
 			Title string `yaml:"title"`
 		} `yaml:"blocks"`
-		Criteria struct {
-			Passed int `yaml:"passed"`
-			Total  int `yaml:"total"`
-		} `yaml:"criteria"`
-		OwnNotes   []string `yaml:"own_notes"`
-		WeighNotes []string `yaml:"weigh_notes"`
+		Siblings []struct {
+			ID    string `yaml:"id"`
+			Notes int    `yaml:"notes"`
+		} `yaml:"siblings"`
 	} `yaml:"orient"`
 	Tasks []rtNode `yaml:"tasks"`
 }
@@ -110,17 +117,20 @@ func TestRenderOrientYAML_NodeFieldOrder(t *testing.T) {
 		t.Fatalf("note: %v", err)
 	}
 
-	// Scope to the leaf so the rendered tree is a single node and key
-	// positions are unambiguous.
-	view, err := RunOrient(db, leaf, leaf, TestActor)
+	target := MustAdd(t, db, root, "Target")
+
+	// Scope to the (non-target) leaf so the rendered tree is a single node
+	// and key positions are unambiguous. The target itself renders identity
+	// only in the tree; its content lives in the header.
+	view, err := RunOrient(db, target, leaf, TestActor)
 	if err != nil {
 		t.Fatalf("RunOrient: %v", err)
 	}
 	out := renderOrient(t, view)
 
 	// Restrict the search to the `tasks:` section; the header also carries
-	// `criteria:`/`status:` and `own_notes:` (which contains the substring
-	// `notes:`), which would otherwise pollute positional checks.
+	// `criteria:`/`status:`/`notes:`, which would otherwise pollute
+	// positional checks.
 	ti := strings.Index(out, "\ntasks:")
 	if ti < 0 {
 		t.Fatalf("no tasks section:\n%s", out)
@@ -141,12 +151,18 @@ func TestRenderOrientYAML_NodeFieldOrder(t *testing.T) {
 	}
 }
 
-// xRo — Criteria render as {text, state}; the target node is flagged target true.
+// xRo — Criteria render as {text, state}, in the header for the target and
+// in the tree for every other open node; the target node is flagged target
+// true.
 func TestRenderOrientYAML_CriteriaAndTargetFlag(t *testing.T) {
 	db := SetupTestDB(t)
 	root := MustAdd(t, db, "", "Root")
 	leaf := MustAdd(t, db, root, "Leaf")
 	if _, err := RunAddCriteria(db, leaf, []Criterion{{Label: "must hold"}}, TestActor); err != nil {
+		t.Fatalf("RunAddCriteria: %v", err)
+	}
+	other := MustAdd(t, db, root, "Other leaf")
+	if _, err := RunAddCriteria(db, other, []Criterion{{Label: "also holds"}}, TestActor); err != nil {
 		t.Fatalf("RunAddCriteria: %v", err)
 	}
 
@@ -167,8 +183,15 @@ func TestRenderOrientYAML_CriteriaAndTargetFlag(t *testing.T) {
 	if !node.Target {
 		t.Errorf("target node not flagged `target: true`:\n%s", out)
 	}
-	if len(node.Criteria) != 1 || node.Criteria[0].Text != "must hold" || node.Criteria[0].State != "pending" {
-		t.Errorf("criteria not rendered as {text,state}: got %+v\n%s", node.Criteria, out)
+	if c := doc.Orient.Criteria; len(c) != 1 || c[0].Text != "must hold" || c[0].State != "pending" {
+		t.Errorf("header criteria not rendered as {text,state}: got %+v\n%s", c, out)
+	}
+	otherNode := findRTNode(doc.Tasks, other)
+	if otherNode == nil {
+		t.Fatalf("leaf %s missing in decoded tree", other)
+	}
+	if c := otherNode.Criteria; len(c) != 1 || c[0].Text != "also holds" || c[0].State != "pending" {
+		t.Errorf("tree criteria not rendered as {text,state}: got %+v\n%s", c, out)
 	}
 }
 
@@ -238,8 +261,8 @@ func TestRenderOrientYAML_RoundTrips(t *testing.T) {
 	if doc.Orient.Target != target {
 		t.Errorf("decoded orient.target: got %q, want %q", doc.Orient.Target, target)
 	}
-	if doc.Orient.Criteria.Passed != 1 || doc.Orient.Criteria.Total != 2 {
-		t.Errorf("decoded criteria tally: got %+v, want {1 2}", doc.Orient.Criteria)
+	if c := doc.Orient.Criteria; len(c) != 2 || c[0].State != "passed" || c[1].State != "pending" {
+		t.Errorf("decoded header criteria: got %+v, want x passed, y pending", c)
 	}
 	rootNode := findRTNode(doc.Tasks, root)
 	if rootNode == nil {

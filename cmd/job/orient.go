@@ -16,13 +16,18 @@ func newOrientCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "orient [id]",
 		Short: "Regenerate the plan tree around a target leaf for a fresh agent",
-		Long: "Orient a fresh agent on a single leaf: emit the target's whole root tree, substantive notes " +
-			"folded onto live nodes, criteria as a checklist, and a synthesized `orient:` header (target, " +
-			"what it blocks, criteria tally, own_notes, weigh_notes).\n\n" +
-			"The default output is the context-budget view: done tasks are reduced to title/id/status/closed " +
-			"(done containers keep their desc — the plan narrative), their notes and criteria are elided, and " +
-			"a single completion_note breadcrumb marks the most recent note-bearing close. Use `job show <id>` " +
-			"for any elided history, or --full for the unelided view.\n\n" +
+		Long: "Orient a fresh agent on a single leaf. Output is in reading order, so any prefix of it carries " +
+			"the most useful context available at that length: the `orient:` header holds the target in full " +
+			"(desc, criteria with state, every note), then its blockedBy and blocks (each with status and " +
+			"latest note), then one line per sibling leaf (id, title, status, note count); the target's whole " +
+			"root tree follows. An available task with an open blocker renders `status: blocked` and names " +
+			"its blockers.\n\n" +
+			"The default output is the context-budget view: an open task prints only its latest note, with " +
+			"`+N earlier: job show <id>` when it has more; a closed (done or canceled) leaf is one line — " +
+			"title, id, close date; a closed container whose whole subtree is closed keeps its desc and a " +
+			"done-leaf count and no leaf rows; and a single completion_note breadcrumb marks the most recent " +
+			"note-bearing close. Use `job show <id>` for any elided history, or --full for every node and " +
+			"every note.\n\n" +
 			"This is the worker's session-opener, complementing `job status` (the orchestrator's). With no id, " +
 			"the target is the next available leaf in a task-tree; issue-trees are skipped unless --issues is " +
 			"passed (see `job kind`). Pass an id to target a specific task — an explicit id always wins. The " +
@@ -75,7 +80,7 @@ func newOrientCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&format, "format", "yaml", "output format (yaml; md planned)")
 	cmd.Flags().StringVar(&scope, "scope", "", "limit the rendered tree to this subtree")
-	cmd.Flags().BoolVar(&full, "full", false, "keep desc, notes, and criteria on done tasks (unelided view)")
+	cmd.Flags().BoolVar(&full, "full", false, "render every node in full with every note (unelided view)")
 	cmd.Flags().BoolVar(&issues, "issues", false, "target the next available leaf in an issue-tree (see `job kind`)")
 	return cmd
 }

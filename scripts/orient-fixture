@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+"""Seed a store shaped like a long-running plan, for measuring `job orient`.
+
+Usage: scripts/orient-fixture <job-binary> <empty-dir>
+
+Creates <empty-dir>/.jobs.db holding one root used as a session log (30
+notes), six finished slices of ten done leaves each, and an open slice with
+five done leaves, a canceled leaf, the target (the first available leaf)
+and three open leaves with four notes each, one blocked by the target. Then:
+
+  cd <empty-dir>; <job-binary> orient > orient.yaml
+  scripts/orient-weight orient.yaml
+
+Pass the same directory to an old and a new binary to compare their output
+on identical data: the fixture is deterministic apart from ids and dates.
+"""
+
+import os
+import subprocess
+import sys
+
+PARAGRAPH = (
+    "The editor keeps a single source of truth for the document and derives every view from it; "
+    "this slice moves one more surface onto that model and deletes the code it replaces. "
+)
+
+
+def main(job, directory):
+    os.chdir(directory)
+
+    def run(*args):
+        return subprocess.run([job, *args], check=True, capture_output=True, text=True).stdout.strip()
+
+    def add(parent, title, desc, criteria=(), before=None):
+        args = ["add", *([parent] if parent else []), title, "--id-only", "--desc", desc]
+        for c in criteria:
+            args += ["--criterion", c]
+        if before:
+            args += ["--before", before]
+        return run(*args)
+
+    run("init", "--as", "fixture")
+    root = add("", "Editor push", PARAGRAPH * 3)
+    for i in range(1, 31):
+        run("note", root, "-m", f"Session {i} starts here. " + PARAGRAPH * 2)
+
+    # Closing the last open child of a container auto-closes it, so the open
+    # slice and every one of its children exist before anything closes; the
+    # finished slices are inserted ahead of it to keep plan order.
+    current = add(root, "Current slice", PARAGRAPH * 2)
+    finished = [add(current, f"Current step {leaf}", PARAGRAPH, ["tests pass"]) for leaf in range(1, 6)]
+    dropped = add(current, "Dropped step", PARAGRAPH)
+    target = add(current, "Target step", PARAGRAPH * 2, ["the change lands", "tests pass", "docs updated"])
+    open_steps = [add(current, f"Open step {leaf}", PARAGRAPH, ["tests pass"]) for leaf in range(1, 4)]
+
+    for s in range(1, 7):
+        slice_id = add(root, f"Finished slice {s}", PARAGRAPH * 2, before=current)
+        for leaf in range(1, 11):
+            leaf_id = add(slice_id, f"Slice {s} step {leaf}", PARAGRAPH, ["tests pass", "docs updated"])
+            run("note", leaf_id, "-m", "Progress: " + PARAGRAPH)
+            run("done", leaf_id, "--all-passed", "-m", f"Closed slice {s} step {leaf}. " + PARAGRAPH)
+
+    for leaf, leaf_id in enumerate(finished, 1):
+        run("done", leaf_id, "--all-passed", "-m", f"Closed current step {leaf}. " + PARAGRAPH)
+    run("cancel", dropped, "--reason", "superseded by the current model")
+    for n in range(1, 4):
+        run("note", target, "-m", f"Target note {n}. " + PARAGRAPH)
+    for leaf, leaf_id in enumerate(open_steps, 1):
+        for n in range(1, 5):
+            run("note", leaf_id, "-m", f"Open step {leaf} note {n}. " + PARAGRAPH)
+    run("block", "add", open_steps[0], "by", target)
+    print(f"seeded {directory}/.jobs.db; target {target}")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        sys.exit(__doc__)
+    main(os.path.abspath(sys.argv[1]), sys.argv[2])
