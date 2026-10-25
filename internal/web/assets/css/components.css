@@ -3063,6 +3063,14 @@ a.c-graph-node__bug:focus-visible {
   font-family: var(--font-mono);
   font-size: var(--font-data-id-size);
   font-variant-numeric: tabular-nums;
+  /* A halo in the panel's surface, painted under the glyphs, knocks out
+     whatever the label sits on — the scope line's rise at the window's
+     start, the gap, blocked and canceled washes — so the scale stays
+     legible over any of them. */
+  paint-order: stroke;
+  stroke: var(--color-surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
 }
 
 /* The open-work gap stays a neutral wash; its blocked share, drawn on
