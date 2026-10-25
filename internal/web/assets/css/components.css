@@ -1048,6 +1048,15 @@ a.c-log-row__actor {
   width: 100%;
 }
 
+/* On one row, the search field absorbs the squeeze; shrinking the tabs
+   would wrap a tab's count badge under its label. Below the breakpoint
+   the header wraps instead and the tabs flex (see the 720px block). */
+@media (min-width: 721px) {
+  .c-header > .c-tabs {
+    flex-shrink: 0;
+  }
+}
+
 .c-header__search > .c-input {
   flex: 1 1 auto;
   min-width: 0;

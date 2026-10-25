@@ -237,6 +237,12 @@ a.t-muted:hover {
      paths, so giving them their own auto rows lets `main` keep the
      1fr without being squeezed when the chrome appears. */
   grid-template-rows: auto auto 1fr auto auto;
+  /* An implicit column is `auto`, which grows to the widest child's
+     min-content — the header's search <input> counts at its intrinsic
+     width there despite min-width: 0, so just above the 720px breakpoint
+     the whole page outgrew the viewport. minmax(0, 1fr) pins the column
+     to the viewport and lets the header's flex items shrink. */
+  grid-template-columns: minmax(0, 1fr);
   height: 100vh;
   min-height: 0;
 }
