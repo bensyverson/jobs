@@ -22,6 +22,8 @@ Claims default to 30 minutes. In a repo where a build and test run under load ta
 
 **Decision.** A per-repo default claim duration, committed with the repo so every checkout and worktree shares it; an explicit duration on `claim` still wins. There is no committed per-repo configuration yet (`.jobs/local.json` is per replica), so where the setting lives is the first thing the leaf settles — ask before choosing.
 
+> **Ruled 2026-10-25 (Ben):** the setting lives in a new committed file, `.jobs/config.json`, beside `.jobs/log/` — the repo's first shared settings file. Committed, not gitignored: a worktree gets it on checkout as it gets the log, so every agent shares one default. Machine-local state (identity, strict mode, focus) stays in the gitignored `.jobs/local.json`. It is set with a new `job config` verb (`job config claim-duration 2h`) or by hand. Settings stay out of the event log — they are not task history.
+
 ## Work breakdown
 
 ```yaml
