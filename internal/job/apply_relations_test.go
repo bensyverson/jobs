@@ -253,6 +253,9 @@ func driveRelationsFamily(t *testing.T, db *sql.DB) {
 	if _, err := RunSetCriterion(db, two, crits[0].ShortID, CriterionPassed, actor); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := RunRewordCriterion(db, two, crits[0].ShortID, "alpha, reworded", actor); err != nil {
+		t.Fatal(err)
+	}
 	if err := RunSetFoundIn(db, three, one, actor); err != nil {
 		t.Fatal(err)
 	}

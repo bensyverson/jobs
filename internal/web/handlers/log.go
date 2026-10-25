@@ -462,6 +462,8 @@ func logRowVerb(eventType string) string {
 		return "criteria"
 	case "criterion_state":
 		return "criterion"
+	case "criterion_reworded":
+		return "reworded"
 	case "found_in_set", "found_in_cleared":
 		return "found in"
 	case "kind_changed":
@@ -537,6 +539,12 @@ func buildLogRowMetadata(eventType, detailJSON string) LogRowMetadata {
 		label, _ := detail["label"].(string)
 		state, _ := detail["state"].(string)
 		return LogRowMetadata{Text: label, State: state}
+	case "criterion_reworded":
+		oldLabel, _ := detail["old_label"].(string)
+		newLabel, _ := detail["new_label"].(string)
+		if oldLabel != "" && newLabel != "" {
+			return LogRowMetadata{Text: oldLabel + " → " + newLabel}
+		}
 	case "blocked", "unblocked":
 		if v, ok := detail["blocker_id"].(string); ok && v != "" {
 			return LogRowMetadata{PillID: v}

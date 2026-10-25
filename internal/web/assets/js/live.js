@@ -91,6 +91,7 @@
     "edited",
     "criteria_added",
     "criterion_state",
+    "criterion_reworded",
     "found_in_set",
     "found_in_cleared",
     "kind_changed",

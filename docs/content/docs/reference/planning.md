@@ -85,7 +85,7 @@ What to remember:
 
 ## `edit`
 
-Replaces a task's title, description, or criteria. At least one of `--title`, `--desc`, `-F`, `--criterion`, or `--set-criterion` is required.
+Replaces a task's title, description, or criteria. At least one of `--title`, `--desc`, `-F`, `--criterion`, `--set-criterion`, or `--reword-criterion` is required.
 
 ```sh
 job edit abc12 -t "New title"
@@ -96,12 +96,14 @@ cat newdesc.md | job edit abc12 -F -                # or from stdin
 job edit abc12 --criterion "new criterion to add"
 job edit abc12 --set-criterion "8jt=passed"         # mark an existing one passed
 job edit abc12 --set-criterion "8jt=skipped"        # or skipped, or failed
+job edit abc12 --reword-criterion "8jt=New wording" # replace its text; state unchanged
 ```
 
 Notes:
 
 - `-d ""` is the only way to *clear* the description. Omitting `-d` leaves the existing one in place. `-F <path>` is the file form of `-d` (`-F -` reads stdin); passing both is an error, and `-F` on its own satisfies the "at least one flag" requirement.
 - `--criterion` adds new criteria; `--set-criterion <label>=<state>` updates an existing one by its short id (visible in `job show`). States are `passed`, `skipped`, `failed`, `pending`.
+- `--reword-criterion <label>=<new text>` replaces an existing criterion's text in place, when a plan moves or a ruling changes what "done" means — instead of skipping the stale criterion and adding a new one. Its short id, state and position stay as they were. The label is the short id from `job show` (the criterion's current text also works), and only the first `=` splits, so the new text may contain more. `job log` keeps the old wording: `criterion reworded: "old" → "new"`. An unknown label exits non-zero and names the task. Rewording to the current text records nothing. In one call, rewords run after `--set-criterion`, so a `--set-criterion` that names a criterion by its text uses the text it had before. Both flags repeat.
 - `edit` does not change a task's status, parent, or labels. Reach for `move`, `label`, `done`, or `reopen` for those.
 
 ## `block`

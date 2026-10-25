@@ -61,6 +61,8 @@ var parityFixtures = []parityFixture{
 	{"criterion_state", "alice", `{"label":"tests pass","state":"passed"}`, ""},
 	{"criterion_state", "alice", `{"label":"tests pass","state":"failed"}`, ""},
 	{"criterion_state", "alice", `{"label":"tests pass"}`, ""},
+	{"criterion_reworded", "alice", `{"short_id":"aB3","old_label":"tests pass","new_label":"all <tests> pass"}`, ""},
+	{"criterion_reworded", "alice", `{"short_id":"aB3"}`, ""},
 	{"found_in_set", "alice", `{"source_id":"QnB2g"}`, ""},
 	{"found_in_set", "alice", `{"source_id":"QnB2g","previous_source_id":"zzTop"}`, ""},
 	{"found_in_cleared", "alice", `{"source_id":"QnB2g"}`, ""},

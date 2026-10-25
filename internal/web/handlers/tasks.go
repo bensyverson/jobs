@@ -545,6 +545,8 @@ func eventVerb(t, detail string) string {
 		return criteriaAddedVerb(detail) + " by"
 	case "criterion_state":
 		return criterionStateVerb(detail) + " by"
+	case "criterion_reworded":
+		return criterionRewordedVerb(detail) + " by"
 	default:
 		return t + " by"
 	}
@@ -594,6 +596,17 @@ func criterionStateVerb(detailJSON string) string {
 		return "marked a criterion"
 	}
 	return fmt.Sprintf("marked %q %s", label, state)
+}
+
+// criterionRewordedVerb renders the old and new wording of a
+// criterion_reworded event payload, falling back to a phrase without them
+// when the detail is missing or malformed.
+func criterionRewordedVerb(detailJSON string) string {
+	var p job.CriterionRewordedPayload
+	if detailJSON == "" || json.Unmarshal([]byte(detailJSON), &p) != nil || p.OldLabel == "" || p.NewLabel == "" {
+		return "reworded a criterion"
+	}
+	return fmt.Sprintf("reworded %q to %q", p.OldLabel, p.NewLabel)
 }
 
 // criterionStateOf extracts the "state" field from a criterion_state

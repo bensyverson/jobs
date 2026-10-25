@@ -53,15 +53,16 @@ var applyTable = map[EventType]func(tx dbtx, e eventlog.Envelope) error{
 
 	// The relations, criteria, provenance and kind family
 	// (apply_relations.go, apply_criteria.go).
-	EventBlocked:        applyBlocked,
-	EventUnblocked:      applyUnblocked,
-	EventLabeled:        applyLabeled,
-	EventUnlabeled:      applyUnlabeled,
-	EventCriteriaAdded:  applyCriteriaAdded,
-	EventCriterionState: applyCriterionState,
-	EventFoundInSet:     applyFoundInSet,
-	EventFoundInCleared: applyFoundInCleared,
-	EventKindChanged:    applyKindChanged,
+	EventBlocked:           applyBlocked,
+	EventUnblocked:         applyUnblocked,
+	EventLabeled:           applyLabeled,
+	EventUnlabeled:         applyUnlabeled,
+	EventCriteriaAdded:     applyCriteriaAdded,
+	EventCriterionState:    applyCriterionState,
+	EventCriterionReworded: applyCriterionReworded,
+	EventFoundInSet:        applyFoundInSet,
+	EventFoundInCleared:    applyFoundInCleared,
+	EventKindChanged:       applyKindChanged,
 
 	// Adoption and compaction (apply_snapshot.go).
 	EventSnapshot: applySnapshot,

@@ -304,6 +304,45 @@ func TestMergeRule_CriteriaAddedAndCriterionState(t *testing.T) {
 	})
 }
 
+// `criterion_reworded` and `criterion_state` touch different columns, so a
+// reword on one machine and a pass on the other both survive the merge.
+func TestMergeRule_CriterionRewordedAndCriterionState(t *testing.T) {
+	p := newPair(t)
+	var task string
+	var crits []Criterion
+	p.seed(func(db *sql.DB) {
+		task = MustAdd(t, db, "", "with criteria")
+		var err error
+		crits, err = RunAddCriteria(db, task, []Criterion{{Label: "old wording"}}, "ben")
+		if err != nil {
+			t.Fatalf("criteria: %v", err)
+		}
+	})
+
+	p.A.do(func(db *sql.DB) {
+		if _, err := RunRewordCriterion(db, task, crits[0].ShortID, "new wording", "ben"); err != nil {
+			t.Fatalf("reword on A: %v", err)
+		}
+	})
+	p.tick()
+	p.B.do(func(db *sql.DB) {
+		if _, err := RunSetCriterion(db, task, crits[0].ShortID, CriterionPassed, "sam"); err != nil {
+			t.Fatalf("pass on B: %v", err)
+		}
+	})
+	p.exchange()
+
+	p.bothSides(func(t *testing.T, db *sql.DB) {
+		got, err := GetCriteria(db, MustGet(t, db, task).ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].Label != "new wording" || got[0].State != CriterionPassed {
+			t.Fatalf("criteria = %+v, want the new wording, passed", got)
+		}
+	})
+}
+
 // `found_in_set`, `found_in_cleared` and `kind_changed`: latest wins.
 func TestMergeRule_FoundInAndKind(t *testing.T) {
 	p := newPair(t)

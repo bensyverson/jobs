@@ -413,6 +413,7 @@ a.c-log-row__actor {
    on the meta cell (passed → green, failed → red, skipped → muted). */
 .c-log-row__verb--criteria_added { color: var(--color-primary-dim); }
 .c-log-row__verb--criterion_state { color: var(--color-on-surface-dim); }
+.c-log-row__verb--criterion_reworded { color: var(--color-on-surface-dim); }
 
 /* Metadata cell — quiet trailing payload column. Truncates to one line
    so the row stays single-row regardless of content. Color is dim by

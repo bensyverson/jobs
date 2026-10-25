@@ -172,6 +172,15 @@ test("renderLogRow: pill metadata links to the referenced task", () => {
   assert.match(html, /cleared, was <a class="c-id-pill" href="\/tasks\/QnB2g">QnB2g<\/a>/);
 });
 
+test("criterion_reworded: REWORDED verb, old → new in the metadata cell", () => {
+  assert.equal(verbFor("criterion_reworded"), "reworded");
+  assert.deepEqual(
+    metadataFor("criterion_reworded", '{"short_id":"aB3","old_label":"tests pass","new_label":"all tests pass"}'),
+    { text: "tests pass → all tests pass", pillId: "", state: "", prefix: "" },
+  );
+  assert.equal(metadataFor("criterion_reworded", '{"short_id":"aB3"}').text, "");
+});
+
 test("renderLogRow: criterion_state paints the state on the cell", () => {
   const html = renderLogRow(event({ event_type: "criterion_state", detail: DETAILS.criterion_state }));
   assert.match(html, /data-event-meta="criterion_state" data-state="passed">tests pass<\/span>/);

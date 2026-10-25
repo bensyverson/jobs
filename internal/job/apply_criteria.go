@@ -7,7 +7,8 @@ import (
 	"github.com/bensyverson/jobs/internal/eventlog"
 )
 
-// The criteria family's state writes: criteria_added and criterion_state.
+// The criteria family's state writes: criteria_added, criterion_state and
+// criterion_reworded.
 //
 // criteria_added is idempotent by (task, criterion short id), which is the
 // merge rule for it. That is only possible because the id travels in the
@@ -57,8 +58,8 @@ func applyCriteriaAdded(tx dbtx, e eventlog.Envelope) error {
 
 // applyCriterionState writes one criterion's state. The payload's short id is
 // the address; the label is a fallback for events recorded before criteria
-// had ids, and is never written back — a criterion's label is edited by other
-// means and a state change must not revert it.
+// had ids, and is never written back — a criterion's label is changed by
+// criterion_reworded, and a state change must not revert it.
 func applyCriterionState(tx dbtx, e eventlog.Envelope) error {
 	var p CriterionStatePayload
 	if err := decodeEventPayload(e, &p); err != nil {
@@ -75,6 +76,28 @@ func applyCriterionState(tx dbtx, e eventlog.Envelope) error {
 	_, err = tx.Exec(
 		"UPDATE task_criteria SET state = ?, updated_at = ? WHERE id = ?",
 		p.State, eventSeconds(e), id,
+	)
+	return err
+}
+
+// applyCriterionReworded writes one criterion's label and nothing else, so a
+// state change from another replica, ordered either side of it, still lands.
+func applyCriterionReworded(tx dbtx, e eventlog.Envelope) error {
+	var p CriterionRewordedPayload
+	if err := decodeEventPayload(e, &p); err != nil {
+		return err
+	}
+	taskID, ok, err := taskRowID(tx, e.Task)
+	if err != nil || !ok {
+		return err
+	}
+	id, ok, err := criterionRowID(tx, taskID, p.ShortID, p.OldLabel)
+	if err != nil || !ok {
+		return err
+	}
+	_, err = tx.Exec(
+		"UPDATE task_criteria SET label = ?, updated_at = ? WHERE id = ?",
+		p.NewLabel, eventSeconds(e), id,
 	)
 	return err
 }

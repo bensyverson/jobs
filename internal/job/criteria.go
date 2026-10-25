@@ -136,12 +136,13 @@ func GetCriteria(db dbtx, taskID int64) ([]Criterion, error) {
 	return out, rows.Err()
 }
 
-// ResolveCriterion finds one criterion on a task by `ref`, which may be
+// ResolveCriterion finds one criterion on task by `ref`, which may be
 // either its short_id or its verbatim label (short_id is tried first because
 // it is the stable identity; label is kept as a fallback for callers without
 // it, including the `--criterion "label=state"` form). It reads only: the
 // state change is a criterion_state event, and applyCriterionState writes it.
-func ResolveCriterion(tx dbtx, taskID int64, ref string) (Criterion, error) {
+func ResolveCriterion(tx dbtx, task *Task, ref string) (Criterion, error) {
+	taskID := task.ID
 	row := tx.QueryRow(
 		"SELECT id, COALESCE(short_id, ''), label, state, sort_key FROM task_criteria WHERE task_id = ? AND short_id = ?",
 		taskID, ref,
@@ -158,7 +159,8 @@ func ResolveCriterion(tx dbtx, taskID int64, ref string) (Criterion, error) {
 		)
 		if err := row.Scan(&found.ID, &found.ShortID, &found.Label, &state, &found.SortKey); err != nil {
 			if err == sql.ErrNoRows {
-				return Criterion{}, fmt.Errorf("no criterion %q on task", ref)
+				return Criterion{}, fmt.Errorf("no criterion %q on task %s (`job show %s` lists its criteria with their labels)",
+					ref, task.ShortID, task.ShortID)
 			}
 			return Criterion{}, err
 		}
@@ -253,7 +255,7 @@ func RunSetCriterion(db *sql.DB, taskShortID, ref string, state CriterionState, 
 		if task == nil {
 			return fmt.Errorf("task %q not found", taskShortID)
 		}
-		resolved, err := ResolveCriterion(tx, task.ID, ref)
+		resolved, err := ResolveCriterion(tx, task, ref)
 		if err != nil {
 			return err
 		}
@@ -322,4 +324,47 @@ func PendingCriteriaByShortID(db *sql.DB, shortIDs []string) (map[string]int, er
 		out[id] = n
 	}
 	return out, rows.Err()
+}
+
+// RunRewordCriterion replaces one criterion's label as a criterion_reworded
+// event and returns the label it replaced. `ref` resolves as it does for
+// RunSetCriterion. The state, short id and position are untouched. A reword
+// to the current label records nothing.
+func RunRewordCriterion(db *sql.DB, taskShortID, ref, newLabel, actor string) (old string, err error) {
+	label, err := validateCriterionLabel(newLabel)
+	if err != nil {
+		return "", err
+	}
+	err = commit(db, func(tx dbtx, b *eventBatch) error {
+		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
+			return err
+		}
+		task, err := GetTaskByShortID(tx, taskShortID)
+		if err != nil {
+			return err
+		}
+		if task == nil {
+			return fmt.Errorf("task %q not found", taskShortID)
+		}
+		resolved, err := ResolveCriterion(tx, task, ref)
+		if err != nil {
+			return err
+		}
+		old = resolved.Label
+		if old == label {
+			return nil
+		}
+		if err := b.emit(tx, EventCriterionReworded, taskShortID, actor, CriterionRewordedPayload{
+			ShortID:  resolved.ShortID,
+			OldLabel: old,
+			NewLabel: label,
+		}); err != nil {
+			return err
+		}
+		return maybeExtendClaim(tx, b, task.ShortID, actor)
+	})
+	if err != nil {
+		return "", err
+	}
+	return old, nil
 }

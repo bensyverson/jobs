@@ -56,6 +56,7 @@ Criteria:
 
 - `criteria_added` — criterion list authored on a task.
 - `criterion_state` — single criterion transitioned (`pending` → `passed` / `skipped` / `failed`).
+- `criterion_reworded` — single criterion's text replaced, carrying the old and new wording; its state is untouched.
 
 Focus is **not** an event. It is machine-local workflow state kept in `.jobs/local.json` beside the database, so moving your focus records nothing and no other checkout sees it. Databases written before that change still hold `focus_set` and `focus_released` rows; they are history, and `job log` and the dashboard render them as plain rows.
 

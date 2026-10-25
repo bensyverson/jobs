@@ -135,5 +135,6 @@ Most slips don't need any of the above:
 - **Claimed the wrong leaf** — `job release <id>`.
 - **Leaf turned out to be several** — `job split <id> "<a>" "<b>"` (see [Writing great plans](../great-plans/#size-a-leaf-as-one-unit-of-work)).
 - **Marked a criterion wrong** — `job edit <id> --set-criterion "<id>=<state>"`; it works on a closed task too.
+- **Worded a criterion wrong, or the plan moved** — `job edit <id> --reword-criterion "<id>=<new text>"`. Its state stays; the old text stays in the log.
 
 See also: [Execution verbs](../../reference/execution/), [The event log](../../concepts/events/), [Blockers](../../concepts/blockers/), [Leaves and claims](../../concepts/leaves-and-claims/#auto-close).

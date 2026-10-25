@@ -730,6 +730,10 @@ func FormatEventDescription(eventType, detailJSON string) string {
 			}
 		}
 		return fmt.Sprintf("criterion %q → %s", label, state)
+	case string(EventCriterionReworded):
+		oldLabel, _ := detail["old_label"].(string)
+		newLabel, _ := detail["new_label"].(string)
+		return fmt.Sprintf("criterion reworded: %q → %q", oldLabel, newLabel)
 	case "reparented":
 		newParent := ""
 		priorParent := ""

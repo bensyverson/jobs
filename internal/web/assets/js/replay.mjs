@@ -309,6 +309,16 @@ const FORWARD = {
     t.criteria[idx] = { ...t.criteria[idx], state: detail.state };
   },
 
+  criterion_reworded(frame, event) {
+    const detail = event.detail ?? {};
+    const t = frame.tasks.get(event.task_id);
+    if (!t || !Array.isArray(t.criteria) || detail.new_label === undefined) return;
+    const idx = findCriterionIndex(t.criteria, { short_id: detail.short_id, label: detail.old_label });
+    if (idx < 0) return;
+    t.criteria = t.criteria.slice();
+    t.criteria[idx] = { ...t.criteria[idx], label: detail.new_label };
+  },
+
   kind_changed(frame, event) {
     const detail = event.detail ?? {};
     const t = frame.tasks.get(event.task_id);
@@ -330,10 +340,12 @@ const FORWARD = {
   },
 };
 
-// findCriterionIndex resolves a criterion_state event's target back to its
-// index in the criteria array, preferring short_id when present. Both the
-// forward and reverse folds share this resolver so the matching rule
-// stays in one place.
+// findCriterionIndex resolves a criterion event's target back to its
+// index in the criteria array, preferring short_id when present and
+// falling back to `label`. Both the forward and reverse folds share this
+// resolver so the matching rule stays in one place; criterion_reworded
+// passes the wording the criterion reads at that point of the fold (old
+// going forward, new going back) as the label.
 function findCriterionIndex(criteria, detail) {
   if (detail.short_id) {
     const i = criteria.findIndex((c) => c.short_id === detail.short_id);
@@ -527,6 +539,18 @@ const REVERSE = {
     if (idx < 0) return true;
     t.criteria = t.criteria.slice();
     t.criteria[idx] = { ...t.criteria[idx], state: detail.prior };
+    return true;
+  },
+
+  criterion_reworded(frame, event) {
+    const detail = event.detail ?? {};
+    if (detail.old_label === undefined) return false;
+    const t = frame.tasks.get(event.task_id);
+    if (!t || !Array.isArray(t.criteria)) return true;
+    const idx = findCriterionIndex(t.criteria, { short_id: detail.short_id, label: detail.new_label });
+    if (idx < 0) return true;
+    t.criteria = t.criteria.slice();
+    t.criteria[idx] = { ...t.criteria[idx], label: detail.old_label };
     return true;
   },
 

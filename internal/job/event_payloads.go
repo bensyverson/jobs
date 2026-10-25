@@ -12,32 +12,33 @@ package job
 type EventType string
 
 const (
-	EventCreated        EventType = "created"
-	EventLabeled        EventType = "labeled"
-	EventUnlabeled      EventType = "unlabeled"
-	EventReleased       EventType = "released"
-	EventCanceled       EventType = "canceled"
-	EventBlocked        EventType = "blocked"
-	EventUnblocked      EventType = "unblocked"
-	EventPurged         EventType = "purged"
-	EventClaimExpired   EventType = "claim_expired"
-	EventNoted          EventType = "noted"
-	EventClaimed        EventType = "claimed"
-	EventCriteriaAdded  EventType = "criteria_added"
-	EventCriterionState EventType = "criterion_state"
-	EventHeartbeat      EventType = "heartbeat"
-	EventFoundInSet     EventType = "found_in_set"
-	EventFoundInCleared EventType = "found_in_cleared"
-	EventKindChanged    EventType = "kind_changed"
-	EventDone           EventType = "done"
-	EventReopened       EventType = "reopened"
-	EventEdited         EventType = "edited"
-	EventMoved          EventType = "moved"
-	EventReparented     EventType = "reparented"
-	EventRekeyed        EventType = "rekeyed"
-	EventSnapshot       EventType = "snapshot"
-	EventReplica        EventType = "replica"
-	EventImported       EventType = "imported"
+	EventCreated           EventType = "created"
+	EventLabeled           EventType = "labeled"
+	EventUnlabeled         EventType = "unlabeled"
+	EventReleased          EventType = "released"
+	EventCanceled          EventType = "canceled"
+	EventBlocked           EventType = "blocked"
+	EventUnblocked         EventType = "unblocked"
+	EventPurged            EventType = "purged"
+	EventClaimExpired      EventType = "claim_expired"
+	EventNoted             EventType = "noted"
+	EventClaimed           EventType = "claimed"
+	EventCriteriaAdded     EventType = "criteria_added"
+	EventCriterionState    EventType = "criterion_state"
+	EventCriterionReworded EventType = "criterion_reworded"
+	EventHeartbeat         EventType = "heartbeat"
+	EventFoundInSet        EventType = "found_in_set"
+	EventFoundInCleared    EventType = "found_in_cleared"
+	EventKindChanged       EventType = "kind_changed"
+	EventDone              EventType = "done"
+	EventReopened          EventType = "reopened"
+	EventEdited            EventType = "edited"
+	EventMoved             EventType = "moved"
+	EventReparented        EventType = "reparented"
+	EventRekeyed           EventType = "rekeyed"
+	EventSnapshot          EventType = "snapshot"
+	EventReplica           EventType = "replica"
+	EventImported          EventType = "imported"
 )
 
 // StoreFormatVersion is the version of the log's *semantics* — the vocabulary
@@ -57,7 +58,7 @@ type StoreFormatVersion int
 // bump, an old binary renders the record incompletely and then appends events
 // computed from that incomplete state. Adding a type therefore means two
 // edits in one diff: a new entry in storeFormatAdded, and this constant.
-const StoreFormat StoreFormatVersion = 2
+const StoreFormat StoreFormatVersion = 3
 
 // storeFormatAdded is the event vocabulary, by the format that introduced it.
 // A format that changed only apply's semantics has an entry with no types.
@@ -95,6 +96,7 @@ var storeFormatAdded = map[StoreFormatVersion][]EventType{
 		EventReplica,
 	},
 	2: {EventImported},
+	3: {EventCriterionReworded},
 }
 
 // ReleaseReason names why a claim ended when the holder did not ask. It is a
@@ -270,6 +272,16 @@ type CriterionEntry struct {
 // inserter.
 type CriteriaAddedPayload struct {
 	Criteria []CriterionEntry `json:"criteria"`
+}
+
+// CriterionRewordedPayload is recorded by RunRewordCriterion. ShortID is the
+// address; OldLabel is the label fallback for a criterion with no short id,
+// and with NewLabel it is what `job log` shows. The state never travels: a
+// reword does not change it.
+type CriterionRewordedPayload struct {
+	ShortID  string `json:"short_id"`
+	OldLabel string `json:"old_label"`
+	NewLabel string `json:"new_label"`
 }
 
 // CriterionStatePayload is recorded by RunSetCriterion.

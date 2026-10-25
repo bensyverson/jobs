@@ -117,3 +117,90 @@ func TestEdit_Positional_Gone(t *testing.T) {
 		t.Fatal("expected error: positional title no longer accepted")
 	}
 }
+
+func TestEdit_RewordCriterion_ReplacesTextKeepsState(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	id := job.MustAdd(t, db, "", "T")
+	crits, err := job.RunAddCriteria(db, id, []job.Criterion{{Label: "old one"}, {Label: "old two"}}, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := job.RunSetCriterion(db, id, crits[0].ShortID, job.CriterionPassed, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	// The short label addresses one; the verbatim label the other. The new
+	// text may itself contain "=", so only the first one splits.
+	if _, _, err := runCLI(t, dbFile, "--as", "alice", "edit", id,
+		"--reword-criterion", crits[0].ShortID+"=x = y holds",
+		"--reword-criterion", "old two=second, reworded"); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+
+	db = openTestDB(t, dbFile)
+	got, err := job.GetCriteria(db, job.MustGet(t, db, id).ID)
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].Label != "x = y holds" || got[0].State != job.CriterionPassed {
+		t.Errorf("first = %+v", got[0])
+	}
+	if got[1].Label != "second, reworded" || got[1].State != job.CriterionPending {
+		t.Errorf("second = %+v", got[1])
+	}
+
+	out, _, err := runCLI(t, dbFile, "log", id)
+	if err != nil {
+		t.Fatalf("log: %v", err)
+	}
+	if !strings.Contains(out, `criterion reworded: "old one" → "x = y holds"`) {
+		t.Errorf("log does not show old and new wording:\n%s", out)
+	}
+}
+
+func TestEdit_RewordCriterion_UnknownLabelFails(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	id := job.MustAdd(t, db, "", "T")
+	if _, err := job.RunAddCriteria(db, id, []job.Criterion{{Label: "real"}}, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	_, _, err := runCLI(t, dbFile, "--as", "alice", "edit", id, "--reword-criterion", "ghost=new words")
+	if err == nil {
+		t.Fatal("expected an error for an unknown label")
+	}
+	if !strings.Contains(err.Error(), `"ghost"`) || !strings.Contains(err.Error(), "job show "+id) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestEdit_RewordCriterion_MalformedValueFails(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	id := job.MustAdd(t, db, "", "T")
+	db.Close()
+
+	for _, raw := range []string{"no-equals", "=text", "label="} {
+		_, _, err := runCLI(t, dbFile, "--as", "alice", "edit", id, "--reword-criterion", raw)
+		if err == nil || !strings.Contains(err.Error(), "label=new text") {
+			t.Errorf("%q: err = %v, want the expected form named", raw, err)
+		}
+	}
+}
+
+func TestEdit_RewordCriterion_ListedInTheNoFlagError(t *testing.T) {
+	dbFile := setupCLI(t)
+	db := openTestDB(t, dbFile)
+	id := job.MustAdd(t, db, "", "T")
+	db.Close()
+
+	_, _, err := runCLI(t, dbFile, "--as", "alice", "edit", id)
+	if err == nil || !strings.Contains(err.Error(), "--reword-criterion") {
+		t.Errorf("the no-flag error should list --reword-criterion: %v", err)
+	}
+}

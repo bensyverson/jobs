@@ -14,12 +14,17 @@ func newEditCmd() *cobra.Command {
 	var descFile string
 	var criteria []string
 	var setCriterion []string
+	var rewordCriterion []string
 	cmd := &cobra.Command{
 		Use:   "edit <id>",
 		Short: "Change a task's title, description, or criteria",
 		Long: "Replace a task's title and/or description, or update its acceptance criteria. " +
-			"At least one of --title, --desc, -F, --criterion, or --set-criterion must be provided. " +
-			"Use --desc \"\" to clear the description, or -F <path> to read the new description from a file.",
+			"At least one of --title, --desc, -F, --criterion, --set-criterion, or --reword-criterion must be provided. " +
+			"Use --desc \"\" to clear the description, or -F <path> to read the new description from a file.\n\n" +
+			"--reword-criterion \"<label>=<new text>\" replaces a criterion's wording in place, leaving its state alone; " +
+			"<label> is the short label `job show` prints beside the criterion (or its current text), and only the first " +
+			"\"=\" splits, so the new text may contain more. `job log` keeps the old wording. " +
+			"Rewords run after --set-criterion, so a --set-criterion in the same call names the criterion as it read before.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openDBFromCmd()
@@ -54,8 +59,18 @@ func newEditCmd() *cobra.Command {
 			if descProvided {
 				descPtr = &resolvedDesc
 			}
-			if titlePtr == nil && descPtr == nil && len(criteria) == 0 && len(setCriterion) == 0 {
-				return fmt.Errorf("edit requires --title, --desc, -F, --criterion, or --set-criterion")
+			if titlePtr == nil && descPtr == nil && len(criteria) == 0 && len(setCriterion) == 0 && len(rewordCriterion) == 0 {
+				return fmt.Errorf("edit requires --title, --desc, -F, --criterion, --set-criterion, or --reword-criterion")
+			}
+			// Parse every reword before writing anything, so a malformed one
+			// does not leave the edit half-applied.
+			rewords := make([]criterionReword, 0, len(rewordCriterion))
+			for _, raw := range rewordCriterion {
+				rw, err := parseCriterionReword(raw)
+				if err != nil {
+					return err
+				}
+				rewords = append(rewords, rw)
 			}
 
 			if titlePtr != nil || descPtr != nil {
@@ -81,6 +96,11 @@ func newEditCmd() *cobra.Command {
 					return err
 				}
 			}
+			for _, rw := range rewords {
+				if _, err := job.RunRewordCriterion(db, args[0], rw.ref, rw.text, actor); err != nil {
+					return err
+				}
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Edited: %s\n", args[0])
 			return nil
 		},
@@ -90,7 +110,25 @@ func newEditCmd() *cobra.Command {
 	registerFileFlag(cmd, &descFile, "description", "desc")
 	cmd.Flags().StringArrayVar(&criteria, "criterion", nil, "acceptance criterion to add, defaults to pending state (repeatable)")
 	cmd.Flags().StringArrayVar(&setCriterion, "set-criterion", nil, "update an existing criterion's state, format \"label=passed\" (repeatable)")
+	cmd.Flags().StringArrayVar(&rewordCriterion, "reword-criterion", nil, "replace an existing criterion's text, keeping its state, format \"label=new text\" (repeatable)")
 	return cmd
+}
+
+// criterionReword is one --reword-criterion value: the criterion's current
+// short label or text, and the text that replaces it.
+type criterionReword struct {
+	ref, text string
+}
+
+// parseCriterionReword splits "label=new text" at the first "=". A short
+// label never contains one and new wording often does ("x = y holds"), which
+// is the opposite of --set-criterion, whose state never does.
+func parseCriterionReword(raw string) (criterionReword, error) {
+	ref, text, ok := strings.Cut(raw, "=")
+	if !ok || ref == "" || strings.TrimSpace(text) == "" {
+		return criterionReword{}, fmt.Errorf("invalid criterion reword %q (want \"label=new text\")", raw)
+	}
+	return criterionReword{ref: ref, text: text}, nil
 }
 
 // parseCriterionAssignment parses "label=state" into its parts and validates state.

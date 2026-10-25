@@ -52,6 +52,8 @@ export function verbFor(eventType) {
       return "criteria";
     case "criterion_state":
       return "criterion";
+    case "criterion_reworded":
+      return "reworded";
     case "found_in_set":
     case "found_in_cleared":
       return "found in";
@@ -108,6 +110,11 @@ export function metadataFor(eventType, detail) {
         text: typeof d.label === "string" ? d.label : "",
         state: typeof d.state === "string" ? d.state : "",
       });
+    case "criterion_reworded": {
+      const from = typeof d.old_label === "string" ? d.old_label : "";
+      const to = typeof d.new_label === "string" ? d.new_label : "";
+      return from !== "" && to !== "" ? meta({ text: `${from} → ${to}` }) : meta();
+    }
     case "blocked":
     case "unblocked":
       return typeof d.blocker_id === "string" && d.blocker_id !== ""

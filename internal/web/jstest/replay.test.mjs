@@ -783,6 +783,68 @@ test("applyEvent criterion_state: matches by short_id when present", () => {
   assert.equal(after.tasks.get("ABC12").criteria[1].state, "pending");
 });
 
+test("applyEvent criterion_reworded: relabels by short_id and keeps the state", () => {
+  const before = initialFrame({
+    headPosition: "",
+    eventCount: 0,
+    tasks: [
+      {
+        shortId: "ABC12",
+        title: "T",
+        status: "available",
+        sortKey: "000000",
+        criteria: [
+          { short_id: "x7e", label: "alpha", state: "passed" },
+          { short_id: "InT", label: "beta", state: "pending" },
+        ],
+      },
+    ],
+    blocks: [],
+    claims: [],
+  });
+  const after = applyEvent(before, {
+    id: 27,
+    position: POS(27),
+    task_id: "ABC12",
+    actor: "alice",
+    event_type: "criterion_reworded",
+    detail: { short_id: "x7e", old_label: "alpha", new_label: "alpha, reworded" },
+  });
+  assert.deepEqual(after.tasks.get("ABC12").criteria, [
+    { short_id: "x7e", label: "alpha, reworded", state: "passed" },
+    { short_id: "InT", label: "beta", state: "pending" },
+  ]);
+  // The fold is pure: the frame it started from still reads the old wording.
+  assert.equal(before.tasks.get("ABC12").criteria[0].label, "alpha");
+});
+
+test("applyEvent criterion_reworded: a criterion with no short_id matches by old_label", () => {
+  const before = initialFrame({
+    headPosition: "",
+    eventCount: 0,
+    tasks: [
+      {
+        shortId: "ABC12",
+        title: "T",
+        status: "available",
+        sortKey: "000000",
+        criteria: [{ label: "legacy", state: "pending" }],
+      },
+    ],
+    blocks: [],
+    claims: [],
+  });
+  const after = applyEvent(before, {
+    id: 28,
+    position: POS(28),
+    task_id: "ABC12",
+    actor: "alice",
+    event_type: "criterion_reworded",
+    detail: { short_id: "", old_label: "legacy", new_label: "renamed" },
+  });
+  assert.equal(after.tasks.get("ABC12").criteria[0].label, "renamed");
+});
+
 test("applyEvent criterion_state: legacy label-keyed event still folds", () => {
   // Pre-migration events have no short_id on the detail; they must keep
   // working via label fallback or the existing event log breaks.
@@ -1232,6 +1294,35 @@ const roundTripCases = [
       actor: "alice",
       event_type: "criterion_state",
       detail: { label: "beta", state: "passed", prior: "pending" },
+    },
+  },
+  {
+    name: "criterion_reworded",
+    seed: () => initialFrame({
+      headPosition: "",
+    eventCount: 0,
+      tasks: [
+        {
+          shortId: "ABC12",
+          title: "T",
+          status: "available",
+          sortKey: "000000",
+          criteria: [
+            { short_id: "x7e", label: "alpha", state: "passed" },
+            { short_id: "InT", label: "beta", state: "pending" },
+          ],
+        },
+      ],
+      blocks: [],
+      claims: [],
+    }),
+    event: {
+      id: 16,
+      position: POS(16),
+      task_id: "ABC12",
+      actor: "alice",
+      event_type: "criterion_reworded",
+      detail: { short_id: "x7e", old_label: "alpha", new_label: "alpha, reworded" },
     },
   },
   {
