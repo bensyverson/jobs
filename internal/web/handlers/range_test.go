@@ -213,11 +213,14 @@ func TestRangeAnchor_UsesTheCursorEventTime(t *testing.T) {
 	if err != nil || len(events) == 0 {
 		t.Fatalf("seed events: %v / %d", err, len(events))
 	}
-	at := events[0].Position()
 	want := rangeAnchorFixture.Add(-3 * 24 * time.Hour).Unix()
-	if _, err := db.Exec(`UPDATE events SET created_at = ? WHERE id = ?`, want, events[0].ID); err != nil {
+	if _, err := db.Exec(`UPDATE events SET created_at = ?, ts = ? * 1000`, want, want); err != nil {
 		t.Fatalf("backdate: %v", err)
 	}
+	if events, err = job.GetEventsForTaskTree(db, ""); err != nil {
+		t.Fatalf("reload events: %v", err)
+	}
+	at := events[len(events)-1].Position()
 
 	now := rangeAnchorFixture
 	got, err := rangeAnchor(context.Background(), db, at, now)
@@ -234,5 +237,40 @@ func TestRangeAnchor_UsesTheCursorEventTime(t *testing.T) {
 	}
 	if !live.Equal(now) {
 		t.Errorf("rangeAnchor(live) = %v, want now (%v)", live, now)
+	}
+}
+
+// The report cuts its window on the millisecond `ts`, so an anchor read
+// at whole seconds lands before the cursor's own event and drops it.
+func TestRangeAnchor_KeepsTheCursorEventMilliseconds(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "anchor-ms.db")
+	db, err := job.CreateDB(path)
+	if err != nil {
+		t.Fatalf("CreateDB: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if _, err := job.RunAdd(db, "", "anchored", "", "", nil, "alice"); err != nil {
+		t.Fatalf("RunAdd: %v", err)
+	}
+	events, err := job.GetEventsForTaskTree(db, "")
+	if err != nil || len(events) == 0 {
+		t.Fatalf("seed events: %v / %d", err, len(events))
+	}
+	want := rangeAnchorFixture.Add(750 * time.Millisecond)
+	if _, err := db.Exec(`UPDATE events SET created_at = ?, ts = ?`, want.Unix(), want.UnixMilli()); err != nil {
+		t.Fatalf("set timestamps: %v", err)
+	}
+	if events, err = job.GetEventsForTaskTree(db, ""); err != nil {
+		t.Fatalf("reload events: %v", err)
+	}
+	at := events[len(events)-1].Position()
+
+	got, err := rangeAnchor(context.Background(), db, at, rangeAnchorFixture.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("rangeAnchor: %v", err)
+	}
+	if !got.Equal(want) {
+		t.Errorf("rangeAnchor(at=%s) = %v, want %v (the event's ts, to the millisecond)", at, got, want)
 	}
 }

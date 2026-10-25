@@ -586,11 +586,12 @@ func fetchActorsRange(t *testing.T, deps handlers.Deps, query string) string {
 }
 
 // backdateActorEvents rewrites every event by actor to age ago, so a
-// test can place an actor outside the default 7-day window.
+// test can place an actor outside the default 7-day window. It moves
+// the millisecond ts with created_at, as a real event's two agree.
 func backdateActorEvents(t *testing.T, db *sql.DB, actor string, age time.Duration) {
 	t.Helper()
 	ts := time.Now().Add(-age).Unix()
-	if _, err := db.Exec(`UPDATE events SET created_at = ? WHERE actor = ?`, ts, actor); err != nil {
+	if _, err := db.Exec(`UPDATE events SET created_at = ?, ts = ? * 1000 WHERE actor = ?`, ts, ts, actor); err != nil {
 		t.Fatalf("backdateActorEvents(%q): %v", actor, err)
 	}
 }
@@ -601,9 +602,9 @@ func backdateActorTaskEvents(t *testing.T, db *sql.DB, actor, shortID string, ag
 	t.Helper()
 	ts := time.Now().Add(-age).Unix()
 	_, err := db.Exec(
-		`UPDATE events SET created_at = ?
+		`UPDATE events SET created_at = ?, ts = ? * 1000
 		  WHERE actor = ? AND task_id = (SELECT id FROM tasks WHERE short_id = ?)`,
-		ts, actor, shortID)
+		ts, ts, actor, shortID)
 	if err != nil {
 		t.Fatalf("backdateActorTaskEvents(%q, %q): %v", actor, shortID, err)
 	}

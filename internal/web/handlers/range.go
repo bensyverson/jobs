@@ -141,6 +141,8 @@ func withParam(base string, q url.Values, key, value string) string {
 // from. In live mode (a zero `at`) that is now; under the time-travel
 // upper bound `?at=<log position>` it is that event's own timestamp, so a
 // 7-day window scrubbed to last month shows the week before *then*.
+// The timestamp is the millisecond `ts` the report cuts its window on;
+// whole seconds would land before the cursor's own event and drop it.
 // An `at` past the end of the log falls back to the newest event, and
 // an empty log falls back to now.
 func rangeAnchor(ctx context.Context, db *sql.DB, at eventlog.Position, now time.Time) (time.Time, error) {
@@ -148,15 +150,15 @@ func rangeAnchor(ctx context.Context, db *sql.DB, at eventlog.Position, now time
 		return now, nil
 	}
 	expr := job.EventPositionExpr("e")
-	query := `SELECT e.created_at FROM events e WHERE ` + expr + ` <= (?, ?, ?)
+	query := `SELECT e.ts FROM events e WHERE ` + expr + ` <= (?, ?, ?)
 		ORDER BY e.ts DESC, e.rep DESC, CASE WHEN e.rep = '' THEN e.id ELSE e.seq END DESC LIMIT 1`
-	var createdAt int64
-	err := db.QueryRowContext(ctx, query, job.EventPositionArgs(at)...).Scan(&createdAt)
+	var ts int64
+	err := db.QueryRowContext(ctx, query, job.EventPositionArgs(at)...).Scan(&ts)
 	if errors.Is(err, sql.ErrNoRows) {
 		return now, nil
 	}
 	if err != nil {
 		return time.Time{}, err
 	}
-	return time.Unix(createdAt, 0), nil
+	return time.UnixMilli(ts), nil
 }
