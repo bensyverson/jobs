@@ -44,8 +44,21 @@ func TestVersion_WithoutBuildInfo(t *testing.T) {
 	if got := formatVersion(nil); got != "job (unknown)" {
 		t.Errorf("formatVersion(nil) = %q", got)
 	}
-	if got := formatVersion(buildInfo("(devel)", nil)); got != "job (devel)" {
-		t.Errorf("formatVersion without vcs = %q", got)
+}
+
+// A release tarball has neither a module version nor vcs settings, so what
+// Homebrew builds from it states the version the source says.
+func TestVersion_ReleaseTarballBuildStatesTheSourceVersion(t *testing.T) {
+	want := "job " + releaseVersion
+	if got := formatVersion(buildInfo("(devel)", nil)); got != want {
+		t.Errorf("formatVersion without vcs = %q, want %q", got, want)
+	}
+}
+
+// Installed from a module proxy, the toolchain's stamp is the authority.
+func TestVersion_ModuleVersionWinsOverTheSourceVersion(t *testing.T) {
+	if got := formatVersion(buildInfo("v9.9.9", nil)); got != "job v9.9.9" {
+		t.Errorf("formatVersion = %q", got)
 	}
 }
 

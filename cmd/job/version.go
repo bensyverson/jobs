@@ -7,6 +7,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// releaseVersion is the version this source states; scripts/release reads it.
+// Only a build from a release tarball shows it, as that has no stamp of its own.
+const releaseVersion = "0.1.0"
+
 // `job version` — which build this is. Both the module version and the commit
 // come from the build info the Go toolchain stamps into every binary built
 // from a checkout, so there is nothing to pass at build time and nothing to
@@ -23,6 +27,9 @@ func newVersionCmd() *cobra.Command {
 	}
 }
 
+// develVersion is what the toolchain stamps when it knows no module version.
+const develVersion = "(devel)"
+
 func versionLine() string {
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
@@ -32,8 +39,9 @@ func versionLine() string {
 }
 
 // formatVersion renders "job <module version> (commit <short>, <time>[, modified])".
-// A binary built outside a checkout has no vcs settings and prints the module
-// version alone; one built without build info at all prints "(unknown)".
+// A binary installed by module version has no vcs settings and prints that
+// version alone; one built from a release tarball has neither and prints
+// releaseVersion; one built without build info at all prints "(unknown)".
 func formatVersion(info *debug.BuildInfo) string {
 	if info == nil {
 		return "job (unknown)"
@@ -55,6 +63,9 @@ func formatVersion(info *debug.BuildInfo) string {
 		}
 	}
 	if revision == "" {
+		if version == develVersion {
+			version = releaseVersion
+		}
 		return "job " + version
 	}
 	if len(revision) > 7 {

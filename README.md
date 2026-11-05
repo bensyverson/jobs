@@ -28,6 +28,14 @@ While YAML is an objectively bad format, this particular YAML schema is quite re
 ### Install
 
 ```sh
+$ brew install bensyverson/tap/job
+```
+
+On macOS 15 or later with Apple silicon, that pours a prebuilt, signed binary; anywhere else Homebrew builds it from source with Go.
+
+Or, with Go:
+
+```sh
 $ go install github.com/bensyverson/jobs/cmd/job@latest
 ```
 

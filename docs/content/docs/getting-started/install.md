@@ -5,6 +5,14 @@ weight: 1
 
 Jobs is a single Go binary called `job`. The project is **Jobs**; the binary is `job` (singular, since each invocation acts on one job).
 
+## Homebrew
+
+```sh
+brew install bensyverson/tap/job
+```
+
+On macOS 15 or later with Apple silicon, that pours a prebuilt, signed binary; anywhere else Homebrew builds it from source with Go. It needs nothing else, so skip ahead to [the line for your agent](#tell-your-agent-to-use-it) if you came for that.
+
 ## `go install`
 
 ```sh
