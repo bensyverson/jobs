@@ -3390,3 +3390,4 @@
 {"v":1,"rep":"arMAXc","seq":3390,"ts":1792964059884,"actor":"claude","type":"found_in_set","task":"3bDt2f","data":{"task_id":"3bDt2f","source_id":"Szx5CZ"}}
 {"v":1,"rep":"arMAXc","seq":3391,"ts":1792964062927,"actor":"claude","type":"labeled","task":"3bDt2f","data":{"names":["decision"],"existing":[]}}
 {"v":1,"rep":"arMAXc","seq":3392,"ts":1792968629880,"actor":"claude","type":"claimed","task":"3bDt2f","data":{"duration":"30m","expires_at":1792970429}}
+{"v":1,"rep":"arMAXc","seq":3393,"ts":1792968764038,"actor":"claude","type":"done","task":"3bDt2f","data":{"note":"Decided 2026-10-25 (Ben): open siblings only, no closed count. orientSiblings skips closed leaves; regression test TestRunOrient_Header_ListsOnlyOpenSiblings (red first); observation.md, orient help and the orient design doc (marked revision) updated.","cascade":false,"was_status":"claimed","was_claimed_by":"claude","was_expires_at":1792970429}}

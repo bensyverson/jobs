@@ -23,7 +23,7 @@ You are working on Jobs, a hierarchical task manager for the CLI, backed by an e
 - **This repo builds `job`.** The `job` on your `PATH` and the `./job` at the repo root are both stale until `make install` / `make build`, so a CLI change you just wrote is not exercised by running `job` until you rebuild.
 - **Never name a client or a client's repo in anything committed** — code, comments, `project/` docs, commit messages, and `job` titles, descriptions, notes and criteria (the `.jobs/log` is committed too). Say "a client repo" or "a client store". Real stores from other repos are fine to measure against; their names stay out of this one.
 
-<!-- agents:begin core@98d8a9 -->
+<!-- agents:begin core@bb8246 -->
 ## Working rules
 
 **Understand the why.** If the goal behind a request isn't clear, ask before solving — beware the XY problem.
@@ -60,7 +60,7 @@ You are working on Jobs, a hierarchical task manager for the CLI, backed by an e
 - **On the main thread, read `project/agents/delegation.md` in full before you begin, so whether to delegate is a choice, not a default.** A subagent skips this: its brief is its scope, and it doesn’t delegate further.
 - **Unless the user says they're around, assume they aren't.** Make the call yourself when it's safe and a two-way door, queue the rest, and report every decision at the end. While they're around, bring questions as they come up, including ones an agent raises mid-flight.
 - **Before starting, say what needs the user's eyes.**
-- **Continue working if there’s more to be done, but wrap up once you cross your context limit.** The main thread should wrap after passing 25%; subagents should prepare to hand over their work after passing 40% (check using `contextfill` if available).
+- **Keep working while there's work; once past your context line, start nothing new.** The main thread's line is 25%, a subagent's 40% (read with contextfill; never estimate). The line is where wrapping up begins: finishing what's in flight and handing off happen after it, however far past it that takes. A delegating main thread: delegation.md ▸ Carving the work.
 
 ## Git
 
@@ -112,7 +112,7 @@ Pre-launch, zero users, no existing data. Never spend effort on backward compati
 - **`r.ParseForm()` reads a body only when it is urlencoded**; for multipart it leaves it empty without erroring. Keep one wire format per route — a handler that accepts two body shapes needs two sets of checks where the design wanted one.
 <!-- agents:end go -->
 
-<!-- agents:begin web@55a796 -->
+<!-- agents:begin web@41b643 -->
 ## Web
 
 - **Vanilla HTML, CSS and JS** — no frameworks or build tools beyond the server. WebComponents are the enhancement layer: the server ships each element's real content as HTML inside it, and the component's JS upgrades what's already there — never an empty tag that renders itself.
@@ -124,7 +124,7 @@ Pre-launch, zero users, no existing data. Never spend effort on backward compati
 - **Paths over query strings** (`/api/people/89`, not `?id=89`); queries only for search, sort, filters.
 - **Public pages carry rich `<head>` metadata** including schema.org data.
 - **Server-side tests cannot see the browser.** Keep a JS/browser runner and run it by hand whenever you change behavior a browser can observe — a green server suite is not evidence about the page. The preview catalog is what you point `sleepy shot` at: one URL per state, both color schemes, into the project's shot directory. That contact sheet is the review; a green suite is not.
-- **`sleepy` is the browser-evidence tool on this machine** (SleepyHollow, headless WebKit, globally installed — `sleepy --help`): `load` for HTTP facts and console errors, `shot --full-page --size WxH` at any viewport, `ax` for the accessibility tree, `wire` to prove the request inventory (e.g. zero external requests), `query`/`find`/`style` for semantic checks, `open`/`fill`/`click` + `--session` to drive flows. Renders offscreen — never a window on the user's display; anything else an agent launches must be windowless too. **`sleepy` alone is the day-to-day check** — don't run a second engine for routine work; at final integration and QA, check once in a Blink engine (Chrome plus Android is what most visitors see; Firefox is not needed). Chrome for Testing lives in puppeteer's cache (`~/.cache/puppeteer/chrome/*/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`; glob the version); launch it `--headless=new --disable-gpu --no-first-run --password-store=basic --use-mock-keychain --user-data-dir=$TMPDIR/chrome --window-size=WxH --screenshot=out.png <url>` — the two keychain flags are mandatory or every launch raises a macOS keychain prompt that stacks and outlives the process. Two traps: **`eval` runs in an isolated world** — page-JS state (upgraded component methods) reads as missing while DOM state shows; don't diagnose components from it — and **`pdf` renders one unpaginated screen-media sheet**; use an `NSPrintOperation` harness for print evidence (working example: nobedan `scripts/print-proposal/`).
+- **`sleepy` is the browser-evidence tool on this machine** (SleepyHollow, headless WebKit, globally installed — `sleepy --help`): `load` for HTTP facts and console errors, `shot --full-page --size WxH` at any viewport, `ax` for the accessibility tree, `wire` to prove the request inventory (e.g. zero external requests), `query`/`find`/`style` for semantic checks, `open`/`fill`/`click` + `--session` to drive flows. Renders offscreen — never a window on the user's display; anything else an agent launches must be windowless too. **`sleepy` alone is the day-to-day check** — don't run a second engine for routine work; at final integration and QA, check once in a Blink engine (Chrome plus Android is what most visitors see; Firefox is not needed). Chrome for Testing lives in puppeteer's cache (`~/.cache/puppeteer/chrome/*/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`; glob the version); launch it `--headless=new --disable-gpu --no-first-run --password-store=basic --use-mock-keychain --user-data-dir=$TMPDIR/chrome --window-size=WxH --screenshot=out.png <url>` — the two keychain flags are mandatory or every launch raises a macOS keychain prompt that stacks and outlives the process. Two things to know: **the JavaScript world differs by verb** — `eval` runs in the page's own world by default, so page globals and upgraded component methods are there (`--world isolated` shares only the DOM), while `--inject` scripts run isolated unless `--inject-world page`, so a value an injected script sets on `window` reads as undefined from `eval` — and **`pdf` is a paginated, print-media Save-as-PDF**: `@media print` rules apply, `@page { margin: … }` sets the margins (no rule prints edge to edge), and the paper is US Letter unless `--paper` says otherwise.
 - **New components: one custom element per file, named for the element** (`<app>-thing` lives in `app-thing.js`), with a shadow root so component styles don't leak. Don't retrofit existing scripts as a side quest.
 <!-- agents:end web -->
 
