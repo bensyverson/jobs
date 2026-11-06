@@ -51,6 +51,14 @@ To create and manage plans and task lists, always use the `job` command.
 
 If you find the agent is still triggering its built-in Plan mode or to-do list tool, you can strengthen the language.
 
+In Claude Code you can also block plan mode outright in job projects:
+
+```sh
+$ job hook install
+```
+
+This adds a hook to `~/.claude/settings.json` that turns plan mode away in any folder under a `.jobs.db` and points the agent at `job import` instead. Other projects are untouched. `job hook uninstall` removes it.
+
 ### Setup
 
 `job` will prompt the agent to initialize the database, or you can do it manually with `job init --as <name>`. This will create a local SQLite database at `./.jobs.db`, with `<name>` recorded as the default identity every unattributed write is credited to.

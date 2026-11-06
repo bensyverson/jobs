@@ -17,7 +17,7 @@ func newNoteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "note <id> [text]",
 		Short: "Record a timestamped note on a task",
-		Long:  "Record a timestamped note on a task. Notes are stored as `noted` events with actor + body, surfaced in the Notes: section of `job show`, and remain searchable. The task's description is not modified. Pass the body positionally, via -m, via -F <path> to read a file, or read from stdin with `-`. Use --result to attach a structured JSON blob to the event.",
+		Long:  "Record a timestamped note on a task. Notes are stored as `noted` events with actor + body, surfaced in the Notes: section of `job show`, and remain searchable. The task's description is not modified. Pass the body with -F <path> to read a file (`-F -` reads stdin), or inline: positionally or via -m. Use --result to attach a structured JSON blob to the event.",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openDBFromCmd()
@@ -63,7 +63,7 @@ func newNoteCmd() *cobra.Command {
 				case positionalForm:
 					text = args[1]
 				default:
-					return fmt.Errorf("note requires text — pass it positionally, via -m \"<text>\", via -F <path>, or via stdin (-)")
+					return fmt.Errorf("note requires text — pass it via -F <path>, -F - for stdin, positionally, or via -m \"<text>\"")
 				}
 			}
 			if text == "" {

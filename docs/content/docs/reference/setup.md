@@ -3,7 +3,7 @@ title: Setup
 weight: 1
 ---
 
-The verbs that bring a store into existence, govern who is allowed to write to it, set its shared settings, and put one back together: `init`, `gitignore`, `identity`, `config`, `replicas`, `replica rename`, `schema`, `merge`, `rebuild`, `rekey` and `version`. Only `merge`, `rebuild` and `rekey` touch tasks, and only to rebuild them from the log or reconcile two copies of the same ones. [The store](../../concepts/the-store/) is the model those three assume.
+The verbs that bring a store into existence, govern who is allowed to write to it, set its shared settings, and put one back together: `init`, `gitignore`, `identity`, `config`, `replicas`, `replica rename`, `schema`, `merge`, `rebuild`, `rekey`, `version` and `hook`. Only `merge`, `rebuild` and `rekey` touch tasks, and only to rebuild them from the log or reconcile two copies of the same ones. [The store](../../concepts/the-store/) is the model those three assume.
 
 ## `init`
 
@@ -225,3 +225,29 @@ job v0.0.0-20260902142258-9b888be508f9 (commit 9b888be, 2026-09-02T14:22:58Z)
 ```
 
 `modified` is appended when the checkout that built the binary had uncommitted changes. This is the fastest way to tell whether a `make install` on another machine actually took, or whether `PATH` is still pointing at a stale binary. No database, no `--as`.
+
+## `hook`
+
+Blocks an agent app's own plan mode in job projects, so the plan lands in `job` instead. Three verbs, none of which opens a database or needs `--as`.
+
+```sh
+job hook install                         # each agent app present here
+job hook install --harness claude-code   # or opencode
+job hook uninstall --harness claude-code
+```
+
+`install` registers `job hook plan-mode` in `~/.claude/settings.json` as a `PreToolUse` hook with the matcher `EnterPlanMode`:
+
+```json
+"PreToolUse": [{"matcher": "EnterPlanMode", "hooks": [{"type": "command", "command": "/opt/homebrew/bin/job hook plan-mode"}]}]
+```
+
+- **The command is the binary's full path**, because an agent session started before Homebrew was installed has no `/opt/homebrew/bin` on its `PATH`. On a Homebrew install that is the stable `/opt/homebrew/bin/job` symlink, not the versioned `Cellar` path the next upgrade deletes; any other install uses the binary's own path.
+- **It merges.** Every other key stays, in its order, and values it doesn't touch keep their bytes. An older plan-mode block — another `job` path, or a `block-plan-mode.sh` script — is replaced rather than doubled. A second run changes nothing and says so.
+- **It refuses a file that isn't valid JSON** and writes nothing. A missing file is created. Writes go through a temp file and a rename, keep the file's mode, and follow a symlinked `settings.json` to its target.
+- **Without `--harness`** it installs for each app whose config folder exists (`~/.claude`, `~/.config/opencode`), and says so when there are none.
+- **OpenCode has nothing to install.** Its plan mode is the Plan agent the person switches to with Tab, not a tool the model calls, so there is no call for a hook to block. `--harness opencode` prints that and exits 0.
+
+`uninstall` removes `job hook plan-mode` by any path and leaves every other hook, a `block-plan-mode.sh` included.
+
+`plan-mode` is the hook itself; Claude Code runs it. It reads the hook payload on stdin and takes its `cwd`, or the working directory when there is none. Under a `.jobs.db` or `.jobs/log` there or in a parent, it prints a deny reply whose reason sends the agent to the job workflow: draft the plan, `job import` it, work leaf by leaf, close each with `job done <id> -F <file>`. Anywhere else it prints nothing. It always exits 0.

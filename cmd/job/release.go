@@ -25,7 +25,7 @@ func buildReleaseCmd(use string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   use + " <id>",
 		Short: "Release a claimed task",
-		Long:  "Release a claim, returning the task to available status. Pass -m \"<text>\" to record a note before releasing, or -F <path> to read it from a file.",
+		Long:  "Release a claim, returning the task to available status. Pass -F <path> to record a note before releasing (`-F -` reads stdin; -m takes it inline).",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openDBFromCmd()

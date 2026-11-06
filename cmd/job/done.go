@@ -25,7 +25,7 @@ func newDoneCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "done <id> [<id>...]",
 		Short: "Mark one or more tasks as done",
-		Long: `Mark one or more tasks as done, atomically. Use --cascade to close a task and all open descendants in one call. Use -m to record a completion note (or -F <path> to read it from a file), and --result for structured JSON output. Idempotent: already-done tasks are reported, not re-recorded.
+		Long: `Mark one or more tasks as done, atomically. Use --cascade to close a task and all open descendants in one call. Record a completion note with -F <path> ('-F -' reads stdin; -m takes it inline); --result gives structured JSON output. Idempotent: already-done tasks are reported, not re-recorded.
 
 Tip: pass --claim-next to atomically close this task and claim the next available leaf, collapsing the close-then-advance flow into one call. The ack ends with the same briefing that 'job claim' / 'job show' produces, so you don't need a follow-up 'show' on the new claim.`,
 		Args: cobra.MinimumNArgs(1),

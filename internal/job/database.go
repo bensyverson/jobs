@@ -68,7 +68,13 @@ func findAncestorDB() string {
 	if err != nil {
 		return ""
 	}
-	dir := cwd
+	return FindDBFrom(cwd)
+}
+
+// FindDBFrom returns the path of the database for the project that holds
+// dir — a .jobs.db, or a .jobs/log store without its cache yet, in dir or
+// the nearest parent — or "" when dir is in no project.
+func FindDBFrom(dir string) string {
 	for {
 		candidate := filepath.Join(dir, defaultDBName)
 		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {

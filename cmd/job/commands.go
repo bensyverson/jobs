@@ -219,6 +219,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newServeCmd())
 	cmd.AddCommand(newPreviewCmd())
 	cmd.AddCommand(newVersionCmd())
+	cmd.AddCommand(newHookCmd())
 	return cmd
 }
 
@@ -251,9 +252,9 @@ QUICKSTART
 
   4. Work:     job claim --next            (grab the next available leaf)
                job claim <id> 2h          (long-running claim — overrides 30m default)
-               job note <id> -m "progress"
-               job done <id> -m "completion notes"
-               job done <id> -m "notes" --claim-next  (closes <id> with a note and opens the next available leaf in one move)
+               job note <id> -F <file>     (-F - reads stdin)
+               job done <id> -F <file>     (the completion note: what changed, how it was checked)
+               job done <id> -F <file> --claim-next  (closes <id> with a note and opens the next available leaf in one move)
 
   5. Observe:  job ls                      (actionable tasks in tree view)
                job ls --all                (live work + recently closed footer; --since/--no-truncate to widen)
@@ -287,8 +288,8 @@ VERBS (grouped by role)
     Single-operation verbs:                job <verb> <id> [--flags]
 
   Short flags:
-    -m  free-text body (note -m, done -m, cancel -m)
-    -F  --file: the same body read from a path, as git spells it (-F - reads stdin)
+    -F  --file: free-text body read from a path, as git spells it (-F - reads stdin) — note, done, cancel, release, claim
+    -m  the same body inline; prefer -F, since the shell rewrites quotes and backticks in -m "…" before job sees them
     -d  --desc
     -t  --title (edit) / --timeout (tail)
     -l  --label
