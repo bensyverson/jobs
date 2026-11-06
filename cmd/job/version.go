@@ -9,7 +9,7 @@ import (
 
 // releaseVersion is the version this source states; scripts/release reads it.
 // Only a build from a release tarball shows it, as that has no stamp of its own.
-const releaseVersion = "0.1.0"
+const releaseVersion = "0.2.0"
 
 // `job version` — which build this is. Both the module version and the commit
 // come from the build info the Go toolchain stamps into every binary built
