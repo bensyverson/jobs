@@ -1,4 +1,4 @@
-<!-- agents:begin review@968326 -->
+<!-- agents:begin review@fbe6c0 -->
 # Code review
 
 Independent review catches bugs that green tests miss. It covers code meant to be kept. A prototype declared up front — a `spike` label on its container, or a ruling in the `AGENTS.md` head — is exempt until it is built on or merged, and then all of it counts as unreviewed.
@@ -8,14 +8,17 @@ Independent review catches bugs that green tests miss. It covers code meant to b
 Review the unreviewed work at the first of:
 
 - **A job container closes.**
-- **About 1,500 lines of production code** have landed since the last review, not counting tests, goldens, vendored or generated code.
+- **About 1,500 lines of production code** across the unreviewed leaves' commits, not counting tests, goldens, vendored or generated code.
 - **A commit touches a persisted or wire format, `unsafe` or FFI code, locking, or deletion.** Review it before building on it.
 - **Handoff.** Review what's left, or name the unreviewed commit range in the handoff for the next session to review first.
 
+The unreviewed work is every closed leaf since the baseline without the `reviewed` label:
+
 ```sh
-job ls --status done --leaves --without-label reviewed --since 2d
-git log --stat refs/review/last..HEAD
+job ls --status done --leaves --without-label reviewed --since <baseline>
 ```
+
+The baseline is a `Review baseline: <RFC3339 time>` line in the head of `AGENTS.md`. If there is none, add one with the current time; work closed before it is out of scope.
 
 ## How
 
@@ -33,6 +36,5 @@ git log --stat refs/review/last..HEAD
 
 ```sh
 job label add <id> [<id>...] with reviewed
-git update-ref refs/review/last <last reviewed commit>
 ```
 <!-- agents:end review -->

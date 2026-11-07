@@ -23,6 +23,10 @@ You are working on Jobs, a hierarchical task manager for the CLI, backed by an e
 - **This repo builds `job`.** The `job` on your `PATH` and the `./job` at the repo root are both stale until `make install` / `make build`, so a CLI change you just wrote is not exercised by running `job` until you rebuild.
 - **Never name a client or a client's repo in anything committed** — code, comments, `project/` docs, commit messages, and `job` titles, descriptions, notes and criteria (the `.jobs/log` is committed too). Say "a client repo" or "a client store". Real stores from other repos are fine to measure against; their names stay out of this one.
 
+## Review
+
+Review baseline: 2026-11-07T13:00:00Z
+
 <!-- agents:begin core@ffe7d8 -->
 ## Working rules
 
