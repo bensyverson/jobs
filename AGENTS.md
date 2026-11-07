@@ -23,7 +23,7 @@ You are working on Jobs, a hierarchical task manager for the CLI, backed by an e
 - **This repo builds `job`.** The `job` on your `PATH` and the `./job` at the repo root are both stale until `make install` / `make build`, so a CLI change you just wrote is not exercised by running `job` until you rebuild.
 - **Never name a client or a client's repo in anything committed** — code, comments, `project/` docs, commit messages, and `job` titles, descriptions, notes and criteria (the `.jobs/log` is committed too). Say "a client repo" or "a client store". Real stores from other repos are fine to measure against; their names stay out of this one.
 
-<!-- agents:begin core@bb8246 -->
+<!-- agents:begin core@ffe7d8 -->
 ## Working rules
 
 **Understand the why.** If the goal behind a request isn't clear, ask before solving — beware the XY problem.
@@ -41,6 +41,8 @@ You are working on Jobs, a hierarchical task manager for the CLI, backed by an e
 **Don't tour the codebase.** Start from the README and the docs (an Explore agent is fine); dig only where the task leads — once you have a specific need, read as much as that need requires.
 
 **Scripts.** Analysis tooling goes in `scripts/` so it can be re-run — check there before writing one.
+
+**Shell variables.** Never store a command or a list of arguments in a plain shell variable. zsh doesn't split `$VAR` into words, so `git commit -- $FILES` passes one path made of every name. Use a function or an array, or write it out. This applies on remote machines too.
 
 **Critique before declaring done.** Re-read the original request: is the need actually met? Do lint and tests pass? Are docs updated? What would an expert flag? Fix serious flaws before reporting.
 
@@ -60,7 +62,8 @@ You are working on Jobs, a hierarchical task manager for the CLI, backed by an e
 - **On the main thread, read `project/agents/delegation.md` in full before you begin, so whether to delegate is a choice, not a default.** A subagent skips this: its brief is its scope, and it doesn’t delegate further.
 - **Unless the user says they're around, assume they aren't.** Make the call yourself when it's safe and a two-way door, queue the rest, and report every decision at the end. While they're around, bring questions as they come up, including ones an agent raises mid-flight.
 - **Before starting, say what needs the user's eyes.**
-- **Keep working while there's work; once past your context line, start nothing new.** The main thread's line is 25%, a subagent's 40% (read with contextfill; never estimate). The line is where wrapping up begins: finishing what's in flight and handing off happen after it, however far past it that takes. A delegating main thread: delegation.md ▸ Carving the work.
+- **Get independent review of the code you land**, at the triggers in `project/agents/review.md`, and before handoff.
+- **Keep working while there's work; once past your context line, start nothing new.** The main thread's line is 33%, a subagent's 40% (read with contextfill; never estimate). Those are defaults: when the contextfill hook names a line, its line wins. The line is where wrapping up begins: finishing what's in flight and handing off happen after it, however far past it that takes. It is not a cutoff, so until you reach it, keep taking on work; don't start wrapping up early. A delegating main thread: delegation.md ▸ Carving the work.
 
 ## Git
 
@@ -98,10 +101,10 @@ Defaults, not laws. When we break one, we do it consciously and say so in the re
 Pre-launch, zero users, no existing data. Never spend effort on backward compatibility — assume every use is green-field — but flag breaking changes and update the affected tests. Be ambitious: if a feature is important, build it fully now rather than an MVP; balance that against over-engineering and future-proofing.
 <!-- agents:end stage-build -->
 
-<!-- agents:begin go@91ab6a -->
+<!-- agents:begin go@4864fc -->
 ## Go
 
-- Before committing: `go fix ./...`, `gofmt -w .`, `go vet ./...` and `go mod tidy`, then the tests you touched. `go fix` converges over several passes — "re-run to apply more" is progress, not failure; re-run until clean before editing code.
+- Before committing: `go fix ./...`, `gofmt -w .`, `go vet ./...` and `go mod tidy`, then the tests you touched. `go fix` converges over several passes — "re-run to apply more" is progress, not failure; re-run until clean before editing code. The pre-commit hook `agents hooks install` writes checks all four without rewriting anything, then runs the tests.
 - **Run `go fix ./...` before staging, not just before committing.** A pre-commit hook that re-stages `gofmt` rewrites will not re-stage `go fix` rewrites: a file `go fix` changed that is already gofmt-clean commits unfixed, and your working tree quietly diverges from what you committed.
 - **Tests that share a database need `-p 1` and a database per agent.** `go test ./...` runs packages in parallel, so packages that seed the same fixtures and truncate the same tables produce a wall of unrelated-looking failures that survives a re-run and reads as a real regression.
 - **Schema changes are numbered migrations** in the project's migrations directory (the head names it). Never run one by hand — the binary migrates when it starts or opens the database and records the version; the next run applies it. Read the full note history on the task (`job show <id>`) before writing schema; it is the most expensive thing to change.
@@ -112,7 +115,7 @@ Pre-launch, zero users, no existing data. Never spend effort on backward compati
 - **`r.ParseForm()` reads a body only when it is urlencoded**; for multipart it leaves it empty without erroring. Keep one wire format per route — a handler that accepts two body shapes needs two sets of checks where the design wanted one.
 <!-- agents:end go -->
 
-<!-- agents:begin web@41b643 -->
+<!-- agents:begin web@57e39a -->
 ## Web
 
 - **Vanilla HTML, CSS and JS** — no frameworks or build tools beyond the server. WebComponents are the enhancement layer: the server ships each element's real content as HTML inside it, and the component's JS upgrades what's already there — never an empty tag that renders itself.
@@ -124,11 +127,11 @@ Pre-launch, zero users, no existing data. Never spend effort on backward compati
 - **Paths over query strings** (`/api/people/89`, not `?id=89`); queries only for search, sort, filters.
 - **Public pages carry rich `<head>` metadata** including schema.org data.
 - **Server-side tests cannot see the browser.** Keep a JS/browser runner and run it by hand whenever you change behavior a browser can observe — a green server suite is not evidence about the page. The preview catalog is what you point `sleepy shot` at: one URL per state, both color schemes, into the project's shot directory. That contact sheet is the review; a green suite is not.
-- **`sleepy` is the browser-evidence tool on this machine** (SleepyHollow, headless WebKit, globally installed — `sleepy --help`): `load` for HTTP facts and console errors, `shot --full-page --size WxH` at any viewport, `ax` for the accessibility tree, `wire` to prove the request inventory (e.g. zero external requests), `query`/`find`/`style` for semantic checks, `open`/`fill`/`click` + `--session` to drive flows. Renders offscreen — never a window on the user's display; anything else an agent launches must be windowless too. **`sleepy` alone is the day-to-day check** — don't run a second engine for routine work; at final integration and QA, check once in a Blink engine (Chrome plus Android is what most visitors see; Firefox is not needed). Chrome for Testing lives in puppeteer's cache (`~/.cache/puppeteer/chrome/*/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`; glob the version); launch it `--headless=new --disable-gpu --no-first-run --password-store=basic --use-mock-keychain --user-data-dir=$TMPDIR/chrome --window-size=WxH --screenshot=out.png <url>` — the two keychain flags are mandatory or every launch raises a macOS keychain prompt that stacks and outlives the process. Two things to know: **the JavaScript world differs by verb** — `eval` runs in the page's own world by default, so page globals and upgraded component methods are there (`--world isolated` shares only the DOM), while `--inject` scripts run isolated unless `--inject-world page`, so a value an injected script sets on `window` reads as undefined from `eval` — and **`pdf` is a paginated, print-media Save-as-PDF**: `@media print` rules apply, `@page { margin: … }` sets the margins (no rule prints edge to edge), and the paper is US Letter unless `--paper` says otherwise.
+- **`sleepy` is the browser-evidence tool** (SleepyHollow, headless WebKit — `sleepy --help`). If it isn't installed (`command -v sleepy` prints nothing), ask the user whether to install it with `brew install bensyverson/tap/sleepy`, and install it if they agree; until then, don't block on it — say what to check and ask the user to look at the page. Its verbs: `load` for HTTP facts and console errors, `shot --full-page --size WxH` at any viewport, `ax` for the accessibility tree, `wire` to prove the request inventory (e.g. zero external requests), `query`/`find`/`style` for semantic checks, `open`/`fill`/`click` + `--session` to drive flows. Renders offscreen — never a window on the user's display; anything else an agent launches must be windowless too. **`sleepy` alone is the day-to-day check** — don't run a second engine for routine work; at final integration and QA, check once in a Blink engine (Chrome plus Android is what most visitors see; Firefox is not needed). Chrome for Testing lives in puppeteer's cache (`~/.cache/puppeteer/chrome/*/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`; glob the version); launch it `--headless=new --disable-gpu --no-first-run --password-store=basic --use-mock-keychain --user-data-dir=$TMPDIR/chrome --window-size=WxH --screenshot=out.png <url>` — the two keychain flags are mandatory or every launch raises a macOS keychain prompt that stacks and outlives the process. Two things to know: **the JavaScript world differs by verb** — `eval` runs in the page's own world by default, so page globals and upgraded component methods are there (`--world isolated` shares only the DOM), while `--inject` scripts run isolated unless `--inject-world page`, so a value an injected script sets on `window` reads as undefined from `eval` — and **`pdf` is a paginated, print-media Save-as-PDF**: `@media print` rules apply, `@page { margin: … }` sets the margins (no rule prints edge to edge), and the paper is US Letter unless `--paper` says otherwise.
 - **New components: one custom element per file, named for the element** (`<app>-thing` lives in `app-thing.js`), with a shadow root so component styles don't leak. Don't retrofit existing scripts as a side quest.
 <!-- agents:end web -->
 
-<!-- agents:begin docs@7ba2fd -->
+<!-- agents:begin docs@426033 -->
 ## Documentation practice
 
 - **Plans, findings, designs and decisions go in `project/` as dated documents** (`YYYY-MM-DD-title.md`) — the written history of the project. They are point-in-time records: correct an earlier one *in place*, as a marked block quote, rather than silently editing a number or leaving a stale claim standing.
@@ -138,7 +141,7 @@ Pre-launch, zero users, no existing data. Never spend effort on backward compati
 - **A wrong documented cause is worse than none** — it stops the next reader looking. Correcting one means saying it was wrong, not quietly rewording.
 - **Open the note before you cite it**, and check whether a recorded ruling has been superseded before passing it on.
 - **Every repo has a README; if none exists, write one (delegate it if you can).** It is tight: the project's name and a one-line description a non-technical reader understands (6th-grade reading level); one short paragraph of what it is; how to install or consume it; a crisp Quick Start with an example or two; links out to the specific docs for anything more; authorship and license at the end.
-- **The head of `AGENTS.md` lists where the docs live; keep that list current.**
+- **The head of `AGENTS.md` lists where the docs live; keep that list current with documentation, but exclude project/ docs such as plans and research.**
 <!-- agents:end docs -->
 
 <!-- agents:begin background@882e19 -->
@@ -149,7 +152,7 @@ Pre-launch, zero users, no existing data. Never spend effort on backward compati
 **It holds *current* state, so it is rewritten, not appended.** Every number, date and name appears there once and links the dated `project/` document it came from; when a fact changes, edit the sentence that holds it and let the dated record keep the history.
 <!-- agents:end background -->
 
-<!-- agents:begin index@19ea97 -->
+<!-- agents:begin index@729471 -->
 ## Situational instructions
 
 These files carry instructions for specific situations. When one applies, read the file before acting and follow it.
@@ -161,4 +164,5 @@ These files carry instructions for specific situations. When one applies, read t
 | Before filing or claiming work in job, and when running as a subagent | `project/agents/jobs.md` |
 | The first time a tool call is refused or denied, and before briefing a subagent | `project/agents/harness.md` |
 | Before writing a plan, importing a `tasks:` block, or detailing the leaves of work ahead | `project/agents/planning.md` |
+| Before handoff, when a job container closes, and before building on unreviewed code | `project/agents/review.md` |
 <!-- agents:end index -->
