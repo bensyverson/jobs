@@ -926,13 +926,43 @@ func minusJoined(names []string) string {
 	return strings.Join(parts, ", ")
 }
 
-func RenderLabelJSON(w io.Writer, res *LabelResult) error {
-	obj := map[string]any{
+func labelJSONObject(res *LabelResult) map[string]any {
+	return map[string]any{
 		"id":       res.ShortID,
 		"added":    ensureStringSlice(res.Added),
 		"existing": ensureStringSlice(res.Existing),
 	}
-	b, err := json.MarshalIndent(obj, "", "  ")
+}
+
+func unlabelJSONObject(res *UnlabelResult) map[string]any {
+	return map[string]any{
+		"id":      res.ShortID,
+		"removed": ensureStringSlice(res.Removed),
+		"absent":  ensureStringSlice(res.Absent),
+	}
+}
+
+// RenderLabelJSONMany writes the keyword form's output: one
+// RenderLabelJSON object per task, in argument order.
+func RenderLabelJSONMany(w io.Writer, results []*LabelResult) error {
+	objs := make([]map[string]any, len(results))
+	for i, r := range results {
+		objs[i] = labelJSONObject(r)
+	}
+	return writeIndentedJSON(w, objs)
+}
+
+// RenderUnlabelJSONMany is RenderLabelJSONMany for `label remove`.
+func RenderUnlabelJSONMany(w io.Writer, results []*UnlabelResult) error {
+	objs := make([]map[string]any, len(results))
+	for i, r := range results {
+		objs[i] = unlabelJSONObject(r)
+	}
+	return writeIndentedJSON(w, objs)
+}
+
+func writeIndentedJSON(w io.Writer, v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -941,19 +971,12 @@ func RenderLabelJSON(w io.Writer, res *LabelResult) error {
 	return nil
 }
 
+func RenderLabelJSON(w io.Writer, res *LabelResult) error {
+	return writeIndentedJSON(w, labelJSONObject(res))
+}
+
 func RenderUnlabelJSON(w io.Writer, res *UnlabelResult) error {
-	obj := map[string]any{
-		"id":      res.ShortID,
-		"removed": ensureStringSlice(res.Removed),
-		"absent":  ensureStringSlice(res.Absent),
-	}
-	b, err := json.MarshalIndent(obj, "", "  ")
-	if err != nil {
-		return err
-	}
-	w.Write(b)
-	fmt.Fprintln(w)
-	return nil
+	return writeIndentedJSON(w, unlabelJSONObject(res))
 }
 
 // eventJSON is the wire shape of `job log`/`job tail --format=json`.

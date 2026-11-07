@@ -12,9 +12,10 @@ Labels are local to each task. There is no inheritance, no namespacing, no schem
 ```sh
 job label add <id> <name> [<name>...]
 job label remove <id> <name> [<name>...]
+job label add <id> [<id>...] with <name> [<name>...]     # several tasks at once
 ```
 
-Both verbs are variadic, idempotent, and atomic. Adding a label that's already on the task is a no-op (no error). Removing one that isn't there is a no-op too. Multi-label calls run in a single transaction.
+Both verbs are variadic, idempotent, and atomic. With `with`, one call labels several tasks in a single transaction; an unknown id fails the whole call. Adding a label that's already on the task is a no-op (no error). Removing one that isn't there is a no-op too. Multi-label calls run in a single transaction.
 
 Labels can also be set at import time via the YAML `labels: [...]` key:
 
@@ -34,6 +35,13 @@ job next all --label release       # whole frontier scoped to the label
 ```
 
 `job ls --label <name>` is the workhorse for "show me everything in this slice." Composes with `--mine`, `--all`, `--since`, etc.
+
+`job ls --without-label <name>` is the negation: everything *not* yet in the slice. With `--leaves`, which drops containers, it answers "which closed work still lacks a mark":
+
+```sh
+job ls --status done --leaves --without-label reviewed --since 2d
+job label add abc12 def34 with reviewed
+```
 
 The web dashboard's filter chips are also keyed on labels — clicking a chip is the visual equivalent of `--label`.
 

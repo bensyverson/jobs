@@ -179,7 +179,11 @@ Two subcommands, both variadic, both atomic.
 ```sh
 job label add abc12 p0 infra
 job label remove abc12 infra
+job label add abc12 def34 ghi56 with reviewed     # several tasks at once
+job label remove abc12 def34 with reviewed
 ```
+
+**Several tasks in one call.** Put the ids first, then `with`, then the names, the way `block add` separates its two sides with `by`. The call is one transaction: an unknown id fails it, names the id, and records nothing. Each task that changes gets its own event, and the ack has one line per task; `--format=json` prints an array with one object per task, where the single-task form prints the object alone. The first `with` is the separator, so a label named `with` is still reachable as `job label add abc12 with with`.
 
 Labels are flat and free-form (no inheritance, no hierarchy). They're idempotent: repeating a name is reported, not re-recorded, and one event covers the whole call.
 

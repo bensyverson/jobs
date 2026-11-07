@@ -127,6 +127,11 @@ func RunListWithTail(db *sql.DB, f ListFilter) (*ListResult, error) {
 	var open []*TaskNode
 	if effectiveShowAll {
 		open = filterTreeHybrid(scoped)
+		if f.ClosedTailSinceUnix != 0 {
+			if open, err = dropClosedBefore(db, open, f.ClosedTailSinceUnix); err != nil {
+				return nil, err
+			}
+		}
 	} else {
 		open = filterTree(scoped, false, blockedIDs)
 	}
@@ -136,12 +141,9 @@ func RunListWithTail(db *sql.DB, f ListFilter) (*ListResult, error) {
 	if f.Status != "" {
 		open = filterByStatus(open, f.Status)
 	}
-	if f.Label != "" {
-		labeledIDs, err := taskIDsWithLabel(db, f.Label)
-		if err != nil {
-			return nil, err
-		}
-		open = filterByLabel(open, labeledIDs)
+	open, err = filterByTaskMatch(db, open, f)
+	if err != nil {
+		return nil, err
 	}
 	if f.GrepPattern != "" {
 		open = filterByGrep(open, f.GrepPattern)
@@ -282,6 +284,34 @@ func filterTreeHybrid(nodes []*TaskNode) []*TaskNode {
 	return out
 }
 
+// dropClosedBefore removes closed nodes whose latest close is before
+// sinceUnix, so a time window means "closed within" in the tree as it does
+// in the footer. A closed node with surviving descendants stays as context.
+func dropClosedBefore(db *sql.DB, nodes []*TaskNode, sinceUnix int64) ([]*TaskNode, error) {
+	rows, _, err := collectClosedTail(db, ListFilter{ClosedTailSinceUnix: sinceUnix})
+	if err != nil {
+		return nil, err
+	}
+	within := make(map[int64]bool, len(rows))
+	for _, r := range rows {
+		within[r.Task.ID] = true
+	}
+	var walk func([]*TaskNode) []*TaskNode
+	walk = func(ns []*TaskNode) []*TaskNode {
+		var out []*TaskNode
+		for _, n := range ns {
+			kids := walk(n.Children)
+			closed := n.Task.Status == "done" || n.Task.Status == "canceled"
+			if closed && !within[n.Task.ID] && len(kids) == 0 {
+				continue
+			}
+			out = append(out, &TaskNode{Task: n.Task, Children: kids})
+		}
+		return out
+	}
+	return walk(nodes), nil
+}
+
 // collectTaskIDs walks a forest and returns the set of task IDs reachable.
 func collectTaskIDs(nodes []*TaskNode) map[int64]bool {
 	out := make(map[int64]bool)
@@ -365,12 +395,9 @@ func collectClosedTail(db *sql.DB, f ListFilter) ([]ClosedTailRow, int, error) {
 	}
 	defer rows.Close()
 
-	var labeledIDs map[int64]bool
-	if f.Label != "" {
-		labeledIDs, err = taskIDsWithLabel(db, f.Label)
-		if err != nil {
-			return nil, 0, err
-		}
+	matcher, err := newTaskMatcher(db, f)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	grepLower := strings.ToLower(f.GrepPattern)
@@ -417,7 +444,7 @@ func collectClosedTail(db *sql.DB, f ListFilter) ([]ClosedTailRow, int, error) {
 		if subtreeIDs != nil && !subtreeIDs[t.ID] {
 			continue
 		}
-		if labeledIDs != nil && !labeledIDs[t.ID] {
+		if !matcher.matches(t.ID) {
 			continue
 		}
 		if grepLower != "" && !strings.Contains(strings.ToLower(t.Title), grepLower) {

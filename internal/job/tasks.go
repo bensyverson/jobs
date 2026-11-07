@@ -149,7 +149,12 @@ type ListFilter struct {
 	ShowAll        bool
 	ClaimedByActor string
 	Label          string
-	GrepPattern    string
+	// WithoutLabel is Label's negation: tasks carrying it are dropped.
+	WithoutLabel string
+	// LeavesOnly drops tasks that have children, so a container that
+	// auto-closed with its last leaf never stands in for the leaves.
+	LeavesOnly  bool
+	GrepPattern string
 	// Status filters to a single task.status value, or to "open" — a meta-
 	// filter that means "any status except done and canceled". When non-empty,
 	// it implicitly overrides the actionable-only default (ShowAll behavior).
@@ -271,12 +276,9 @@ func RunListFiltered(db *sql.DB, f ListFilter) ([]*TaskNode, error) {
 	if f.Status != "" {
 		filtered = filterByStatus(filtered, f.Status)
 	}
-	if f.Label != "" {
-		labeledIDs, err := taskIDsWithLabel(db, f.Label)
-		if err != nil {
-			return nil, err
-		}
-		filtered = filterByLabel(filtered, labeledIDs)
+	filtered, err = filterByTaskMatch(db, filtered, f)
+	if err != nil {
+		return nil, err
 	}
 	if f.GrepPattern != "" {
 		filtered = filterByGrep(filtered, f.GrepPattern)
@@ -347,19 +349,91 @@ func taskIDsWithLabel(db *sql.DB, name string) (map[int64]bool, error) {
 	return out, rows.Err()
 }
 
-// filterByLabel keeps only nodes whose task is in labeledIDs OR whose subtree
-// contains a labeled task. Children that don't match (and have no labeled
-// descendants) are pruned. This preserves the hierarchical context of the
-// matching tasks rather than flattening the result.
-func filterByLabel(nodes []*TaskNode, labeledIDs map[int64]bool) []*TaskNode {
-	var out []*TaskNode
-	for _, node := range nodes {
-		filteredChildren := filterByLabel(node.Children, labeledIDs)
-		if labeledIDs[node.Task.ID] || len(filteredChildren) > 0 {
-			out = append(out, &TaskNode{Task: node.Task, Children: filteredChildren})
+// taskMatcher reports whether a task passes ListFilter's label and shape
+// filters: Label, WithoutLabel and LeavesOnly. It is shared by the tree
+// filter and the closed tail, so the two never disagree.
+type taskMatcher struct {
+	labeled     map[int64]bool // tasks carrying Label; nil when unset
+	unwanted    map[int64]bool // tasks carrying WithoutLabel; nil when unset
+	hasChildren map[int64]bool // nil unless LeavesOnly
+}
+
+func newTaskMatcher(db *sql.DB, f ListFilter) (*taskMatcher, error) {
+	m := &taskMatcher{}
+	var err error
+	if f.Label != "" {
+		if m.labeled, err = taskIDsWithLabel(db, f.Label); err != nil {
+			return nil, err
 		}
 	}
-	return out
+	if f.WithoutLabel != "" {
+		if m.unwanted, err = taskIDsWithLabel(db, f.WithoutLabel); err != nil {
+			return nil, err
+		}
+	}
+	if f.LeavesOnly {
+		if m.hasChildren, err = taskIDsWithChildren(db); err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m *taskMatcher) active() bool {
+	return m.labeled != nil || m.unwanted != nil || m.hasChildren != nil
+}
+
+func (m *taskMatcher) matches(id int64) bool {
+	if m.labeled != nil && !m.labeled[id] {
+		return false
+	}
+	if m.unwanted[id] || m.hasChildren[id] {
+		return false
+	}
+	return true
+}
+
+// filterByTaskMatch keeps only nodes that pass the matcher OR whose subtree
+// contains one that does. Non-matching nodes with no matching descendants
+// are pruned; matching nodes keep their ancestors as context rather than
+// flattening the result.
+func filterByTaskMatch(db *sql.DB, nodes []*TaskNode, f ListFilter) ([]*TaskNode, error) {
+	m, err := newTaskMatcher(db, f)
+	if err != nil || !m.active() {
+		return nodes, err
+	}
+	var walk func([]*TaskNode) []*TaskNode
+	walk = func(ns []*TaskNode) []*TaskNode {
+		var out []*TaskNode
+		for _, node := range ns {
+			kids := walk(node.Children)
+			if m.matches(node.Task.ID) || len(kids) > 0 {
+				out = append(out, &TaskNode{Task: node.Task, Children: kids})
+			}
+		}
+		return out
+	}
+	return walk(nodes), nil
+}
+
+// taskIDsWithChildren returns the tasks that have at least one live child,
+// whatever the child's status: a container stays a container once its
+// leaves close.
+func taskIDsWithChildren(db *sql.DB) (map[int64]bool, error) {
+	rows, err := db.Query("SELECT DISTINCT parent_id FROM tasks WHERE parent_id IS NOT NULL AND deleted_at IS NULL")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int64]bool)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
 }
 
 func filterByClaimedActor(nodes []*TaskNode, actor string) []*TaskNode {

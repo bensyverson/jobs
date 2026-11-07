@@ -271,7 +271,7 @@ func pickStripLabels(roots []*job.TaskNode, labels map[int64][]string, selected 
 // filterForestByLabels applies a multi-select label filter in memory.
 // OR semantic: a task is kept if it carries any selected label OR has
 // a descendant that does (ancestor chain preserved for context).
-// Mirrors job.filterByLabel but operates on the pre-loaded labels map
+// Mirrors job.filterByTaskMatch but operates on the pre-loaded labels map
 // and a label set instead of a single name.
 func filterForestByLabels(nodes []*job.TaskNode, labels map[int64][]string, selected []string) []*job.TaskNode {
 	if len(selected) == 0 {

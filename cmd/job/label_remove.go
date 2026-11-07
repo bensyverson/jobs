@@ -8,11 +8,16 @@ import (
 func newLabelRemoveCmd() *cobra.Command {
 	var format string
 	cmd := &cobra.Command{
-		Use:   "remove <id> <name> [<name>...]",
-		Short: "Remove one or more labels from a task",
-		Long:  "Remove one or more labels from a task. Idempotent: names that are not present are reported, not re-recorded. Emits a single 'unlabeled' event per call when at least one label is actually removed.",
-		Args:  cobra.MinimumNArgs(2),
+		Use:   "remove (<id> <name> [<name>...] | <id> [<id>...] with <name> [<name>...])",
+		Short: "Remove one or more labels from one or more tasks",
+		Long: "Remove one or more labels from a task, or with `with`, from several tasks in one atomic call: an unknown id fails the whole call and records nothing. Idempotent: names that are not present are reported, not re-recorded. Emits one 'unlabeled' event per task that loses a label.\n\n" +
+			"  job label remove abc12 infra\n" +
+			"  job label remove abc12 def34 with reviewed",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			targets, err := parseLabelArgs("remove", args)
+			if err != nil {
+				return err
+			}
 			db, err := openDBFromCmd()
 			if err != nil {
 				return err
@@ -24,15 +29,20 @@ func newLabelRemoveCmd() *cobra.Command {
 				return err
 			}
 
-			res, err := job.RunLabelRemove(db, args[0], args[1:], actor)
+			results, err := job.RunLabelRemoveMany(db, targets.ids, targets.names, actor)
 			if err != nil {
 				return err
 			}
 
 			if format == "json" {
-				return job.RenderUnlabelJSON(cmd.OutOrStdout(), res)
+				if targets.many {
+					return job.RenderUnlabelJSONMany(cmd.OutOrStdout(), results)
+				}
+				return job.RenderUnlabelJSON(cmd.OutOrStdout(), results[0])
 			}
-			job.RenderUnlabelAck(cmd.OutOrStdout(), res)
+			for _, res := range results {
+				job.RenderUnlabelAck(cmd.OutOrStdout(), res)
+			}
 			return nil
 		},
 	}

@@ -12,6 +12,8 @@ import (
 func newListCmd() *cobra.Command {
 	var format string
 	var labelFilter string
+	var withoutLabel string
+	var leavesOnly bool
 	var mine bool
 	var claimedBy string
 	var grepPattern string
@@ -29,13 +31,15 @@ func newListCmd() *cobra.Command {
 
 Scope: when given a parent, ls returns the full subtree under that parent (not just direct children). Combine with the filters below to narrow the recursive walk.
 
-Use --all to include claimed and blocked tasks. Recently closed tasks render inline under their open parent when context is local; otherwise they collect into a flat "Recently closed (N of M)" footer below the tree, capped at the 10 most recent. Pass --since <window> (5m, 2h, 7d) or --since <count> (e.g. 50) to widen the footer, or --no-truncate for full closed history. The two are mutually exclusive.
-Use --label <name> to filter to tasks carrying that label.
+Use --all to include claimed and blocked tasks. Recently closed tasks render inline under their open parent when context is local; otherwise they collect into a flat "Recently closed (N of M)" footer below the tree, capped at the 10 most recent. Pass --since <window> (5m, 2h, 7d) to show only tasks closed within it, in the tree and the footer and uncapped; --since <count> (e.g. 50) to widen the footer; or --no-truncate for full closed history. The two are mutually exclusive.
+Use --label <name> to filter to tasks carrying that label, and --without-label <name> to drop tasks carrying it.
+Use --leaves to show only tasks with no children; a container that closed with its last leaf drops out.
 Use --mine to show only tasks claimed by the caller (via --as or default identity).
 Use --claimed-by <name> to show tasks claimed by a specific agent.
 Use --grep <pattern> for case-insensitive title search.
 Composes: 'ls --mine --label p0', 'ls --claimed-by alice --all'.
-Use --format=json for machine-readable output (full closed history, no cap).
+Closed leaves not yet reviewed: 'ls --status done --leaves --without-label reviewed --since 2d'.
+Use --format=json for machine-readable output (closed history uncapped; --since <window> still applies).
 
 Issue-tree roots are omitted from the default forest and summarized in one trailer line, 'Issues: N open · job ls --issues'. Pass --issues to see only the issue-trees instead (same filters apply within them). An explicit parent id names its own tree either way, so --issues has no effect once you've already scoped to one. --format=json always includes every root (with its 'kind'); --issues narrows that array to issue roots too.`,
 		Args: cobra.MaximumNArgs(2),
@@ -111,9 +115,11 @@ Issue-tree roots are omitted from the default forest and summarized in one trail
 			}
 			if format == "json" {
 				closedCap = -1
-				sinceUnix = 0
 			}
-			renderTail := showAll
+			// A status filter widens the tree past actionable work, so it
+			// needs the tail too: a closed task under a closed parent
+			// appears only there. Open statuses yield an empty tail.
+			renderTail := showAll || effectiveStatus != ""
 
 			// Kind-scoping only means something over the unscoped forest —
 			// an explicit parent already names its own tree (decision: `ls
@@ -137,6 +143,8 @@ Issue-tree roots are omitted from the default forest and summarized in one trail
 				Actor:               actor,
 				ShowAll:             showAll,
 				Label:               labelFilter,
+				WithoutLabel:        withoutLabel,
+				LeavesOnly:          leavesOnly,
 				ClaimedByActor:      claimedByFilter,
 				GrepPattern:         grepPattern,
 				Status:              effectiveStatus,
@@ -244,7 +252,7 @@ Issue-tree roots are omitted from the default forest and summarized in one trail
 			}
 
 			unscopedUnfiltered := parentShortID == "" && !showAll && !issuesFlag &&
-				labelFilter == "" && claimedByFilter == "" && grepPattern == "" &&
+				labelFilter == "" && withoutLabel == "" && !leavesOnly && claimedByFilter == "" && grepPattern == "" &&
 				effectiveStatus == ""
 			if unscopedUnfiltered && len(nodes) < 5 {
 				fmt.Fprintln(cmd.OutOrStdout(), "Showing actionable tasks only. Use --all to include blocked / done / canceled tasks.")
@@ -254,13 +262,15 @@ Issue-tree roots are omitted from the default forest and summarized in one trail
 	}
 	cmd.Flags().StringVar(&format, "format", "md", "output format (md|json)")
 	cmd.Flags().StringVarP(&labelFilter, "label", "l", "", "filter to tasks carrying this label")
+	cmd.Flags().StringVar(&withoutLabel, "without-label", "", "drop tasks carrying this label")
+	cmd.Flags().BoolVar(&leavesOnly, "leaves", false, "show only tasks with no children")
 	cmd.Flags().BoolVar(&mine, "mine", false, "show only tasks claimed by the caller")
 	cmd.Flags().StringVar(&claimedBy, "claimed-by", "", "show only tasks claimed by this agent")
 	cmd.Flags().StringVar(&grepPattern, "grep", "", "case-insensitive substring filter on title")
 	cmd.Flags().BoolVar(&allFlag, "all", false, "include done, claimed, and blocked tasks")
 	cmd.Flags().StringVar(&statusFilter, "status", "", "filter to one status (available|claimed|done|canceled|open)")
 	cmd.Flags().BoolVar(&openFlag, "open", false, "shortcut for --status=open (anything not done or canceled)")
-	cmd.Flags().StringVar(&sinceFlag, "since", "", "limit Recently closed footer to a duration (5m, 2h, 7d) or a count (50)")
+	cmd.Flags().StringVar(&sinceFlag, "since", "", "only closed tasks that closed within a duration (5m, 2h, 7d), or the last N closures (50)")
 	cmd.Flags().BoolVar(&noTruncate, "no-truncate", false, "disable the Recently closed footer cap (full closed history)")
 	cmd.Flags().BoolVar(&issuesFlag, "issues", false, "show only issue-tree roots (omitted from the default forest; see the Issues: trailer)")
 	return cmd
@@ -268,7 +278,8 @@ Issue-tree roots are omitted from the default forest and summarized in one trail
 
 // parseSinceFlag interprets the --since argument either as a positive
 // integer count (50 → cap of 50 rows, no time filter) or as a duration
-// (5m / 2h / 7d → since-unix lower bound, default cap retained). The
+// (5m / 2h / 7d → since-unix lower bound on the close time, uncapped: the
+// window bounds the list). The
 // caller must reject combinations with --no-truncate before calling.
 func parseSinceFlag(raw string) (cap int, sinceUnix int64, err error) {
 	if n, perr := strconv.ParseInt(raw, 10, 64); perr == nil && n > 0 {
@@ -278,7 +289,7 @@ func parseSinceFlag(raw string) (cap int, sinceUnix int64, err error) {
 	if derr != nil {
 		return 0, 0, fmt.Errorf("--since: expected duration (5m, 2h, 7d) or positive count (50), got %q", raw)
 	}
-	return 0, job.CurrentNowFunc().Unix() - seconds, nil
+	return -1, job.CurrentNowFunc().Unix() - seconds, nil
 }
 
 // writeListJSONWithTail emits the `ls --all --format=json` shape:

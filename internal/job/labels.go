@@ -126,93 +126,115 @@ func GetLabelsForTaskIDs(db *sql.DB, taskIDs []int64) (map[int64][]string, error
 }
 
 func RunLabelAdd(db *sql.DB, shortID string, names []string, actor string) (*LabelResult, error) {
-	normalized, err := normalizeLabelNames(names)
+	results, err := RunLabelAddMany(db, []string{shortID}, names, actor)
 	if err != nil {
 		return nil, err
 	}
-	if len(normalized) == 0 {
-		return nil, fmt.Errorf("label name is empty")
+	return results[0], nil
+}
+
+func RunLabelRemove(db *sql.DB, shortID string, names []string, actor string) (*UnlabelResult, error) {
+	results, err := RunLabelRemoveMany(db, []string{shortID}, names, actor)
+	if err != nil {
+		return nil, err
 	}
+	return results[0], nil
+}
 
-	result := &LabelResult{ShortID: shortID}
-	err = commit(db, func(tx dbtx, b *eventBatch) error {
-		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
-			return err
-		}
-		task, err := GetTaskByShortID(tx, shortID)
-		if err != nil {
-			return err
-		}
-		if task == nil {
-			return fmt.Errorf("task %q not found", shortID)
-		}
-
+// RunLabelAddMany adds names to every task in shortIDs in one transaction:
+// an unknown id fails the whole call and records nothing. Each task that
+// gains a label gets its own 'labeled' event. Repeated ids collapse.
+func RunLabelAddMany(db *sql.DB, shortIDs, names []string, actor string) ([]*LabelResult, error) {
+	var results []*LabelResult
+	err := eachLabelTarget(db, shortIDs, names, actor, func(tx dbtx, b *eventBatch, task *Task, normalized []string) error {
 		existing, added, err := splitLabelsByPresence(tx, task.ID, normalized)
 		if err != nil {
 			return err
 		}
-		result.Added, result.Existing = added, existing
-
-		if len(added) > 0 {
-			if err := b.emit(tx, EventLabeled, shortID, actor, LabeledPayload{
-				Names:    normalized,
-				Existing: ensureStringSlice(existing),
-			}); err != nil {
-				return err
-			}
+		results = append(results, &LabelResult{ShortID: task.ShortID, Added: added, Existing: existing})
+		if len(added) == 0 {
+			return nil
 		}
-		// The claims family owns maybeExtendClaim; it still writes the claim
-		// column directly (leaf for agent-claims).
-		return maybeExtendClaim(tx, b, task.ShortID, actor)
+		return b.emit(tx, EventLabeled, task.ShortID, actor, LabeledPayload{
+			Names:    normalized,
+			Existing: ensureStringSlice(existing),
+		})
 	})
 	if err != nil {
 		return nil, err
 	}
-	return result, nil
+	return results, nil
 }
 
-func RunLabelRemove(db *sql.DB, shortID string, names []string, actor string) (*UnlabelResult, error) {
-	normalized, err := normalizeLabelNames(names)
-	if err != nil {
-		return nil, err
-	}
-	if len(normalized) == 0 {
-		return nil, fmt.Errorf("label name is empty")
-	}
-
-	result := &UnlabelResult{ShortID: shortID}
-	err = commit(db, func(tx dbtx, b *eventBatch) error {
-		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
-			return err
-		}
-		task, err := GetTaskByShortID(tx, shortID)
-		if err != nil {
-			return err
-		}
-		if task == nil {
-			return fmt.Errorf("task %q not found", shortID)
-		}
-
+// RunLabelRemoveMany is RunLabelAddMany's inverse, with the same atomicity.
+func RunLabelRemoveMany(db *sql.DB, shortIDs, names []string, actor string) ([]*UnlabelResult, error) {
+	var results []*UnlabelResult
+	err := eachLabelTarget(db, shortIDs, names, actor, func(tx dbtx, b *eventBatch, task *Task, normalized []string) error {
 		removed, absent, err := splitLabelsByPresence(tx, task.ID, normalized)
 		if err != nil {
 			return err
 		}
-		result.Removed, result.Absent = removed, absent
-
-		if len(removed) > 0 {
-			if err := b.emit(tx, EventUnlabeled, shortID, actor, UnlabeledPayload{
-				Names:  normalized,
-				Absent: ensureStringSlice(absent),
-			}); err != nil {
-				return err
-			}
+		results = append(results, &UnlabelResult{ShortID: task.ShortID, Removed: removed, Absent: absent})
+		if len(removed) == 0 {
+			return nil
 		}
-		return maybeExtendClaim(tx, b, task.ShortID, actor)
+		return b.emit(tx, EventUnlabeled, task.ShortID, actor, UnlabeledPayload{
+			Names:  normalized,
+			Absent: ensureStringSlice(absent),
+		})
 	})
 	if err != nil {
 		return nil, err
 	}
-	return result, nil
+	return results, nil
+}
+
+// eachLabelTarget resolves every id before touching any, then calls apply
+// per task inside one transaction, extending the caller's claim on each.
+func eachLabelTarget(db *sql.DB, shortIDs, names []string, actor string,
+	apply func(tx dbtx, b *eventBatch, task *Task, normalized []string) error) error {
+	normalized, err := normalizeLabelNames(names)
+	if err != nil {
+		return err
+	}
+	if len(normalized) == 0 {
+		return fmt.Errorf("label name is empty")
+	}
+	if len(shortIDs) == 0 {
+		return fmt.Errorf("no task id given")
+	}
+	return commit(db, func(tx dbtx, b *eventBatch) error {
+		if err := expireStaleClaimsInTx(tx, b, actor); err != nil {
+			return err
+		}
+		seen := make(map[string]bool, len(shortIDs))
+		var tasks []*Task
+		for _, id := range shortIDs {
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			task, err := GetTaskByShortID(tx, id)
+			if err != nil {
+				return err
+			}
+			if task == nil {
+				return fmt.Errorf("task %q not found", id)
+			}
+			tasks = append(tasks, task)
+		}
+		for _, task := range tasks {
+			if err := apply(tx, b, task, normalized); err != nil {
+				return err
+			}
+			// The claims family owns maybeExtendClaim; it still writes the
+			// claim column directly (leaf for agent-claims).
+			if err := maybeExtendClaim(tx, b, task.ShortID, actor); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // ensureStringSlice returns a non-nil slice so the recorded JSON detail

@@ -16,22 +16,27 @@ job ls --all                               # include claimed, blocked, done, can
 job ls --open                              # anything not done or canceled
 job ls --status claimed                    # one specific status
 job ls --label p0                          # filter to tasks carrying a label
+job ls --without-label reviewed            # drop tasks carrying a label
+job ls --leaves                            # only tasks with no children
 job ls --mine                              # tasks claimed by --as / default identity
 job ls --claimed-by alice                  # tasks claimed by a specific agent
 job ls --grep "auth"                       # case-insensitive substring on title
 job ls --mine --label p0                   # filters compose
+job ls --status done --leaves --without-label reviewed --since 2d   # closed leaves not yet reviewed
 job ls --issues                            # only the issue-trees, none of the plan
 ```
 
 What's worth knowing:
 
 - The default ("actionable") view is the work *you can pick up right now*: available, unblocked, unclaimed. Use `--all` when you want the whole picture, `--open` when you want everything still in flight.
-- **Recently closed footer.** Closed tasks render inline under their open parent when the local context is small; otherwise they collect into a flat "Recently closed (N of M)" footer below the tree, capped at 10. Widen with `--since 2h`, `--since 50` (count), or `--no-truncate` for the full closed history. `--since` and `--no-truncate` are mutually exclusive. `--all` scopes the footer to whichever kind is being shown, so `ls --all` and `ls --issues --all` never mix each other's closures.
+- **Recently closed footer.** Closed tasks render inline under their open parent when the local context is small; otherwise they collect into a flat "Recently closed (N of M)" footer below the tree, capped at 10. Widen with `--since 50` (the last 50 closures) or `--no-truncate` for the full closed history. `--since 2h` is a window on *when a task closed* (its latest done or cancel): closed tasks outside it drop out of the tree as well as the footer, and the window is uncapped, since it bounds the list itself. Open tasks have no close time and are unaffected. `--since` and `--no-truncate` are mutually exclusive. `--all` scopes the footer to whichever kind is being shown, so `ls --all` and `ls --issues --all` never mix each other's closures.
+- **A status filter shows closed work wherever it sits.** `--status done` (or `canceled`) renders the "Recently closed" footer as `--all` does, so a closed task whose parent also closed is listed; before, it was silently left out.
+- **`--without-label` is `--label` negated, and `--leaves` drops containers.** Both compose with every other filter and apply to the tree, the footer and `--format=json` alike. In the tree, a container still appears as context above a matching descendant, as it does for `--label`; in the flat footer it is simply dropped. A task counts as a container if it has any child, open or closed, so one that closed with its last leaf never stands in for its leaves.
 - **Issue roots are demoted, not tagged.** A root marked as an [issue-tree](../../concepts/tree-kinds/) no longer renders inline in the default forest. When at least one exists, `ls` ends with one trailer line instead: `Issues: 3 open · job ls --issues`, where the count is the unfiltered open total across every issue tree — it doesn't shift with `--label` or `--mine` on the call that printed it. With no issue roots, there's no trailer.
 - **`ls --issues` is the complementary view.** It renders only issue-tree roots, in the same row shape as the default forest, and every other filter (`--label`, `--mine`, `--claimed-by`, `--grep`, `--status`, `--all`) composes within it exactly as it does for task-trees. It prints no trailer, and it drops the `issue-tree` tag on each row — every row shown is already one, so the tag would be pure repetition. An explicit `job ls <issue-root-id>` is unaffected by `--issues` either way: naming an id already picks the tree you want.
 - **`--format=json` never demotes anything.** The array always includes every root, task-tree and issue-tree alike, each carrying its `kind` — a script can split them itself. `--issues` still narrows the JSON array to issue roots, for scripts that want the same split text gets.
 - **`tree` and `list` are aliases for `ls`.** Type whichever your fingers prefer.
-- **`--format=json` returns the full closed history with no cap.** When you're driving `ls` from a script, JSON is usually what you want.
+- **`--format=json` returns the closed history with no cap**, narrowed only by a `--since` window. When you're driving `ls` from a script, JSON is usually what you want.
 
 ## `show`
 
