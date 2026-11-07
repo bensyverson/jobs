@@ -7,6 +7,7 @@ import (
 	job "github.com/bensyverson/jobs/internal/job"
 	"github.com/spf13/cobra"
 	"strconv"
+	"time"
 )
 
 func newListCmd() *cobra.Command {
@@ -31,7 +32,7 @@ func newListCmd() *cobra.Command {
 
 Scope: when given a parent, ls returns the full subtree under that parent (not just direct children). Combine with the filters below to narrow the recursive walk.
 
-Use --all to include claimed and blocked tasks. Recently closed tasks render inline under their open parent when context is local; otherwise they collect into a flat "Recently closed (N of M)" footer below the tree, capped at the 10 most recent. Pass --since <window> (5m, 2h, 7d) to show only tasks closed within it, in the tree and the footer and uncapped; --since <count> (e.g. 50) to widen the footer; or --no-truncate for full closed history. The two are mutually exclusive.
+Use --all to include claimed and blocked tasks. Recently closed tasks render inline under their open parent when context is local; otherwise they collect into a flat "Recently closed (N of M)" footer below the tree, capped at the 10 most recent. Pass --since <window> (5m, 2h, 7d, or an RFC3339 timestamp) to show only tasks closed within it, in the tree and the footer and uncapped; --since <count> (e.g. 50) to widen the footer; or --no-truncate for full closed history. The two are mutually exclusive.
 Use --label <name> to filter to tasks carrying that label, and --without-label <name> to drop tasks carrying it.
 Use --leaves to show only tasks with no children; a container that closed with its last leaf drops out.
 Use --mine to show only tasks claimed by the caller (via --as or default identity).
@@ -270,24 +271,27 @@ Issue-tree roots are omitted from the default forest and summarized in one trail
 	cmd.Flags().BoolVar(&allFlag, "all", false, "include done, claimed, and blocked tasks")
 	cmd.Flags().StringVar(&statusFilter, "status", "", "filter to one status (available|claimed|done|canceled|open)")
 	cmd.Flags().BoolVar(&openFlag, "open", false, "shortcut for --status=open (anything not done or canceled)")
-	cmd.Flags().StringVar(&sinceFlag, "since", "", "only closed tasks that closed within a duration (5m, 2h, 7d), or the last N closures (50)")
+	cmd.Flags().StringVar(&sinceFlag, "since", "", "only tasks closed within a duration (5m, 2h, 7d) or since an RFC3339 timestamp; or the last N closures (50)")
 	cmd.Flags().BoolVar(&noTruncate, "no-truncate", false, "disable the Recently closed footer cap (full closed history)")
 	cmd.Flags().BoolVar(&issuesFlag, "issues", false, "show only issue-tree roots (omitted from the default forest; see the Issues: trailer)")
 	return cmd
 }
 
 // parseSinceFlag interprets the --since argument either as a positive
-// integer count (50 → cap of 50 rows, no time filter) or as a duration
-// (5m / 2h / 7d → since-unix lower bound on the close time, uncapped: the
-// window bounds the list). The
+// integer count (50 → cap of 50 rows, no time filter), or as a window
+// start on the close time — a duration (5m / 2h / 7d, back from now) or an
+// RFC3339 timestamp — uncapped, since the window bounds the list. The
 // caller must reject combinations with --no-truncate before calling.
 func parseSinceFlag(raw string) (cap int, sinceUnix int64, err error) {
 	if n, perr := strconv.ParseInt(raw, 10, 64); perr == nil && n > 0 {
 		return int(n), 0, nil
 	}
+	if ts, terr := time.Parse(time.RFC3339, raw); terr == nil {
+		return -1, ts.Unix(), nil
+	}
 	seconds, derr := job.ParseDuration(raw)
 	if derr != nil {
-		return 0, 0, fmt.Errorf("--since: expected duration (5m, 2h, 7d) or positive count (50), got %q", raw)
+		return 0, 0, fmt.Errorf("--since: expected a duration (5m, 2h, 7d), an RFC3339 timestamp (2026-04-28T10:00:00Z) or a positive count (50), got %q", raw)
 	}
 	return -1, job.CurrentNowFunc().Unix() - seconds, nil
 }
